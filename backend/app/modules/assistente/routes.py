@@ -55,7 +55,11 @@ class ExecutarIn(BaseModel):
 CATALOGO = {
     "navegar": "Abrir uma tela. {rota: '/financeiro/pagar?status=atrasado'} (rotas do sistema, começando com /)",
     "criar_andamento": "Andamento no caso. {caso_id, data: AAAA-MM-DD, tipo: andamento|publicacao|despacho|decisao|sentenca|"
-                       "audiencia|prazo|reuniao|nota, titulo, descricao?, prazo?: AAAA-MM-DD}",
+                       "audiencia|reuniao|nota, titulo, descricao?}",
+    "criar_tarefa": "Tarefa (prazos, audiências, diligências...). {titulo, descricao?, prazo?: AAAA-MM-DD, hora?: HH:MM, caso_id?, "
+                    "tipo?: prazo|audiencia|diligencia|reuniao|peticao|ligacao|administrativo|outro, prioridade?: baixa|media|alta|urgente, "
+                    "responsavel_id?}",
+    "concluir_tarefa": "Marcar tarefa como concluída. {tarefa_id}",
     "lancar_horas": "Horas no timesheet do caso. {caso_id, data, minutos: int, descricao, profissional_id?}",
     "lancar_despesa": "Despesa do caso. {caso_id, data, tipo: custas|copias|deslocamento|correio|diligencia|honorario_perito|outros, "
                       "descricao, valor, reembolsavel?: bool}",
@@ -85,6 +89,11 @@ def _referencias(ctx, tela: str) -> dict:
     ref["contratos"] = [{"id": c.id, "numero": c.numero, "nome": c.nome, "cliente": c.tomador.nome if c.tomador else ""}
                         for c in db.scalars(select(Contrato).where(Contrato.tenant_id == t, Contrato.ativo).order_by(Contrato.numero.desc()).limit(100))]
     ref["profissionais"] = [{"id": u.id, "nome": u.nome} for u in db.scalars(select(Usuario).where(Usuario.tenant_id == t, Usuario.ativo))]
+    from app.modules.faturamento.models import StatusTarefa, Tarefa
+
+    ref["tarefas_abertas"] = [{"id": x.id, "titulo": x.titulo, "prazo": str(x.prazo or ""), "caso_id": x.caso_id, "responsavel_id": x.responsavel_id}
+                              for x in db.scalars(select(Tarefa).where(Tarefa.tenant_id == t, Tarefa.status.in_(
+                                  [StatusTarefa.a_fazer, StatusTarefa.em_andamento])).order_by(Tarefa.prazo).limit(150))]
     if tela.startswith(("/financeiro", "/configuracoes/financeiro")) or "conta" in tela:
         ref["contas_bancarias"] = [{"id": c.id, "nome": c.nome} for c in db.scalars(select(ContaBancaria).where(ContaBancaria.tenant_id == t, ContaBancaria.ativo))]
         ref["categorias_despesa"] = [{"id": c.id, "nome": c.nome, "subcategorias": [{"id": s.id, "nome": s.nome} for s in c.subcategorias]}
@@ -169,6 +178,18 @@ def executar(dados: ExecutarIn, ctx: Operador):
             a = fat.criar_andamento(int(p["caso_id"]), AndamentoIn(**_limpo(p, "data", "tipo", "titulo", "descricao", "prazo",
                                                                                "responsavel_id")), ctx)
             return {"mensagem": f"Andamento “{a.titulo}” criado.", "navegar": f"/faturamento/casos/{p['caso_id']}"}
+        if t == "criar_tarefa":
+            from app.modules.faturamento import tarefas as tar
+            from app.modules.faturamento.schemas import TarefaIn
+
+            tf = tar.criar_tarefa(TarefaIn(**_limpo(p, "titulo", "descricao", "prazo", "hora", "caso_id", "tipo", "prioridade",
+                                                       "responsavel_id")), ctx)
+            return {"mensagem": f"Tarefa “{tf.titulo}” criada.", "navegar": "/faturamento/tarefas"}
+        if t == "concluir_tarefa":
+            from app.modules.faturamento import tarefas as tar
+
+            tf = tar.mudar_status(int(p["tarefa_id"]), {"status": "concluida"}, ctx)
+            return {"mensagem": f"Tarefa “{tf.titulo}” concluída."}
         if t == "lancar_horas":
             h = fat.lancar_horas(int(p["caso_id"]), TimesheetIn(**_limpo(p, "data", "minutos", "descricao", "profissional_id")), ctx)
             return {"mensagem": f"{h.minutos // 60}h{h.minutos % 60:02d} lançadas para {h.profissional_nome}."}

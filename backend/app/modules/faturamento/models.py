@@ -201,7 +201,7 @@ class TipoAndamento(enum.StrEnum):
     decisao = "decisao"
     sentenca = "sentenca"
     audiencia = "audiencia"
-    prazo = "prazo"
+    prazo = "prazo"  # legado: prazos agora são Tarefas (não aceito em novos andamentos)
     reuniao = "reuniao"
     nota = "nota"  # nota interna
 
@@ -225,11 +225,60 @@ class Andamento(Base, Timestamped):
     caso: Mapped["Caso"] = relationship(back_populates="andamentos")
 
 
+class StatusTarefa(enum.StrEnum):
+    a_fazer = "a_fazer"
+    em_andamento = "em_andamento"
+    concluida = "concluida"
+    cancelada = "cancelada"
+
+
+class PrioridadeTarefa(enum.StrEnum):
+    baixa = "baixa"
+    media = "media"
+    alta = "alta"
+    urgente = "urgente"
+
+
+class TipoTarefa(enum.StrEnum):
+    prazo = "prazo"  # prazo processual
+    audiencia = "audiencia"
+    diligencia = "diligencia"
+    reuniao = "reuniao"
+    peticao = "peticao"
+    ligacao = "ligacao"
+    administrativo = "administrativo"
+    outro = "outro"
+
+
+class Tarefa(Base, Timestamped):
+    """Tarefa do escritório (prazos, audiências, diligências...). Normalmente ligada a um caso; pode ser avulsa."""
+
+    __tablename__ = "fat_tarefa"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    caso_id: Mapped[int | None] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    descricao: Mapped[str | None] = mapped_column(Text)
+    tipo: Mapped[TipoTarefa] = mapped_column(_enum(TipoTarefa), default=TipoTarefa.outro)
+    status: Mapped[StatusTarefa] = mapped_column(_enum(StatusTarefa), default=StatusTarefa.a_fazer, index=True)
+    prioridade: Mapped[PrioridadeTarefa] = mapped_column(_enum(PrioridadeTarefa), default=PrioridadeTarefa.media)
+    prazo: Mapped[date | None] = mapped_column(Date, index=True)
+    hora: Mapped[str | None] = mapped_column(String(5))  # HH:MM (audiências, reuniões)
+    responsavel_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), index=True)
+    etiquetas: Mapped[list[str]] = mapped_column(JSON, default=list)
+    concluida_em: Mapped[date | None] = mapped_column(Date)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+
+    caso: Mapped["Caso | None"] = relationship()
+
+
 class AnexoCaso(Base, Timestamped):
     __tablename__ = "fat_anexo"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    caso_id: Mapped[int] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)
+    caso_id: Mapped[int | None] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)  # vazio: tarefa avulsa
+    tarefa_id: Mapped[int | None] = mapped_column(ForeignKey("fat_tarefa.id", ondelete="CASCADE"), index=True)  # pasta Tarefas
     nome: Mapped[str] = mapped_column(String(255))  # nome original do arquivo
     descricao: Mapped[str | None] = mapped_column(String(300))
     categoria: Mapped[str | None] = mapped_column(String(60))  # Petição, Contrato, Procuração...
@@ -239,7 +288,14 @@ class AnexoCaso(Base, Timestamped):
     enviado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
     despesa_id: Mapped[int | None] = mapped_column(ForeignKey("fat_despesa.id", ondelete="CASCADE"), index=True)  # pasta Despesas
 
-    caso: Mapped[Caso] = relationship(back_populates="anexos")
+    caso: Mapped["Caso | None"] = relationship(back_populates="anexos")
+    tarefa: Mapped["Tarefa | None"] = relationship()
+
+    @property
+    def tenant_id(self) -> int | None:
+        if self.caso:
+            return self.caso.tenant_id
+        return self.tarefa.tenant_id if self.tarefa else None
 
 
 class RegraCobranca(Base, Timestamped):

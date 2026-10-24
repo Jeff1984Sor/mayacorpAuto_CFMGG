@@ -29,8 +29,10 @@ from app.modules.faturamento.models import (
     Frequencia,
     RegraCobranca,
     StatusCaso,
+    StatusTarefa,
     TabelaPreco,
     TabelaPrecoItem,
+    Tarefa,
     Termino,
     Timesheet,
     TipoCampo,
@@ -247,6 +249,8 @@ def _caso_out(ctx, c: Caso) -> CasoOut:
         area_id=c.area_id, area_nome=c.area.nome if c.area else None, area_cor=c.area.cor if c.area else None, polo=c.polo,
         instancia=c.instancia, instancia_nome=INSTANCIAS.get(c.instancia or ""), tribunal=c.tribunal, vara=c.vara, comarca=c.comarca, valor_causa=c.valor_causa, data_distribuicao=c.data_distribuicao,
         campos=c.campos or {}, qtd_anexos=len(c.anexos), qtd_andamentos=len(c.andamentos),
+        qtd_tarefas_abertas=ctx.db.scalar(select(func.count()).select_from(Tarefa).where(
+            Tarefa.caso_id == c.id, Tarefa.status.in_([StatusTarefa.a_fazer, StatusTarefa.em_andamento]))) or 0,
         tabela_preco_id=c.tabela_preco_id,
         tabela_preco_efetiva=(t.nome if (t := ctx.db.get(TabelaPreco, c.tabela_preco_id or c.contrato.tabela_preco_id or 0)) else None),
         data_abertura=c.data_abertura, data_encerramento=c.data_encerramento,
@@ -356,7 +360,7 @@ def excluir_caso(cid: int, ctx: Admin):
 
     c = _get(ctx, Caso, cid, "Caso")
     historico = sum(ctx.db.scalar(select(func.count()).select_from(m).where(m.caso_id == cid)) or 0
-                    for m in (Timesheet, Despesa, RegraCobranca, FaturaItem, RevisaoItem))
+                    for m in (Timesheet, Despesa, RegraCobranca, FaturaItem, RevisaoItem, Tarefa))
     if historico:
         c.status = StatusCaso.encerrado
         c.data_encerramento = c.data_encerramento or date.today()
@@ -516,7 +520,7 @@ async def preencher_caso_ia(ctx: Operador, texto: str | None = Form(None), arqui
 
 
 class EnriquecerIn(BaseModel):
-    tipo: str = Field(pattern="^(andamento|timesheet)$")
+    tipo: str = Field(pattern="^(andamento|timesheet|tarefa)$")
     texto: str = Field(min_length=2, max_length=8000)
     titulo: str | None = Field(default=None, max_length=200)
     tipo_andamento: str | None = None
@@ -585,6 +589,10 @@ def enriquecer_ia(dados: EnriquecerIn, ctx: Operador):
                   "sem mencionar valores. "
                   + (f"Tempo: {dados.minutos // 60}h{dados.minutos % 60:02d}. " if dados.minutos else "")
                   + 'Formato: {"descricao": str}')
+    elif dados.tipo == "tarefa":
+        pedido = ("Melhore a tarefa do escritório: título curto no imperativo (até 80 caracteres, ex.: 'Protocolar contestação') "
+                  "e descrição objetiva com o passo a passo/os pontos de atenção, mantendo datas, prazos, nomes e números citados; "
+                  'sem inventar fatos. Formato: {"titulo": str, "descricao": str}')
     else:
         pedido = ("Melhore o registro de andamento do caso: título curto e claro (até 80 caracteres) e descrição completa, "
                   "organizada e profissional, mantendo datas, prazos, nomes e números citados; sem inventar fatos. "
@@ -593,7 +601,7 @@ def enriquecer_ia(dados: EnriquecerIn, ctx: Operador):
     r = _ia(ctx, f"enriquecer_{dados.tipo}", SISTEMA_CASO,
             f"{pedido}\nContexto: {contexto}\n" + (f"Título atual: {dados.titulo}\n" if dados.titulo else "") + f"Texto:\n{dados.texto}")
     saida = {"descricao": str(r.get("descricao") or dados.texto).strip()[:5000]}
-    if dados.tipo == "andamento":
+    if dados.tipo in ("andamento", "tarefa"):
         saida["titulo"] = str(r.get("titulo") or dados.titulo or "").strip()[:200]
     return saida
 
@@ -643,7 +651,7 @@ ANEXO_MAX = 50 * 1024 * 1024
 
 def _anexo_out(ctx, a: AnexoCaso) -> AnexoOut:
     u = ctx.db.get(Usuario, a.enviado_por_id) if a.enviado_por_id else None
-    return AnexoOut(id=a.id, caso_id=a.caso_id, despesa_id=a.despesa_id, nome=a.nome, descricao=a.descricao, categoria=a.categoria, tamanho=a.tamanho,
+    return AnexoOut(id=a.id, caso_id=a.caso_id, despesa_id=a.despesa_id, tarefa_id=a.tarefa_id, nome=a.nome, descricao=a.descricao, categoria=a.categoria, tamanho=a.tamanho,
                     mime=a.mime, enviado_por=u.nome if u else None, criado_em=a.criado_em.isoformat())
 
 
@@ -686,7 +694,7 @@ async def enviar_anexos(cid: int, ctx: Operador, arquivos: list[UploadFile] = Fi
 @router.get("/anexos/{aid}")
 def baixar_anexo(aid: int, ctx: Ctx, download: bool = False):
     a = ctx.db.get(AnexoCaso, aid)
-    if not a or a.caso.tenant_id != ctx.tenant_id or not Path(a.caminho).exists():
+    if not a or a.tenant_id != ctx.tenant_id or not Path(a.caminho).exists():
         raise HTTPException(404, "Anexo não encontrado.")
     return FileResponse(a.caminho, filename=a.nome, media_type=a.mime or None,
                         content_disposition_type="attachment" if download else "inline")
@@ -695,7 +703,7 @@ def baixar_anexo(aid: int, ctx: Ctx, download: bool = False):
 @router.patch("/anexos/{aid}", response_model=AnexoOut)
 def alterar_anexo(aid: int, body: dict, ctx: Operador):
     a = ctx.db.get(AnexoCaso, aid)
-    if not a or a.caso.tenant_id != ctx.tenant_id:
+    if not a or a.tenant_id != ctx.tenant_id:
         raise HTTPException(404, "Anexo não encontrado.")
     if "descricao" in body:
         a.descricao = (body.get("descricao") or "").strip()[:300] or None
@@ -708,7 +716,7 @@ def alterar_anexo(aid: int, body: dict, ctx: Operador):
 @router.delete("/anexos/{aid}", response_model=Mensagem)
 def excluir_anexo(aid: int, ctx: Operador):
     a = ctx.db.get(AnexoCaso, aid)
-    if not a or a.caso.tenant_id != ctx.tenant_id:
+    if not a or a.tenant_id != ctx.tenant_id:
         raise HTTPException(404, "Anexo não encontrado.")
     if a.despesa_id:
         raise HTTPException(400, "Este arquivo é o comprovante de uma despesa: troque ou exclua pela aba Despesas.")

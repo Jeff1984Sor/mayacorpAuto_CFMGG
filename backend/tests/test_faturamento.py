@@ -274,7 +274,7 @@ def test_ficha_do_caso_areas_campos_anexos_andamentos(cliente):  # noqa: F811
 
     # andamentos
     r = cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
-        "data": "2026-04-01", "tipo": "prazo", "titulo": "Contestação", "prazo": "2026-04-15"})
+        "data": "2026-04-01", "tipo": "audiencia", "titulo": "Contestação", "prazo": "2026-04-15"})
     assert r.status_code == 201, r.text
     and1 = r.json()
     assert and1["atrasado"] is True  # prazo no passado e não concluído
@@ -384,3 +384,46 @@ def test_judiciario_tribunais_comarcas_varas_instancia(cliente):  # noqa: F811
     assert r.status_code == 200 and r.json()["instancia_nome"] == "1ª instância"
     varas = cliente.get("/api/faturamento/judiciario/varas", headers=h, params={"tribunal": "TJSP", "comarca": "Campinas"}).json()
     assert varas[0] == "3ª Vara Cível de Campinas" and "1ª Vara Cível" in varas
+
+
+def test_tarefas_crud_filtros_e_anexos(cliente):  # noqa: F811
+    from datetime import timedelta
+
+    h = _login(cliente)
+    _, _, caso = _base(cliente, h, "T")
+    hoje = date.today()
+    assert cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
+        "data": hoje.isoformat(), "tipo": "prazo", "titulo": "x"}).status_code == 422  # prazo virou tarefa
+    t1 = cliente.post("/api/faturamento/tarefas", headers=h, json={
+        "caso_id": caso["id"], "titulo": "Protocolar contestação", "tipo": "prazo", "prioridade": "urgente",
+        "prazo": (hoje - timedelta(days=1)).isoformat(), "etiquetas": ["contencioso", " contencioso "]})
+    assert t1.status_code == 201, t1.text
+    t1 = t1.json()
+    assert t1["atrasada"] and t1["etiquetas"] == ["contencioso"] and t1["responsavel_id"] and t1["caso_numero"] == caso["numero"]
+    avulsa = cliente.post("/api/faturamento/tarefas", headers=h, json={
+        "titulo": "Renovar certificado digital", "tipo": "administrativo", "prazo": (hoje + timedelta(days=3)).isoformat(), "hora": "14:30"}).json()
+    assert avulsa["caso_id"] is None and avulsa["hora"] == "14:30"
+    assert cliente.post("/api/faturamento/tarefas", headers=h, json={"titulo": "x hora", "hora": "25:00"}).status_code == 422
+
+    r = cliente.get("/api/faturamento/tarefas", headers=h, params={"situacao": "atrasadas"}).json()
+    assert any(t["id"] == t1["id"] for t in r["itens"]) and r["resumo"]["atrasadas"] >= 1
+    assert any(t["id"] == avulsa["id"] for t in cliente.get("/api/faturamento/tarefas", headers=h, params={"situacao": "semana"}).json()["itens"])
+    assert [t["id"] for t in cliente.get("/api/faturamento/tarefas", headers=h, params={"caso_id": caso["id"]}).json()["itens"]] == [t1["id"]]
+    assert cliente.get("/api/faturamento/tarefas", headers=h, params={"sem_caso": True, "q": "certificado"}).json()["itens"][0]["id"] == avulsa["id"]
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()["qtd_tarefas_abertas"] == 1
+    assert "contencioso" in cliente.get("/api/faturamento/tarefas/etiquetas", headers=h).json()
+
+    # anexos: tarefa do caso aparece na pasta Tarefas do caso; tarefa avulsa não
+    a = cliente.post(f"/api/faturamento/tarefas/{t1['id']}/anexos", headers=h, files=[("arquivos", ("minuta.docx", b"PK", "application/octet-stream"))])
+    assert a.status_code == 201, a.text
+    anexos_caso = cliente.get(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h).json()
+    assert anexos_caso[0]["categoria"] == "Tarefas" and anexos_caso[0]["tarefa_id"] == t1["id"]
+    b = cliente.post(f"/api/faturamento/tarefas/{avulsa['id']}/anexos", headers=h, files=[("arquivos", ("boleto.pdf", b"%PDF", "application/pdf"))]).json()
+    assert cliente.get(f"/api/faturamento/anexos/{b[0]['id']}", headers=h).content == b"%PDF"
+    assert cliente.get(f"/api/faturamento/tarefas/{avulsa['id']}", headers=h).json()["qtd_anexos"] == 1
+
+    # status e exclusão
+    r = cliente.patch(f"/api/faturamento/tarefas/{t1['id']}/status", headers=h, json={"status": "concluida"}).json()
+    assert r["status"] == "concluida" and r["concluida_em"] == hoje.isoformat() and not r["atrasada"]
+    assert cliente.delete(f"/api/faturamento/tarefas/{avulsa['id']}", headers=h).status_code == 200
+    assert cliente.get(f"/api/faturamento/anexos/{b[0]['id']}", headers=h).status_code == 404

@@ -2,18 +2,21 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.schemas import Schema
 from app.modules.faturamento.models import (
     Frequencia,
+    PrioridadeTarefa,
     StatusCaso,
+    StatusTarefa,
     Termino,
     TipoAndamento,
     TipoCampo,
     TipoCaso,
     TipoDespesa,
     TipoRegra,
+    TipoTarefa,
 )
 
 
@@ -182,6 +185,7 @@ class CasoOut(Schema):
     campos: dict[str, Any] = {}
     qtd_anexos: int = 0
     qtd_andamentos: int = 0
+    qtd_tarefas_abertas: int = 0
     tabela_preco_id: int | None
     tabela_preco_efetiva: str | None = None  # nome da tabela que vale (caso ou contrato)
     status: StatusCaso
@@ -463,8 +467,9 @@ class DescartarIn(BaseModel):
 
 class AnexoOut(Schema):
     id: int
-    caso_id: int
+    caso_id: int | None
     despesa_id: int | None = None
+    tarefa_id: int | None = None
     nome: str
     descricao: str | None
     categoria: str | None
@@ -477,6 +482,14 @@ class AnexoOut(Schema):
 class AndamentoIn(BaseModel):
     data: date
     tipo: TipoAndamento = TipoAndamento.andamento
+
+    @field_validator("tipo")
+    @classmethod
+    def _sem_prazo(cls, v):
+        if v == TipoAndamento.prazo:
+            raise ValueError("Prazos agora são Tarefas: use a aba Tarefas do caso.")
+        return v
+
     titulo: str = Field(min_length=2, max_length=200)
     descricao: str | None = Field(default=None, max_length=20000)
     prazo: date | None = None
@@ -506,3 +519,45 @@ class ResumoCasoOut(BaseModel):
     proximos_passos: list[str]
     riscos: list[str]
     gerado_em: str
+
+
+class TarefaIn(BaseModel):
+    caso_id: int | None = None
+    titulo: str = Field(min_length=2, max_length=200)
+    descricao: str | None = Field(default=None, max_length=20000)
+    tipo: TipoTarefa = TipoTarefa.outro
+    status: StatusTarefa = StatusTarefa.a_fazer
+    prioridade: PrioridadeTarefa = PrioridadeTarefa.media
+    prazo: date | None = None
+    hora: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    responsavel_id: int | None = None
+    etiquetas: list[str] = []
+
+
+class TarefaOut(Schema):
+    id: int
+    caso_id: int | None
+    caso_numero: int | None = None
+    caso_titulo: str | None = None
+    cliente_nome: str | None = None
+    titulo: str
+    descricao: str | None
+    tipo: TipoTarefa
+    status: StatusTarefa
+    prioridade: PrioridadeTarefa
+    prazo: date | None
+    hora: str | None
+    responsavel_id: int | None
+    responsavel_nome: str | None = None
+    etiquetas: list[str]
+    concluida_em: date | None
+    criado_por: str | None = None
+    criado_em: datetime
+    atrasada: bool = False
+    dias_para_prazo: int | None = None
+    qtd_anexos: int = 0
+
+
+class TarefasListaOut(BaseModel):
+    itens: list[TarefaOut]
+    resumo: dict[str, int]
