@@ -227,6 +227,7 @@ class NotificacoesOut(Schema):
     avisos_destinatarios: list[str]
     email_cc_padrao: list[str] = []
     email_cco_padrao: list[str] = []
+    email_logo: bool = False
     aviso_fim_lote: bool
     aviso_rejeicoes: bool
     aviso_certificado: bool
@@ -247,6 +248,7 @@ class NotificacoesIn(BaseModel):
     avisos_destinatarios: list[EmailStr] = []
     email_cc_padrao: list[EmailStr] = []
     email_cco_padrao: list[EmailStr] = []
+    email_logo: bool = False
     aviso_fim_lote: bool = True
     aviso_rejeicoes: bool = True
     aviso_certificado: bool = True

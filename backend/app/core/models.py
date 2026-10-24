@@ -140,6 +140,7 @@ class ConfigNotificacao(Base, Timestamped):
     # cópias padrão do e-mail da nota ao cliente (ex.: sempre copiar o financeiro)
     email_cc_padrao: Mapped[list[str]] = mapped_column(JSON, default=list)
     email_cco_padrao: Mapped[list[str]] = mapped_column(JSON, default=list)
+    email_logo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # logo do escritório no topo dos e-mails
     aviso_fim_lote: Mapped[bool] = mapped_column(Boolean, default=True)
     aviso_rejeicoes: Mapped[bool] = mapped_column(Boolean, default=True)
     aviso_certificado: Mapped[bool] = mapped_column(Boolean, default=True)

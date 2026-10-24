@@ -236,6 +236,7 @@ class AnexoCaso(Base, Timestamped):
     tamanho: Mapped[int] = mapped_column(Integer, default=0)
     mime: Mapped[str | None] = mapped_column(String(100))
     enviado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    despesa_id: Mapped[int | None] = mapped_column(ForeignKey("fat_despesa.id", ondelete="CASCADE"), index=True)  # pasta Despesas
 
     caso: Mapped[Caso] = relationship(back_populates="anexos")
 

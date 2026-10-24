@@ -461,6 +461,7 @@ class DescartarIn(BaseModel):
 class AnexoOut(Schema):
     id: int
     caso_id: int
+    despesa_id: int | None = None
     nome: str
     descricao: str | None
     categoria: str | None

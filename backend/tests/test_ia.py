@@ -10,8 +10,9 @@ from tests.test_api_fluxo import _login, cliente  # noqa: F401  (fixture)
 def ia_falsa(monkeypatch):
     respostas = {}
 
-    def gerar_json(p, sistema, usuario):
+    def gerar_json(p, sistema, usuario, anexo=None):
         respostas["ultimo"] = (p, usuario)
+        respostas["anexo"] = anexo
         return respostas.get("proxima", {"ok": True, "mensagem": "Olá!"})
 
     monkeypatch.setattr(ia, "gerar_json", gerar_json)
@@ -142,3 +143,24 @@ def test_assistente_conversa_e_executa_acao(cliente, ia_falsa):  # noqa: F811
     assert ts[0]["minutos"] == 120
     assert cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "navegar", "parametros": {"rota": "//evil.com"}}).status_code == 400
     assert cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "lancar_horas", "parametros": {}}).status_code == 400
+
+
+def test_enriquecer_andamento_e_horas(cliente, ia_falsa):  # noqa: F811
+    h = _login(cliente)
+    _ativar(cliente, h)
+    ia_falsa["proxima"] = {"titulo": "Protocolo da contestação", "descricao": "Contestação protocolada no prazo."}
+    r = cliente.post("/api/faturamento/ia/enriquecer", headers=h, json={"tipo": "andamento", "texto": "protocolei contestacao"})
+    assert r.status_code == 200 and r.json()["titulo"] == "Protocolo da contestação"
+    ia_falsa["proxima"] = {"descricao": "Elaboração de contestação."}
+    r = cliente.post("/api/faturamento/ia/enriquecer", headers=h, json={"tipo": "timesheet", "texto": "fiz contestacao", "minutos": 90})
+    assert r.json() == {"descricao": "Elaboração de contestação."} and "1h30" in ia_falsa["ultimo"][1]
+
+
+def test_ler_recibo(cliente, ia_falsa):  # noqa: F811
+    h = _login(cliente)
+    _ativar(cliente, h)
+    ia_falsa["proxima"] = {"data": "2026-10-20", "tipo": "deslocamento", "descricao": "Uber até o fórum", "valor": "32,90"}
+    r = cliente.post("/api/faturamento/ia/ler-recibo", headers=h, files={"arquivo": ("recibo.jpg", b"\xff\xd8\xff", "image/jpeg")})
+    assert r.status_code == 200, r.text
+    assert r.json()["campos"] == {"data": "2026-10-20", "tipo": "deslocamento", "descricao": "Uber até o fórum", "valor": "32.90"}
+    assert cliente.post("/api/faturamento/ia/ler-recibo", headers=h, files={"arquivo": ("x.exe", b"MZ")}).status_code == 400

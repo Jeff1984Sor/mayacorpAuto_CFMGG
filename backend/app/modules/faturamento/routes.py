@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
 from app.core.config import settings
@@ -33,6 +34,7 @@ from app.modules.faturamento.models import (
     Timesheet,
     TipoCampo,
     TipoCaso,
+    TipoDespesa,
     TipoRegra,
 )
 from app.modules.faturamento.schemas import (
@@ -425,7 +427,8 @@ def _ia(ctx, acao: str, sistema: str, usuario: str, anexo=None) -> dict:
     from app.core import ia
 
     try:
-        r = ia.gerar_json(ia.provedor_ativo(ctx.db, ctx.tenant_id), sistema, usuario, anexo)
+        p = ia.provedor_ativo(ctx.db, ctx.tenant_id)
+        r = ia.gerar_json(p, sistema, usuario, anexo) if anexo else ia.gerar_json(p, sistema, usuario)
     except ia.IAIndisponivel as e:
         raise HTTPException(400, str(e)) from e
     ctx.auditar(f"ia.{acao}", "ia", descricao=acao)
@@ -509,6 +512,89 @@ async def preencher_caso_ia(ctx: Operador, texto: str | None = Form(None), arqui
     return {"campos": sug}
 
 
+class EnriquecerIn(BaseModel):
+    tipo: str = Field(pattern="^(andamento|timesheet)$")
+    texto: str = Field(min_length=2, max_length=8000)
+    titulo: str | None = Field(default=None, max_length=200)
+    tipo_andamento: str | None = None
+    caso_id: int | None = None
+    minutos: int | None = None
+
+
+@router.post("/ia/ler-recibo")
+async def ler_recibo_ia(ctx: Operador, arquivo: UploadFile = File(...)):
+    """Lê um recibo/comprovante (foto ou PDF) e sugere data, tipo, descrição e valor da despesa (nada é salvo)."""
+    from app.modules.rpa_nfse.leitura_nota import texto_do_pdf
+
+    dados = await arquivo.read()
+    if len(dados) > 15 * 1024 * 1024:
+        raise HTTPException(400, "Arquivo maior que 15 MB.")
+    nome = (arquivo.filename or "").lower()
+    texto, anexo = "", None
+    if nome.endswith(".pdf"):
+        texto = texto_do_pdf(dados)
+        if len(texto) < 40:
+            anexo = ("application/pdf", dados)  # PDF escaneado
+    elif nome.endswith((".png", ".jpg", ".jpeg", ".webp", ".heic")):
+        anexo = (arquivo.content_type or "image/jpeg", dados)
+    else:
+        raise HTTPException(400, "Envie foto ou PDF do recibo.")
+    tipos = "custas|copias|deslocamento|correio|diligencia|honorario_perito|outros"
+    r = _ia(ctx, "ler_recibo", SISTEMA_CASO,
+            "Leia o recibo/comprovante de uma despesa de escritório de advocacia e extraia: data do pagamento, tipo "
+            f"({tipos}: custas = guias/taxas judiciais e cartório; deslocamento = táxi, Uber, estacionamento, pedágio, "
+            "combustível, passagem, hospedagem; correio = Correios/motoboy; copias = cópias/impressão/autenticação; "
+            "diligencia = correspondente/diligência; honorario_perito = perito), descrição curta e clara (ex.: "
+            "'Uber até o Fórum João Mendes', 'Guia de custas iniciais — TJSP') e valor total pago. Use null se não "
+            'estiver legível; nunca invente. Formato: {"data": "AAAA-MM-DD", "tipo": "...", "descricao": str, "valor": number, '
+            '"fornecedor": str}' + (f"\nTexto do recibo:\n{texto[:15000]}" if texto else ""), anexo)
+    out: dict = {}
+    try:
+        if r.get("data"):
+            out["data"] = date.fromisoformat(str(r["data"])[:10]).isoformat()
+    except ValueError:
+        pass
+    if r.get("tipo") in {t.value for t in TipoDespesa}:
+        out["tipo"] = r["tipo"]
+    if r.get("descricao"):
+        out["descricao"] = str(r["descricao"]).strip()[:300]
+    try:
+        if r.get("valor") not in (None, ""):
+            v = str(r["valor"]).replace("R$", "").strip()
+            v = v.replace(".", "").replace(",", ".") if "," in v else v
+            out["valor"] = str(Decimal(v).quantize(Decimal("0.01")))
+    except (ArithmeticError, ValueError):
+        pass
+    if r.get("fornecedor"):
+        out["fornecedor"] = str(r["fornecedor"])[:200]
+    return {"campos": out}
+
+
+@router.post("/ia/enriquecer")
+def enriquecer_ia(dados: EnriquecerIn, ctx: Operador):
+    """Reescreve o texto curto do usuário de forma profissional (andamento do caso ou descrição de horas da fatura)."""
+    caso = _get(ctx, Caso, dados.caso_id, "Caso") if dados.caso_id else None
+    contexto = (f"Caso #{caso.numero} — {caso.titulo}" + (f" (processo {caso.numero_processo})" if caso.numero_processo else "")
+                + (f", cliente {caso.contrato.tomador.nome}" if caso.contrato.tomador else "")) if caso else "—"
+    if dados.tipo == "timesheet":
+        pedido = ("Reescreva a descrição de horas trabalhadas para aparecer na fatura de honorários: objetiva, profissional, "
+                  "no infinitivo ou substantivada (ex.: 'Elaboração de contestação…'), 1 a 3 frases, sem inventar fatos, "
+                  "sem mencionar valores. "
+                  + (f"Tempo: {dados.minutos // 60}h{dados.minutos % 60:02d}. " if dados.minutos else "")
+                  + 'Formato: {"descricao": str}')
+    else:
+        pedido = ("Melhore o registro de andamento do caso: título curto e claro (até 80 caracteres) e descrição completa, "
+                  "organizada e profissional, mantendo datas, prazos, nomes e números citados; sem inventar fatos. "
+                  + (f"Tipo: {dados.tipo_andamento}. " if dados.tipo_andamento else "")
+                  + 'Formato: {"titulo": str, "descricao": str}')
+    r = _ia(ctx, f"enriquecer_{dados.tipo}", SISTEMA_CASO,
+            f"{pedido}\nContexto: {contexto}\n" + (f"Título atual: {dados.titulo}\n" if dados.titulo else "") + f"Texto:\n{dados.texto}")
+    saida = {"descricao": str(r.get("descricao") or dados.texto).strip()[:5000]}
+    if dados.tipo == "andamento":
+        saida["titulo"] = str(r.get("titulo") or dados.titulo or "").strip()[:200]
+    return saida
+
+
 @router.post("/casos/{cid}/ia/resumo", response_model=ResumoCasoOut)
 def resumir_caso_ia(cid: int, ctx: Operador):
     """Resumo executivo do caso: situação, próximos passos e riscos, a partir da ficha, andamentos, horas e despesas."""
@@ -554,7 +640,7 @@ ANEXO_MAX = 50 * 1024 * 1024
 
 def _anexo_out(ctx, a: AnexoCaso) -> AnexoOut:
     u = ctx.db.get(Usuario, a.enviado_por_id) if a.enviado_por_id else None
-    return AnexoOut(id=a.id, caso_id=a.caso_id, nome=a.nome, descricao=a.descricao, categoria=a.categoria, tamanho=a.tamanho,
+    return AnexoOut(id=a.id, caso_id=a.caso_id, despesa_id=a.despesa_id, nome=a.nome, descricao=a.descricao, categoria=a.categoria, tamanho=a.tamanho,
                     mime=a.mime, enviado_por=u.nome if u else None, criado_em=a.criado_em.isoformat())
 
 
@@ -621,6 +707,8 @@ def excluir_anexo(aid: int, ctx: Operador):
     a = ctx.db.get(AnexoCaso, aid)
     if not a or a.caso.tenant_id != ctx.tenant_id:
         raise HTTPException(404, "Anexo não encontrado.")
+    if a.despesa_id:
+        raise HTTPException(400, "Este arquivo é o comprovante de uma despesa: troque ou exclua pela aba Despesas.")
     caminho = Path(a.caminho)
     ctx.auditar("faturamento.caso.anexo_excluir", "fat_caso", a.caso_id, descricao=a.nome)
     ctx.db.delete(a)
@@ -964,6 +1052,8 @@ def excluir_despesa(did: int, ctx: Operador):
     d = _get(ctx, Despesa, did, "Despesa")
     _editavel(d, "Despesa")
     ctx.auditar("faturamento.despesa.excluir", "fat_despesa", d.id, descricao=f"{d.descricao}: {d.valor}")
+    for anexo in ctx.db.scalars(select(AnexoCaso).where(AnexoCaso.despesa_id == d.id)):
+        ctx.db.delete(anexo)
     ctx.db.delete(d)
     ctx.db.commit()
     return Mensagem(mensagem="Despesa excluída.")
@@ -983,8 +1073,19 @@ async def enviar_comprovante(did: int, ctx: Operador, arquivo: UploadFile = File
     destino = pasta / f"despesa_{d.id}{ext}"
     destino.write_bytes(conteudo)
     d.comprovante_path = str(destino)
+    # o comprovante também aparece em Anexos do caso, na pasta "Despesas"
+    anexo = ctx.db.scalar(select(AnexoCaso).where(AnexoCaso.despesa_id == d.id))
+    if not anexo:
+        anexo = AnexoCaso(caso_id=d.caso_id, despesa_id=d.id, categoria=PASTA_DESPESAS, caminho=str(destino), enviado_por_id=ctx.usuario.id)
+        ctx.db.add(anexo)
+    anexo.nome = (Path(arquivo.filename or "").name or destino.name)[:255]
+    anexo.caminho, anexo.tamanho, anexo.mime = str(destino), len(conteudo), arquivo.content_type
+    anexo.descricao = f"{d.data:%d/%m/%Y} · {d.descricao} · R$ {d.valor}"[:300]
     ctx.db.commit()
     return _desp_out(ctx, d)
+
+
+PASTA_DESPESAS = "Despesas"
 
 
 @router.get("/despesas/{did}/comprovante")

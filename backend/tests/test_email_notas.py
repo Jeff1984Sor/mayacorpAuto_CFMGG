@@ -77,3 +77,35 @@ def test_envio_em_lote_por_filtro(cliente):  # noqa: F811
     r = cliente.post("/api/nfse/notas/enviar-emails", headers=h, json={
         "filtro": {"lote_id": lote_id}, "assunto_modelo": "NFS-e {numero_nota}", "corpo_modelo": "Segue."}).json()
     assert r["total"] == 2 and r["enviados"] == 2
+
+
+def test_email_com_logo_do_escritorio(tmp_path):
+    from email import message_from_bytes
+
+    from app.core import email as mail
+    from app.core.config import settings
+    from app.core.db import SessionLocal
+    from app.core.models import ConfigNotificacao, Identidade, Tenant
+
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    with SessionLocal() as db:
+        tid = db.query(Tenant).first().id
+        ident = db.get(Identidade, tid)
+        antigo = ident.logo_path
+        ident.logo_path = str(logo)
+        cfg = db.get(ConfigNotificacao, tid) or ConfigNotificacao(tenant_id=tid)
+        db.add(cfg)
+        cfg.email_logo, cfg.smtp_host = True, None
+        db.flush()
+        outbox = Path(settings.storage_dir) / "outbox"
+        antes = set(outbox.glob("*.eml")) if outbox.exists() else set()
+        mail.enviar(["cliente@exemplo.com"], "Teste", "Olá!\nVeja https://exemplo.com", config=cfg)
+        novo = (set(outbox.glob("*.eml")) - antes).pop()
+        m = message_from_bytes(novo.read_bytes())
+        tipos = [p.get_content_type() for p in m.walk()]
+        assert "text/plain" in tipos and "text/html" in tipos and "image/png" in tipos
+        html = next(p for p in m.walk() if p.get_content_type() == "text/html").get_payload(decode=True).decode()
+        assert "cid:logo-escritorio" in html and 'href="https://exemplo.com"' in html
+        ident.logo_path, cfg.email_logo = antigo, False
+        db.commit()

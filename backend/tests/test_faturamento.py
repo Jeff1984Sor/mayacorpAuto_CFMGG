@@ -348,3 +348,17 @@ def test_exportar_importar_contratos_e_casos(cliente):  # noqa: F811
     assert novo["tipo"] == "judicial_trabalhista" and novo["area_nome"] == "Previdenciário" and novo["polo"] == "passivo"
     assert novo["valor_causa"] == "10000.50" and novo["data_distribuicao"] == "2026-03-05"
     assert cliente.get("/api/faturamento/casos/exportar.xlsx", headers=h).content[:2] == b"PK"
+
+
+def test_comprovante_da_despesa_vai_para_anexos(cliente):  # noqa: F811
+    h = _login(cliente)
+    _, _, caso = _base(cliente, h, "H")
+    d = cliente.post(f"/api/faturamento/casos/{caso['id']}/despesas", headers=h, json={
+        "data": "2026-10-01", "tipo": "deslocamento", "descricao": "Uber fórum", "valor": "30"}).json()
+    r = cliente.post(f"/api/faturamento/despesas/{d['id']}/comprovante", headers=h, files={"arquivo": ("uber.pdf", b"%PDF-1", "application/pdf")})
+    assert r.status_code == 200 and r.json()["tem_comprovante"]
+    anexos = cliente.get(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h).json()
+    assert len(anexos) == 1 and anexos[0]["categoria"] == "Despesas" and anexos[0]["despesa_id"] == d["id"]
+    assert cliente.delete(f"/api/faturamento/anexos/{anexos[0]['id']}", headers=h).status_code == 400
+    assert cliente.delete(f"/api/faturamento/despesas/{d['id']}", headers=h).status_code == 200
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h).json() == []
