@@ -410,44 +410,115 @@ def tomador_incompleto(t: Tomador) -> bool:
 
 
 # ---------------------------------------------------------------- e-mail ao tomador
-def enviar_email_nota(db: Session, nota: Nfse, destinatarios: list[str] | None = None) -> EnvioEmail:
-    from app.core import email as mail
+def _anexos_disponiveis(db: Session, nota: Nfse) -> list[dict]:
+    """PDF, XML e fatura que existem para a nota, com o que vem marcado por padrão nas configurações."""
+    from app.modules.rpa_nfse.models import Fatura, StatusFatura
 
     cfg = db.get(ConfigNotificacao, nota.tenant_id)
-    ident = db.get(Identidade, nota.tenant_id)
-    tom = (nota.rps.dados_json or {}).get("tomador", {})
-    para = destinatarios or (nota.tomador.emails if nota.tomador and nota.tomador.emails else []) or (
-        [tom["email"]] if tom.get("email") else []
-    )
-    if not para:
-        raise RegraNegocio("O cliente não tem e-mail cadastrado.")
+    lista = []
+    if nota.pdf_path and Path(nota.pdf_path).exists():
+        lista.append({"tipo": "pdf", "nome": f"NFSe_{nota.numero}.pdf", "caminho": nota.pdf_path, "mime": "application/pdf",
+                      "padrao": not cfg or cfg.anexar_pdf})
+    if nota.xml_path and Path(nota.xml_path).exists():
+        lista.append({"tipo": "xml", "nome": f"NFSe_{nota.numero}.xml", "caminho": nota.xml_path, "mime": "application/xml",
+                      "padrao": not cfg or cfg.anexar_xml})
+    fat = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
+    if fat and fat.status != StatusFatura.cancelada and fat.pdf_path and Path(fat.pdf_path).exists():
+        lista.append({"tipo": "fatura", "nome": f"Fatura_{fat.ano}_{fat.numero:05d}.pdf", "caminho": fat.pdf_path,
+                      "mime": "application/pdf",
+                      "padrao": fat.status == StatusFatura.aberta and config_nfse(db, nota.tenant_id).fatura_anexar_email})
+    for a in lista:
+        a["tamanho"] = Path(a["caminho"]).stat().st_size
+    return lista
+
+
+VARIAVEIS_EMAIL = ["nome_tomador", "numero_nota", "valor", "link_prefeitura", "nome_emissora", "vencimento", "codigo_fatura"]
+
+
+def variaveis_nota(db: Session, nota: Nfse) -> dict:
+    from app.modules.rpa_nfse.models import Fatura
     from app.modules.rpa_nfse.pdf import brl
 
-    variaveis = {
+    ident = db.get(Identidade, nota.tenant_id)
+    tom = (nota.rps.dados_json or {}).get("tomador", {})
+    fat = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
+    return {
         "nome_tomador": tom.get("nome", ""),
         "numero_nota": nota.numero,
         "valor": brl(nota.valor),
         "link_prefeitura": link_nota(nota.emissora.ccm, nota.numero, nota.cod_verificacao),
         "nome_emissora": ident.nome_exibicao if ident else nota.emissora.razao_social,
+        "vencimento": f"{fat.data_vencimento:%d/%m/%Y}" if fat else "",
+        "codigo_fatura": fat.codigo if fat else "",
     }
-    assunto = (cfg.assunto_modelo if cfg else "NFS-e nº {numero_nota}").format_map(_Seguro(variaveis))
-    corpo = (cfg.corpo_modelo if cfg else "Segue a NFS-e nº {numero_nota}.").format_map(_Seguro(variaveis))
-    if ident and ident.assinatura_email:
-        corpo += "\n\n" + ident.assinatura_email
-    anexos = []
-    if (not cfg or cfg.anexar_pdf) and nota.pdf_path and Path(nota.pdf_path).exists():
-        anexos.append((f"NFSe_{nota.numero}.pdf", Path(nota.pdf_path).read_bytes(), "application/pdf"))
-    if (not cfg or cfg.anexar_xml) and nota.xml_path and Path(nota.xml_path).exists():
-        anexos.append((f"NFSe_{nota.numero}.xml", Path(nota.xml_path).read_bytes(), "application/xml"))
-    from app.modules.rpa_nfse.models import Fatura, StatusFatura
 
-    fat = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
-    if fat and fat.status == StatusFatura.aberta and config_nfse(db, nota.tenant_id).fatura_anexar_email \
-            and fat.pdf_path and Path(fat.pdf_path).exists():
-        anexos.append((f"Fatura_{fat.ano}_{fat.numero:05d}.pdf", Path(fat.pdf_path).read_bytes(), "application/pdf"))
-    envio = EnvioEmail(nfse_id=nota.id, destinatarios=list(para), status="enviado", enviado_em=agora())
+
+def aplicar_modelo(texto: str, variaveis: dict) -> str:
+    return texto.format_map(_Seguro(variaveis))
+
+
+def assinatura_email(db: Session, tenant_id: int) -> str:
+    ident = db.get(Identidade, tenant_id)
+    return ident.assinatura_email if ident and ident.assinatura_email else ""
+
+
+def emails_do_cliente(nota: Nfse) -> list[str]:
+    tom = (nota.rps.dados_json or {}).get("tomador", {})
+    emails = list(nota.tomador.emails or []) if nota.tomador else []
+    return emails or ([tom["email"]] if tom.get("email") else [])
+
+
+def montar_email(db: Session, nota: Nfse) -> dict:
+    """O e-mail da nota como o compositor mostra: destinatários, cópias padrão, texto do modelo e anexos."""
+    cfg = db.get(ConfigNotificacao, nota.tenant_id)
+    emails_cliente = emails_do_cliente(nota)
+    variaveis = variaveis_nota(db, nota)
+    assunto = aplicar_modelo(cfg.assunto_modelo if cfg else "NFS-e nº {numero_nota}", variaveis)
+    corpo = aplicar_modelo(cfg.corpo_modelo if cfg else "Segue a NFS-e nº {numero_nota}.", variaveis)
+    if assinatura := assinatura_email(db, nota.tenant_id):
+        corpo += "\n\n" + assinatura
+    remetente = f"{cfg.remetente_nome} <{cfg.remetente_email}>" if cfg else settings.smtp_from
+    return {
+        "remetente": remetente,
+        "para": emails_cliente,
+        "cc": list(cfg.email_cc_padrao or []) if cfg else [],
+        "cco": list(cfg.email_cco_padrao or []) if cfg else [],
+        "assunto": assunto,
+        "corpo": corpo,
+        "anexos": _anexos_disponiveis(db, nota),
+        "emails_cliente": emails_cliente,
+    }
+
+
+def enviar_email_nota(
+    db: Session,
+    nota: Nfse,
+    destinatarios: list[str] | None = None,
+    *,
+    cc: list[str] | None = None,
+    cco: list[str] | None = None,
+    assunto: str | None = None,
+    corpo: str | None = None,
+    anexos: list[str] | None = None,
+    usuario_nome: str | None = None,
+) -> EnvioEmail:
+    """Envia a nota ao cliente. Sem parâmetros usa o modelo e os padrões das configurações (envio automático)."""
+    from app.core import email as mail
+
+    cfg = db.get(ConfigNotificacao, nota.tenant_id)
+    base = montar_email(db, nota)
+    para = list(dict.fromkeys(destinatarios or base["para"]))
+    if not para:
+        raise RegraNegocio("O cliente não tem e-mail cadastrado.")
+    cc = list(dict.fromkeys(cc if cc is not None else base["cc"]))
+    cco = list(dict.fromkeys(cco if cco is not None else base["cco"]))
+    escolhidos = set(anexos) if anexos is not None else {a["tipo"] for a in base["anexos"] if a["padrao"]}
+    arquivos = [(a["nome"], Path(a["caminho"]).read_bytes(), a["mime"]) for a in base["anexos"] if a["tipo"] in escolhidos]
+    assunto = (assunto or base["assunto"]).strip()
+    envio = EnvioEmail(nfse_id=nota.id, destinatarios=para, cc=cc, cco=cco, assunto=assunto[:300],
+                       anexos=[n for n, _, _ in arquivos], usuario_nome=usuario_nome, status="enviado", enviado_em=agora())
     try:
-        mail.enviar(list(para), assunto, corpo, anexos=anexos, config=cfg)
+        mail.enviar(para, assunto, corpo or base["corpo"], anexos=arquivos, config=cfg, cc=cc, cco=cco)
     except Exception as e:  # noqa: BLE001
         envio.status = "falhou"
         envio.erro = str(e)[:500]

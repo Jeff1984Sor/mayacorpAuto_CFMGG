@@ -357,13 +357,19 @@ export default function ClientesPage() {
   const [excluir, setExcluir] = useState<TomadorOut | null>(null);
   const inputArquivo = useRef<HTMLInputElement>(null);
 
+  const { setQ } = lista;
   useEffect(() => {
-    const id = Number(new URLSearchParams(window.location.search).get("id"));
+    const url = new URLSearchParams(window.location.search);
+    // ?q= vem de links como "sem e-mail" do envio em lote
+    const busca = url.get("q");
+    if (busca) setQ(busca);
+    const id = Number(url.get("id"));
     if (!id) return;
     api
       .get<TomadorOut>(`/nfse/tomadores/${id}`)
       .then(setEditar)
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- leitura única da URL
   }, []);
 
   const importar = useMutation({

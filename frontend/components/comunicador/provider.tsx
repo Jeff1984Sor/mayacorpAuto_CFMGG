@@ -39,6 +39,10 @@ interface ComCtx {
   conversaAberta: number | null;
   setConversaAberta: (cid: number | null) => void;
   avisarDigitando: (cid: number) => void;
+  /** Incrementa a cada mensagem recebida de outra pessoa (o widget pulsa). */
+  pulso: number;
+  /** O widget flutuante registra aqui como abrir uma conversa (ação "Responder" do toast). */
+  registrarWidget: (abrir: ((cid: number) => void) | null) => void;
 }
 
 const Ctx = createContext<ComCtx | null>(null);
@@ -95,6 +99,11 @@ export function ComunicadorProvider({ children }: { children: React.ReactNode })
   const [lidas, setLidas] = useState<Record<number, Record<number, number>>>({});
   const [digitando, setDigitando] = useState<Record<number, Record<number, number>>>({});
   const [conversaAberta, setConversaAberta] = useState<number | null>(null);
+  const [pulso, setPulso] = useState(0);
+  const widget = useRef<((cid: number) => void) | null>(null);
+  const registrarWidget = useCallback((fn: ((cid: number) => void) | null) => {
+    widget.current = fn;
+  }, []);
 
   const ws = useRef<WebSocket | null>(null);
   const abertaRef = useRef<number | null>(null);
@@ -144,12 +153,17 @@ export function ComunicadorProvider({ children }: { children: React.ReactNode })
             });
           if (!minha) {
             qc.invalidateQueries({ queryKey: qk.resumo });
+            setPulso((x) => x + 1);
             if (!visivel) {
               tocarSom();
               const texto = m.apagada ? "Mensagem apagada" : textoSimples(m.texto);
+              const abrirWidget = widget.current;
               toast(m.robo ? "🤖 Robô MayaCorp" : m.autor_nome, {
                 description: texto.length > 120 ? `${texto.slice(0, 119)}…` : texto,
-                action: { label: "Abrir", onClick: () => router.push(`/comunicador?conversa=${m.conversa_id}&msg=${m.id}`) },
+                action:
+                  abrirWidget && !m.robo
+                    ? { label: "Responder", onClick: () => abrirWidget(m.conversa_id) }
+                    : { label: "Abrir", onClick: () => (abrirWidget ? abrirWidget(m.conversa_id) : router.push(`/comunicador?conversa=${m.conversa_id}&msg=${m.id}`)) },
               });
             }
           }
@@ -343,8 +357,10 @@ export function ComunicadorProvider({ children }: { children: React.ReactNode })
       conversaAberta,
       setConversaAberta,
       avisarDigitando,
+      pulso,
+      registrarWidget,
     }),
-    [conectado, online, eu, definirStatus, resumo, lidas, digitando, conversaAberta, avisarDigitando],
+    [conectado, online, eu, definirStatus, resumo, lidas, digitando, conversaAberta, avisarDigitando, pulso, registrarWidget],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

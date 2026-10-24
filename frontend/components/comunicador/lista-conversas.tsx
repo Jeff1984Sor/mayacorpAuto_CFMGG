@@ -31,6 +31,8 @@ export function ListaConversas({
   onAbrirMsg,
   onNovoGrupo,
   onNovaDireta,
+  acoesExtra,
+  compacto,
 }: {
   conversas: Conversa[];
   carregando: boolean;
@@ -40,6 +42,8 @@ export function ListaConversas({
   onAbrirMsg: (m: Msg) => void;
   onNovoGrupo: () => void;
   onNovaDireta: () => void;
+  acoesExtra?: React.ReactNode;
+  compacto?: boolean;
 }) {
   const { usuario } = useAuth();
   const { online, digitando } = useComunicador();
@@ -65,7 +69,7 @@ export function ListaConversas({
     <div className="flex h-full min-h-0 flex-col">
       <div className="space-y-2 border-b p-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Conversas</h2>
+          <h2 className={cn("font-semibold tracking-tight", compacto ? "text-base" : "text-lg")}>{compacto ? "Comunicador" : "Conversas"}</h2>
           <div className="flex gap-1">
             <button
               type="button"
@@ -81,8 +85,9 @@ export function ListaConversas({
               onClick={onNovoGrupo}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand/10 px-2.5 text-xs font-medium text-info-ink transition hover:bg-brand/18"
             >
-              <Users className="size-3.5" /> Novo grupo
+              <Users className="size-3.5" /> {compacto ? "Grupo" : "Novo grupo"}
             </button>
+            {acoesExtra}
           </div>
         </div>
         <div className="relative">

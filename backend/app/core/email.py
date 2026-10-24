@@ -20,6 +20,8 @@ def enviar(
     *,
     anexos: list[tuple[str, bytes, str]] | None = None,
     config: ConfigNotificacao | None = None,
+    cc: list[str] | None = None,
+    cco: list[str] | None = None,
 ) -> None:
     msg = EmailMessage()
     remetente = settings.smtp_from
@@ -27,6 +29,10 @@ def enviar(
         remetente = f"{config.remetente_nome} <{config.remetente_email}>"
     msg["From"] = remetente
     msg["To"] = ", ".join(para)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    # Cco não vai no cabeçalho (é cópia oculta): só entra na lista de entrega
+    todos = list(dict.fromkeys([*para, *(cc or []), *(cco or [])]))
     msg["Subject"] = assunto
     msg.set_content(corpo)
     for nome, dados, mime in anexos or []:
@@ -38,7 +44,8 @@ def enviar(
         outbox = Path(settings.storage_dir) / "outbox"
         outbox.mkdir(parents=True, exist_ok=True)
         arq = outbox / f"{agora():%Y%m%d-%H%M%S-%f}.eml"
-        arq.write_bytes(bytes(msg))
+        oculto = f"\n\n[Cco (oculto): {', '.join(cco)}]".encode() if cco else b""
+        arq.write_bytes(bytes(msg) + oculto)
         log.info("E-mail gravado em %s (SMTP não configurado)", arq)
         return
 
@@ -51,4 +58,4 @@ def enviar(
         s.starttls()
         if usuario and senha:
             s.login(usuario, senha)
-        s.send_message(msg)
+        s.send_message(msg, to_addrs=todos)

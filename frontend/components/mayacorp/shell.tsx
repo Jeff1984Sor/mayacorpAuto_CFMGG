@@ -33,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { api } from "@/lib/api";
 import { useComunicador } from "@/components/comunicador/provider";
 import { ChatBotao, MencoesBotao } from "@/components/comunicador/topbar";
+import { ComunicadorWidget } from "@/components/comunicador/widget";
 import { useAuth } from "@/lib/auth";
 import { useBrand } from "@/lib/brand";
 import { EH_HML } from "@/lib/env";
@@ -421,6 +422,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Topbar onMenu={() => setGaveta(true)} />
       <CommandPalette />
+      <ComunicadorWidget />
 
       <main className="min-h-dvh pt-[calc(var(--tb)+var(--faixa))] transition-[padding] duration-200 lg:pl-(--sb)">
         <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>

@@ -72,10 +72,10 @@ def test_preencher_cliente_valida_o_que_a_ia_devolve(cliente, ia_falsa):  # noqa
 def test_preencher_email_remove_variavel_desconhecida(cliente, ia_falsa):  # noqa: F811
     h = _login(cliente)
     _ativar(cliente, h)
-    ia_falsa["proxima"] = {"assunto": "NFS-e {numero_nota}", "corpo": "Olá {nome_tomador}, vence em {vencimento}."}
+    ia_falsa["proxima"] = {"assunto": "NFS-e {numero_nota}", "corpo": "Olá {nome_tomador}, ver {inventada}."}
     r = cliente.post("/api/ia/preencher/email", headers=h, json={"instrucao": "mais formal"}).json()
-    assert r["campos"]["corpo_modelo"] == "Olá {nome_tomador}, vence em ."
-    assert "{vencimento}" in r["avisos"][0]
+    assert r["campos"]["corpo_modelo"] == "Olá {nome_tomador}, ver ."
+    assert "{inventada}" in r["avisos"][0]
 
 
 def test_analise_do_painel_e_do_lote(cliente, ia_falsa):  # noqa: F811

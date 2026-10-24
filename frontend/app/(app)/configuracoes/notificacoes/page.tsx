@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 
 import { PreencherIA } from "@/components/ia/preencher-ia";
+import { EmailChips, emailsValidos } from "@/components/mayacorp/email-chips";
 import { Field, FormSection, SwitchRow } from "@/components/mayacorp/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 type Form = NotificacoesOut & { smtp_senha: string };
 
-const VARIAVEIS = ["{nome_tomador}", "{numero_nota}", "{valor}", "{link_prefeitura}", "{nome_emissora}"];
+const VARIAVEIS = ["{nome_tomador}", "{numero_nota}", "{valor}", "{link_prefeitura}", "{nome_emissora}", "{vencimento}", "{codigo_fatura}"];
 
 function render(t: string, nome: string) {
   return t
@@ -30,7 +31,9 @@ function render(t: string, nome: string) {
     .replaceAll("{numero_nota}", "00012345")
     .replaceAll("{valor}", moeda(1250))
     .replaceAll("{link_prefeitura}", "https://nfe.prefeitura.sp.gov.br/…")
-    .replaceAll("{nome_emissora}", nome);
+    .replaceAll("{nome_emissora}", nome)
+    .replaceAll("{vencimento}", new Date(Date.now() + 10 * 86_400_000).toLocaleDateString("pt-BR"))
+    .replaceAll("{codigo_fatura}", "NH 2026/00123");
 }
 
 export default function NotificacoesPage() {
@@ -150,6 +153,12 @@ export default function NotificacoesPage() {
             </div>
             <Textarea ref={corpo} name="corpo_modelo" rows={7} value={f.corpo_modelo} onChange={(e) => set("corpo_modelo", e.target.value)} />
           </Field>
+          <Field label="Cópia padrão (Cc)" dica="Recebe uma cópia de todo e-mail de nota (o cliente vê).">
+            <EmailChips campo="email_cc_padrao" value={f.email_cc_padrao ?? []} onChange={(v) => set("email_cc_padrao", v)} placeholder="ex.: financeiro@… — Enter para adicionar" />
+          </Field>
+          <Field label="Cópia oculta padrão (Cco)" dica="Recebe uma cópia sem o cliente saber.">
+            <EmailChips campo="email_cco_padrao" value={f.email_cco_padrao ?? []} onChange={(v) => set("email_cco_padrao", v)} placeholder="ex.: arquivo@… — Enter para adicionar" />
+          </Field>
         </FormSection>
 
         <FormSection titulo="Remetente e servidor" descricao="SMTP próprio ou serviço transacional. Vazio = servidor da MayaCorp.">
@@ -181,7 +190,7 @@ export default function NotificacoesPage() {
 
         <FormSection titulo="Avisos internos" descricao="Quem da equipe recebe os alertas do robô.">
           <Field label="Destinatários" className="sm:col-span-2" dica="Separe por vírgula.">
-            <Input value={avisos} onChange={(e) => setAvisos(e.target.value)} placeholder="cristina@cfme.com.br, financeiro@cfme.com.br" />
+            <Input value={avisos} onChange={(e) => setAvisos(e.target.value)} />
           </Field>
           <SwitchRow titulo="Fim de lote">
             <Switch checked={f.aviso_fim_lote} onCheckedChange={(v) => set("aviso_fim_lote", v)} />
@@ -195,7 +204,7 @@ export default function NotificacoesPage() {
         </FormSection>
 
         <div className="flex justify-end pt-5">
-          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>
+          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !emailsValidos([...(f.email_cc_padrao ?? []), ...(f.email_cco_padrao ?? [])])}>
             {salvar.isPending ? <Loader2 className="animate-spin" /> : <Save />} Salvar notificações
           </Button>
         </div>

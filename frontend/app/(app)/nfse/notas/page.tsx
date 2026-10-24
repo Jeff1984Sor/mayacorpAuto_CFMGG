@@ -24,6 +24,8 @@ import { EmptyState } from "@/components/mayacorp/empty-state";
 import { NativeSelect } from "@/components/mayacorp/form";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
+import { EnviarEmailsLote } from "@/components/email/enviar-lote";
+import { BotaoEmailNota } from "@/components/email/enviar-nota";
 import { CancelarNotaDialog, SelosNota, useAcoesNota } from "@/components/nfse/acoes-nota";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -38,26 +40,49 @@ import { Input } from "@/components/ui/input";
 import { usePaginado } from "@/hooks/use-paginado";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, numero } from "@/lib/format";
-import type { NfseOut } from "@/lib/types";
+import type { FiltroNotas, NfseOut } from "@/lib/types";
 
 export default function NotasPage() {
   const router = useRouter();
   const { isAdmin, isOperador } = useAuth();
   const lista = usePaginado<NfseOut>("notas", "/nfse/notas", {}, 25);
   const acoes = useAcoesNota();
-  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [sel, setSel] = useState<Map<number, NfseOut>>(new Map());
+  const [todasDoFiltro, setTodasDoFiltro] = useState(false);
+  const [emailLote, setEmailLote] = useState(false);
   const [cancelar, setCancelar] = useState<NfseOut | null>(null);
 
-  const ids = [...sel];
+  const ids = [...sel.keys()];
   const todos = lista.itens.length > 0 && lista.itens.every((n) => sel.has(n.id));
   const alguns = lista.itens.some((n) => sel.has(n.id));
-  const marcar = (id: number, v: boolean) =>
+  const qtdSel = todasDoFiltro ? lista.total : sel.size;
+  const limparSel = () => {
+    setSel(new Map());
+    setTodasDoFiltro(false);
+  };
+  // trocar busca/filtros desfaz o "todas do filtro" (a seleção passaria a valer para outras notas)
+  const chaveFiltro = JSON.stringify([lista.q, lista.filtros]);
+  const [chaveAnterior, setChaveAnterior] = useState(chaveFiltro);
+  if (chaveAnterior !== chaveFiltro) {
+    setChaveAnterior(chaveFiltro);
+    setTodasDoFiltro(false);
+  }
+  const filtroAtual: FiltroNotas = {
+    q: lista.q || null,
+    status: (lista.filtros.status as string) || null,
+    de: (lista.filtros.de as string) || null,
+    ate: (lista.filtros.ate as string) || null,
+    pagamento: (lista.filtros.pagamento as string) || null,
+  };
+  const marcarNota = (n: NfseOut, v: boolean) => {
+    setTodasDoFiltro(false);
     setSel((s) => {
-      const n = new Set(s);
-      if (v) n.add(id);
-      else n.delete(id);
-      return n;
+      const m = new Map(s);
+      if (v) m.set(n.id, n);
+      else m.delete(n.id);
+      return m;
     });
+  };
   const filtrando = !!(lista.q || lista.filtros.status || lista.filtros.de || lista.filtros.ate || lista.filtros.pagamento);
 
   return (
@@ -121,9 +146,12 @@ export default function NotasPage() {
                 <tr>
                   <th className="w-10 px-4 py-2.5">
                     <Checkbox
-                      checked={todos}
-                      indeterminate={!todos && alguns}
-                      onCheckedChange={(v) => lista.itens.forEach((n) => marcar(n.id, !!v))}
+                      checked={todasDoFiltro || todos}
+                      indeterminate={!todasDoFiltro && !todos && alguns}
+                      onCheckedChange={(v) => {
+                        if (!v) return limparSel();
+                        lista.itens.forEach((n) => marcarNota(n, true));
+                      }}
                       aria-label="Selecionar página"
                     />
                   </th>
@@ -137,11 +165,34 @@ export default function NotasPage() {
                   <th className="w-12 px-3 py-2.5" />
                 </tr>
               </thead>
+              {(todasDoFiltro || (todos && lista.total > lista.itens.length)) && (
+                <tbody>
+                  <tr>
+                    <td colSpan={9} className="border-b bg-brand/6 px-4 py-2 text-center text-sm">
+                      {todasDoFiltro ? (
+                        <>
+                          Todas as <strong className="num">{numero(lista.total)}</strong> notas do filtro estão selecionadas.{" "}
+                          <button type="button" onClick={limparSel} className="font-medium text-info-ink hover:underline">
+                            Limpar seleção
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          As <strong className="num">{numero(lista.itens.length)}</strong> notas desta página estão selecionadas.{" "}
+                          <button type="button" onClick={() => setTodasDoFiltro(true)} className="font-medium text-info-ink hover:underline">
+                            Selecionar todas as {numero(lista.total)} notas do filtro
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              )}
               <tbody className="divide-y">
                 {lista.itens.map((n) => (
                   <tr key={n.id} className={linhaClicavel} onClick={() => router.push(`/nfse/notas/${n.id}`)}>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox checked={sel.has(n.id)} onCheckedChange={(v) => marcar(n.id, !!v)} aria-label={`Selecionar nota ${n.numero}`} />
+                      <Checkbox checked={todasDoFiltro || sel.has(n.id)} onCheckedChange={(v) => marcarNota(n, !!v)} aria-label={`Selecionar nota ${n.numero}`} />
                     </td>
                     <td className="px-3 py-3 font-semibold whitespace-nowrap">
                       <Mono>{n.numero}</Mono>
@@ -186,6 +237,8 @@ export default function NotasPage() {
                       </div>
                     </td>
                     <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-0.5">
+                      {isOperador && n.status === "emitida" && <BotaoEmailNota nfseId={n.id} numero={n.numero} />}
                       <DropdownMenu>
                         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ações" />}>
                           <MoreHorizontal />
@@ -200,11 +253,6 @@ export default function NotasPage() {
                           <DropdownMenuItem onClick={() => acoes.prefeitura(n)}>
                             <ExternalLink /> Abrir na Prefeitura
                           </DropdownMenuItem>
-                          {isOperador && n.status === "emitida" && (
-                            <DropdownMenuItem onClick={() => acoes.email.mutate({ id: n.id })}>
-                              <Mail /> Reenviar e-mail
-                            </DropdownMenuItem>
-                          )}
                           {isAdmin && n.status === "emitida" && (
                             <>
                               <DropdownMenuSeparator />
@@ -215,6 +263,7 @@ export default function NotasPage() {
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -225,24 +274,33 @@ export default function NotasPage() {
         <Pagination pagina={lista.pagina} porPagina={lista.porPagina} total={lista.total} onChange={lista.setPagina} />
       </TableCard>
 
-      {/* barra de ações em massa */}
+      {/* barra de ações em massa (deixa o canto direito livre para o botão do Comunicador) */}
       <AnimatePresence>
-        {sel.size > 0 && (
+        {qtdSel > 0 && (
           <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            className="fixed inset-x-0 bottom-5 z-30 flex justify-center px-4 lg:pl-(--sb)"
+            initial={{ y: 90, opacity: 0, scale: 0.96 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 90, opacity: 0, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex justify-center pr-24 pl-4 lg:pl-[calc(var(--sb)+1rem)]"
           >
-            <div className="flex items-center gap-2 rounded-2xl bg-dark-maya p-2 pl-4 text-white shadow-2xl ring-1 ring-white/10">
-              <span className="text-sm">
-                <strong className="num">{numero(sel.size)}</strong> selecionada(s)
+            <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5 rounded-2xl bg-dark-maya p-2 pl-4 text-white shadow-2xl shadow-dark-maya/30 ring-1 ring-white/10">
+              <span className="mr-1 text-sm whitespace-nowrap">
+                <strong className="num">{numero(qtdSel)}</strong> selecionada{qtdSel > 1 ? "s" : ""}
+                {todasDoFiltro && <span className="ml-1 text-white/60">(todas do filtro)</span>}
               </span>
+              {isOperador && (
+                <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => setEmailLote(true)}>
+                  <Mail /> Enviar por e-mail
+                </Button>
+              )}
               <Button
                 size="sm"
-                className="bg-white text-navy hover:bg-white/90"
+                variant="ghost"
+                className="text-white hover:bg-white/10 hover:text-white"
                 onClick={() => acoes.zip.mutate(ids)}
-                disabled={acoes.zip.isPending}
+                disabled={acoes.zip.isPending || todasDoFiltro}
+                title={todasDoFiltro ? "Para baixar, selecione as notas da página" : undefined}
               >
                 {acoes.zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar ZIP
               </Button>
@@ -251,22 +309,28 @@ export default function NotasPage() {
                 variant="ghost"
                 className="text-white hover:bg-white/10 hover:text-white"
                 onClick={() => acoes.exportar.mutate(ids)}
+                disabled={todasDoFiltro}
+                title={todasDoFiltro ? "Para exportar o filtro inteiro, use “Exportar Excel” no topo" : undefined}
               >
-                <FileSpreadsheet /> Excel
+                <FileSpreadsheet /> Exportar
               </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="text-white/70 hover:bg-white/10 hover:text-white"
-                onClick={() => setSel(new Set())}
-                aria-label="Limpar seleção"
-              >
-                <X />
+              <Button size="sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={limparSel}>
+                <X /> Limpar
               </Button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {emailLote && (
+        <EnviarEmailsLote
+          open={emailLote}
+          onOpenChange={setEmailLote}
+          alvo={todasDoFiltro ? { filtro: filtroAtual, total: lista.total } : { ids, total: ids.length }}
+          exemplos={todasDoFiltro ? lista.itens : [...sel.values()]}
+          onConcluido={limparSel}
+        />
+      )}
 
       <CancelarNotaDialog nota={cancelar} onClose={() => setCancelar(null)} />
     </div>

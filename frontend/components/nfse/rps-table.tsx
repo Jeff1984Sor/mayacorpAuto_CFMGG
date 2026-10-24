@@ -73,11 +73,14 @@ export function RpsTable({
   className,
   destaque,
   onLimparDestaque,
+  acaoNota,
 }: {
   rps: RpsOut[];
   /** Linhas apontadas por um insight do Raio-X: a tabela mostra só elas, com anel indigo. */
   destaque?: { titulo: string; ids: number[] } | null;
   onLimparDestaque?: () => void;
+  /** Ação extra ao lado do status das linhas já emitidas (ex.: enviar a nota por e-mail). */
+  acaoNota?: (r: RpsOut) => React.ReactNode;
   selecionavel?: boolean;
   onToggle?: (r: RpsOut, v: boolean) => void;
   onToggleTodos?: (v: boolean, filtro: FiltroRps) => void;
@@ -277,7 +280,10 @@ export function RpsTable({
                       <Mono>{moeda(r.iss)}</Mono>
                     </td>
                     <td className="px-3 py-2.5">
-                      <StatusLinha r={r} />
+                      <div className="flex items-center gap-1">
+                        <StatusLinha r={r} />
+                        {acaoNota && r.status === "emitido" && r.nfse_id ? acaoNota(r) : null}
+                      </div>
                     </td>
                   </tr>
                 );

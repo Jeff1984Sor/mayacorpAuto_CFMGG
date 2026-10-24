@@ -61,14 +61,19 @@ export function PainelConversa({
   onVoltar,
   pessoasAberto,
   onAlternarPessoas,
+  compacto,
+  acoesExtra,
 }: {
   conversa: Conversa;
   usuarios: Map<number, UsuarioChat>;
   alvoMsg: number | null;
   onAlvoConsumido: () => void;
   onVoltar: () => void;
-  pessoasAberto: boolean;
-  onAlternarPessoas: () => void;
+  pessoasAberto?: boolean;
+  onAlternarPessoas?: () => void;
+  /** Widget flutuante: sempre mostra "voltar", sem o painel da equipe. */
+  compacto?: boolean;
+  acoesExtra?: React.ReactNode;
 }) {
   const cid = conversa.id;
   const qc = useQueryClient();
@@ -380,7 +385,12 @@ export function PainelConversa({
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-3 border-b px-3 py-2.5 sm:px-4">
-        <button type="button" onClick={onVoltar} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted lg:hidden" aria-label="Voltar para as conversas">
+        <button
+          type="button"
+          onClick={onVoltar}
+          className={cn("grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted", !compacto && "lg:hidden")}
+          aria-label="Voltar para as conversas"
+        >
           <ArrowLeft className="size-5" />
         </button>
         <AvatarConversa conversa={conversa} usuarios={usuarios} online={online} tamanho="size-10" />
@@ -390,6 +400,8 @@ export function PainelConversa({
             {nomesDigitando.length && conversa.tipo === "direta" ? <span className="text-info-ink">digitando…</span> : subtitulo}
           </p>
         </div>
+        {acoesExtra}
+        {!compacto && onAlternarPessoas && (
         <button
           type="button"
           onClick={onAlternarPessoas}
@@ -399,6 +411,7 @@ export function PainelConversa({
         >
           {pessoasAberto ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
         </button>
+        )}
       </header>
 
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[radial-gradient(circle_at_1px_1px,var(--viz-grid)_1px,transparent_0)] bg-size-[22px_22px] pb-3">

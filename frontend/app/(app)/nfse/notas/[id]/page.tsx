@@ -1,8 +1,9 @@
 "use client";
 
 import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
+import { BotaoEmailNota } from "@/components/email/enviar-nota";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Building2, Copy, ReceiptText, ExternalLink, FileCheck2, FileCode2, FileText, Loader2, Mail, Send } from "lucide-react";
+import { Ban, Building2, Copy, ReceiptText, ExternalLink, FileCheck2, FileCode2, FileText, Send } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -13,7 +14,6 @@ import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { CancelarNotaDialog, SelosNota, useAcoesNota } from "@/components/nfse/acoes-nota";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -34,7 +34,6 @@ export default function NotaDetalhePage() {
   const { isAdmin, isOperador } = useAuth();
   const acoes = useAcoesNota();
   const [cancelar, setCancelar] = useState(false);
-  const [dest, setDest] = useState("");
   const q = useQuery({ queryKey: ["nota", Number(id)], queryFn: () => api.get<NfseDetalhe>(`/nfse/notas/${id}`) });
   const n = q.data;
 
@@ -71,6 +70,7 @@ export default function NotaDetalhePage() {
         acoes={
           <>
             <ChamarAlguem origemTipo="nfse" origemId={n.id} contexto={`a NFS-e ${n.numero}`} />
+            {isOperador && !cancelada && <BotaoEmailNota nfseId={n.id} numero={n.numero} rotulo="E-mail" />}
             <Button onClick={() => acoes.pdf(n)}>
               <FileText /> Ver PDF
             </Button>
@@ -148,27 +148,12 @@ export default function NotaDetalhePage() {
               </ul>
             )}
             {isOperador && !cancelada && (
-              <form
-                className="mt-4 flex flex-col gap-2 sm:flex-row"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const lista = dest
-                    .split(/[;,\s]+/)
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  acoes.email.mutate({ id: n.id, destinatarios: lista.length ? lista : undefined }, { onSuccess: () => setDest("") });
-                }}
-              >
-                <Input
-                  value={dest}
-                  onChange={(e) => setDest(e.target.value)}
-                  placeholder={n.tomador_emails.join(", ") || "e-mail do destinatário"}
-                  className="h-9"
-                />
-                <Button type="submit" disabled={acoes.email.isPending}>
-                  {acoes.email.isPending ? <Loader2 className="animate-spin" /> : <Mail />} Reenviar
-                </Button>
-              </form>
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-dashed p-3">
+                <p className="text-sm text-muted-foreground">
+                  Envie de novo, para outras pessoas ou com outro texto e anexos.
+                </p>
+                <BotaoEmailNota nfseId={n.id} numero={n.numero} rotulo="Enviar por e-mail" tamanho="sm" />
+              </div>
             )}
           </div>
         </div>

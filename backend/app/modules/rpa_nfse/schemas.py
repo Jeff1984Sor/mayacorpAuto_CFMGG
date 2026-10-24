@@ -291,7 +291,76 @@ class ZipIn(BaseModel):
 
 
 class EnviarEmailIn(BaseModel):
-    destinatarios: list[EmailStr] | None = None
+    destinatarios: list[EmailStr] | None = None  # "Para"; vazio = e-mails do cliente
+    cc: list[EmailStr] | None = None
+    cco: list[EmailStr] | None = None
+    assunto: str | None = Field(default=None, max_length=300)
+    corpo: str | None = Field(default=None, max_length=20000)
+    anexos: list[str] | None = Field(default=None)  # "pdf", "xml", "fatura"; None = padrão das configurações
+    salvar_no_cliente: bool = False  # e-mails novos do "Para" entram no cadastro do cliente
+
+
+class FiltroNotas(BaseModel):
+    q: str | None = None
+    status: StatusNfse | None = None
+    emissora_id: int | None = None
+    lote_id: int | None = None
+    de: date | None = None
+    ate: date | None = None
+    pagamento: str | None = Field(default=None, pattern="^(paga|aberta)$")
+
+
+class EnviarEmailsLoteIn(BaseModel):
+    """Envio em lote: o texto é um MODELO com variáveis, montado nota a nota para o cliente de cada uma."""
+
+    ids: list[int] | None = None
+    filtro: FiltroNotas | None = None  # "todas do filtro" (em vez de ids)
+    para_extra: list[EmailStr] = []  # além do e-mail de cada cliente
+    cc: list[EmailStr] = []
+    cco: list[EmailStr] = []
+    assunto_modelo: str = Field(min_length=2, max_length=300)
+    corpo_modelo: str = Field(min_length=2, max_length=20000)
+    anexos: list[str] = ["pdf", "xml", "fatura"]
+    pular_ja_enviadas: bool = False
+
+
+class EnvioLoteOut(Schema):
+    total: int
+    enviados: int
+    falhas: list[dict[str, Any]]
+    sem_email: list[dict[str, Any]]
+    puladas: int
+
+
+class ModeloEmailOut(Schema):
+    remetente: str
+    assunto_modelo: str
+    corpo_modelo: str
+    assinatura: str
+    cc: list[str]
+    cco: list[str]
+    anexos_padrao: list[str]
+    variaveis: list[str]
+
+
+class AnexoEmail(Schema):
+    tipo: str  # pdf | xml | fatura
+    nome: str
+    tamanho: int
+    padrao: bool  # marcado por padrão (configurações)
+
+
+class EmailPreviaOut(Schema):
+    remetente: str
+    para: list[str]
+    cc: list[str]
+    cco: list[str]
+    assunto: str
+    corpo: str
+    anexos: list[AnexoEmail]
+    emails_cliente: list[str]
+    cliente_id: int | None
+    envios: list[dict[str, Any]]
 
 
 # ---------- Raio-X do arquivo ----------

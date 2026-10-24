@@ -1,6 +1,7 @@
 "use client";
 
 import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
+import { BotaoEmailNota } from "@/components/email/enviar-nota";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -195,7 +196,11 @@ export default function LoteDetalhePage() {
       {emAndamento && <Transmissao progresso={progresso} conectado={conectado} />}
 
       <div className="grid gap-4 2xl:grid-cols-[1fr_360px]">
-        <RpsTable rps={l.rps} onAbrir={setAberto} />
+        <RpsTable
+          rps={l.rps}
+          onAbrir={setAberto}
+          acaoNota={isOperador ? (r) => <BotaoEmailNota nfseId={r.nfse_id!} numero={r.nfse_numero ?? undefined} /> : undefined}
+        />
         <div className="card-surface h-fit p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold">Linha do tempo</h3>

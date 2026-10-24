@@ -246,7 +246,8 @@ class EmailIn(BaseModel):
     corpo_atual: str | None = None
 
 
-VARIAVEIS = ["{nome_tomador}", "{numero_nota}", "{valor}", "{link_prefeitura}", "{nome_emissora}"]
+VARIAVEIS = ["{nome_tomador}", "{numero_nota}", "{valor}", "{link_prefeitura}", "{nome_emissora}", "{vencimento}",
+             "{codigo_fatura}"]
 
 
 @router.post("/ia/preencher/email")

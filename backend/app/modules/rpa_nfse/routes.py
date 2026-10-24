@@ -34,15 +34,20 @@ from app.modules.rpa_nfse.models import (
 from app.modules.rpa_nfse.prefeitura_sp import ClientePrefeitura, FalhaComunicacao, link_nota
 from app.modules.rpa_nfse.schemas import (
     Alerta,
+    AnexoEmail,
     CancelarIn,
     ConfigPrefeituraIn,
     ConfigPrefeituraOut,
+    EmailPreviaOut,
     EmissoraIn,
     EmissoraOut,
     EnviarEmailIn,
+    EnviarEmailsLoteIn,
+    EnvioLoteOut,
     Indicador,
     LoteDetalhe,
     LoteOut,
+    ModeloEmailOut,
     NfseDetalhe,
     NfseOut,
     PainelOut,
@@ -829,6 +834,69 @@ def _nota(ctx, nid: int) -> Nfse:
     return _do_tenant(ctx, Nfse, nid)
 
 
+@router.get("/notas/email/modelo", response_model=ModeloEmailOut)
+def modelo_email(ctx: Ctx):
+    """Modelo com variáveis para o envio em lote (cada nota recebe o seu texto)."""
+    from app.core.models import ConfigNotificacao
+
+    cfg = ctx.db.get(ConfigNotificacao, ctx.tenant_id)
+    nfse_cfg = service.config_nfse(ctx.db, ctx.tenant_id)
+    padrao = [t for t, ligado in (("pdf", not cfg or cfg.anexar_pdf), ("xml", not cfg or cfg.anexar_xml),
+                                  ("fatura", nfse_cfg.fatura_anexar_email)) if ligado]
+    return ModeloEmailOut(
+        remetente=f"{cfg.remetente_nome} <{cfg.remetente_email}>" if cfg else settings.smtp_from,
+        assunto_modelo=cfg.assunto_modelo if cfg else "NFS-e nº {numero_nota}",
+        corpo_modelo=cfg.corpo_modelo if cfg else "Segue a NFS-e nº {numero_nota}.",
+        assinatura=service.assinatura_email(ctx.db, ctx.tenant_id),
+        cc=list(cfg.email_cc_padrao or []) if cfg else [], cco=list(cfg.email_cco_padrao or []) if cfg else [],
+        anexos_padrao=padrao, variaveis=service.VARIAVEIS_EMAIL,
+    )
+
+
+@router.post("/notas/enviar-emails", response_model=EnvioLoteOut)
+def enviar_emails_selecionadas(dados: EnviarEmailsLoteIn, ctx: Operador):
+    """Envia as notas selecionadas (ou todas do filtro), cada uma para o próprio cliente."""
+    if not set(dados.anexos) <= {"pdf", "xml", "fatura"}:
+        raise HTTPException(400, "Anexo desconhecido.")
+    if dados.ids:
+        notas = list(ctx.db.scalars(select(Nfse).where(Nfse.tenant_id == ctx.tenant_id, Nfse.id.in_(dados.ids))))
+    elif dados.filtro:
+        fl = dados.filtro
+        f = _filtro_notas(ctx, fl.q, fl.status, fl.emissora_id, fl.lote_id, fl.de, fl.ate, None, None, fl.pagamento)
+        notas = list(ctx.db.scalars(_q_notas().where(*f).order_by(Nfse.numero)))
+    else:
+        raise HTTPException(400, "Selecione as notas ou use \"todas do filtro\".")
+    notas = [n for n in notas if n.status == StatusNfse.emitida]
+    if len(notas) > 1000:
+        raise HTTPException(400, "No máximo 1.000 notas por envio. Refine o filtro.")
+    assinatura = service.assinatura_email(ctx.db, ctx.tenant_id)
+    enviados, puladas, falhas, sem_email = 0, 0, [], []
+    for n in notas:
+        if dados.pular_ja_enviadas and any(e.status == "enviado" for e in n.envios):
+            puladas += 1
+            continue
+        para = list(dict.fromkeys(service.emails_do_cliente(n) + [str(e).lower() for e in dados.para_extra]))
+        if not service.emails_do_cliente(n):
+            sem_email.append({"nfse_id": n.id, "numero": n.numero,
+                              "cliente": (n.rps.dados_json or {}).get("tomador", {}).get("nome", "")})
+            continue
+        v = service.variaveis_nota(ctx.db, n)
+        corpo = service.aplicar_modelo(dados.corpo_modelo, v) + (f"\n\n{assinatura}" if assinatura else "")
+        envio = service.enviar_email_nota(
+            ctx.db, n, para, cc=[str(e).lower() for e in dados.cc], cco=[str(e).lower() for e in dados.cco],
+            assunto=service.aplicar_modelo(dados.assunto_modelo, v), corpo=corpo, anexos=dados.anexos,
+            usuario_nome=ctx.usuario.nome,
+        )
+        if envio.status == "enviado":
+            enviados += 1
+        else:
+            falhas.append({"nfse_id": n.id, "numero": n.numero, "erro": envio.erro})
+    ctx.auditar("nfse.enviar_emails_lote", "nfse",
+                descricao=f"{enviados} enviados, {len(falhas)} falhas, {len(sem_email)} sem e-mail, {puladas} puladas")
+    ctx.db.commit()
+    return EnvioLoteOut(total=len(notas), enviados=enviados, falhas=falhas, sem_email=sem_email, puladas=puladas)
+
+
 @router.get("/notas/{nid}", response_model=NfseDetalhe)
 def ler_nota(nid: int, ctx: Ctx):
     n = _nota(ctx, nid)
@@ -837,8 +905,7 @@ def ler_nota(nid: int, ctx: Ctx):
     return NfseDetalhe(
         **_nfse_out(n).model_dump(), discriminacao=n.rps.discriminacao, cod_servico=n.rps.cod_servico,
         aliquota=n.rps.aliquota, tomador_emails=emails,
-        envios=[{"destinatarios": e.destinatarios, "status": e.status, "enviado_em": e.enviado_em.isoformat(),
-                 "erro": e.erro} for e in sorted(n.envios, key=lambda e: e.enviado_em, reverse=True)],
+        envios=[_envio_out(e) for e in sorted(n.envios, key=lambda e: e.enviado_em, reverse=True)],
     )
 
 
@@ -918,20 +985,55 @@ def cancelar(nid: int, dados: CancelarIn, ctx: Admin):
     return _nfse_out(n)
 
 
+def _envio_out(e) -> dict:
+    return {"destinatarios": e.destinatarios, "cc": e.cc or [], "cco": e.cco or [], "assunto": e.assunto,
+            "anexos": e.anexos or [], "usuario_nome": e.usuario_nome, "status": e.status,
+            "enviado_em": e.enviado_em.isoformat(), "erro": e.erro}
+
+
+@router.get("/notas/{nid}/email/previa", response_model=EmailPreviaOut)
+def previa_email(nid: int, ctx: Ctx):
+    """O que o compositor de e-mail mostra: modelo já preenchido, cópias padrão e anexos disponíveis."""
+    n = _nota(ctx, nid)
+    m = service.montar_email(ctx.db, n)
+    return EmailPreviaOut(
+        remetente=m["remetente"], para=m["para"], cc=m["cc"], cco=m["cco"], assunto=m["assunto"], corpo=m["corpo"],
+        anexos=[AnexoEmail(tipo=a["tipo"], nome=a["nome"], tamanho=a["tamanho"], padrao=a["padrao"]) for a in m["anexos"]],
+        emails_cliente=m["emails_cliente"], cliente_id=n.tomador_id,
+        envios=[_envio_out(e) for e in sorted(n.envios, key=lambda e: e.enviado_em, reverse=True)],
+    )
+
+
 @router.post("/notas/{nid}/enviar-email", response_model=Mensagem)
 def enviar_email(nid: int, dados: EnviarEmailIn, ctx: Operador):
     n = _nota(ctx, nid)
     if n.status == StatusNfse.cancelada:
         raise HTTPException(400, "Nota cancelada não é enviada ao cliente.")
+    if dados.anexos is not None and not set(dados.anexos) <= {"pdf", "xml", "fatura"}:
+        raise HTTPException(400, "Anexo desconhecido.")
+    para = [str(e).lower() for e in dados.destinatarios] if dados.destinatarios else None
     try:
-        envio = service.enviar_email_nota(ctx.db, n, [str(e) for e in dados.destinatarios] if dados.destinatarios else None)
+        envio = service.enviar_email_nota(
+            ctx.db, n, para, cc=[str(e).lower() for e in dados.cc] if dados.cc is not None else None,
+            cco=[str(e).lower() for e in dados.cco] if dados.cco is not None else None,
+            assunto=dados.assunto, corpo=dados.corpo, anexos=dados.anexos, usuario_nome=ctx.usuario.nome,
+        )
     except service.RegraNegocio as e:
         raise _erro(e) from e
-    ctx.auditar("nfse.enviar_email", "nfse", n.id, descricao=f"NFS-e {n.numero} → {', '.join(envio.destinatarios)}")
+    novos = []
+    if dados.salvar_no_cliente and para and n.tomador:
+        novos = [e for e in para if e not in (n.tomador.emails or [])]
+        if novos:
+            n.tomador.emails = [*(n.tomador.emails or []), *novos]
+    ctx.auditar("nfse.enviar_email", "nfse", n.id,
+                descricao=f"NFS-e {n.numero} → {', '.join(envio.destinatarios)}"
+                + (f" · Cc {', '.join(envio.cc)}" if envio.cc else "") + (f" · Cco {len(envio.cco)}" if envio.cco else ""))
     ctx.db.commit()
     if envio.status != "enviado":
         raise HTTPException(502, f"Falha no envio: {envio.erro}")
-    return Mensagem(mensagem=f"Nota enviada para {', '.join(envio.destinatarios)}.")
+    extra = f" · {len(novos)} e-mail(s) novo(s) salvo(s) no cadastro do cliente" if novos else ""
+    return Mensagem(mensagem=f"Nota enviada para {', '.join(envio.destinatarios)}.{extra}")
+
 
 
 # ======================================================================== painel

@@ -158,6 +158,8 @@ class NotificacoesOut(Schema):
     anexar_xml: bool
     envio_automatico: bool
     avisos_destinatarios: list[str]
+    email_cc_padrao: list[str] = []
+    email_cco_padrao: list[str] = []
     aviso_fim_lote: bool
     aviso_rejeicoes: bool
     aviso_certificado: bool
@@ -176,6 +178,8 @@ class NotificacoesIn(BaseModel):
     anexar_xml: bool = True
     envio_automatico: bool = False
     avisos_destinatarios: list[EmailStr] = []
+    email_cc_padrao: list[EmailStr] = []
+    email_cco_padrao: list[EmailStr] = []
     aviso_fim_lote: bool = True
     aviso_rejeicoes: bool = True
     aviso_certificado: bool = True

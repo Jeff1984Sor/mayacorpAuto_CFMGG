@@ -94,6 +94,8 @@ export interface NotificacoesOut {
   aviso_fim_lote: boolean;
   aviso_rejeicoes: boolean;
   aviso_certificado: boolean;
+  email_cc_padrao: string[];
+  email_cco_padrao: string[];
 }
 
 export interface AuditoriaOut {
@@ -555,4 +557,68 @@ export interface AnaliseOut {
 export interface PreenchimentoOut<C = Record<string, unknown>> {
   campos: C;
   avisos: string[];
+}
+
+// ---------- E-mail das notas ----------
+export type TipoAnexo = "pdf" | "xml" | "fatura";
+
+export interface AnexoEmail {
+  tipo: TipoAnexo;
+  nome: string;
+  tamanho: number;
+  padrao: boolean;
+}
+
+export interface EnvioEmailHist {
+  destinatarios: string[];
+  cc?: string[];
+  cco?: string[];
+  assunto?: string;
+  anexos?: string[];
+  usuario_nome?: string | null;
+  status: string;
+  enviado_em: string;
+  erro?: string | null;
+}
+
+export interface EmailPreviaOut {
+  remetente: string;
+  para: string[];
+  cc: string[];
+  cco: string[];
+  assunto: string;
+  corpo: string;
+  anexos: AnexoEmail[];
+  emails_cliente: string[];
+  cliente_id: number | null;
+  envios: EnvioEmailHist[];
+}
+
+export interface ModeloEmailOut {
+  remetente: string;
+  assunto_modelo: string;
+  corpo_modelo: string;
+  assinatura: string;
+  cc: string[];
+  cco: string[];
+  anexos_padrao: TipoAnexo[];
+  variaveis: string[];
+}
+
+export interface FiltroNotas {
+  q?: string | null;
+  status?: string | null;
+  emissora_id?: number | null;
+  lote_id?: number | null;
+  de?: string | null;
+  ate?: string | null;
+  pagamento?: string | null;
+}
+
+export interface EnvioLoteOut {
+  total: number;
+  enviados: number;
+  falhas: { nfse_id: number; numero: number; erro: string | null }[];
+  sem_email: { nfse_id: number; numero: number; cliente: string }[];
+  puladas: number;
 }
