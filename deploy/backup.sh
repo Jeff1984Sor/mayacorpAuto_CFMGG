@@ -7,7 +7,7 @@ AMB="${1:-prod}"
 APP_DIR="/home/deploy/mayacorp-automacoes/$AMB"
 DESTINO="${BACKUP_DIR:-/home/deploy/backups/automacoes/$AMB}"
 BUCKET="${BACKUP_BUCKET:-gs://mayacorp-backups/automacoes/$AMB}"
-set -a; . "$APP_DIR/backend/.env"; set +a
+DATABASE_URL="$(grep -E '^DATABASE_URL=' "$APP_DIR/backend/.env" | cut -d= -f2-)"
 mkdir -p "$DESTINO"
 DIA="$(date +%Y%m%d)"
 pg_dump "${DATABASE_URL/+psycopg/}" -Fc -f "$DESTINO/banco_$DIA.dump"

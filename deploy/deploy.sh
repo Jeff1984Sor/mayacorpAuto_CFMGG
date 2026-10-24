@@ -57,7 +57,7 @@ if ! "$UV" run python -m pytest -q; then
 fi
 
 echo "=== 4/7  Migrations ==="
-set -a; . ./.env; set +a
+# (o .env é lido pela própria aplicação; não dar `source`: o bash corrompe CORS_ORIGINS=["..."])
 "$UV" run python -m alembic check >/dev/null 2>&1 || echo "    (aviso: há modelo sem migration gerada, confira)"
 "$UV" run python -m alembic upgrade head
 cd ..
