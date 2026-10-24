@@ -11,7 +11,7 @@ from app.core import audit
 from app.core import email as mail
 from app.core.config import settings
 from app.core.db import agora
-from app.core.deps import DB, Ctx, ip_cliente
+from app.core.deps import DB, Admin, Ctx, ip_cliente
 from app.core.models import Usuario
 from app.core.schemas import ForgotIn, LoginIn, Mensagem, RefreshIn, ResetIn, TokenOut, TrocarSenhaIn, UsuarioMe
 from app.core.security import (
@@ -154,8 +154,7 @@ def salvar_preferencias(dados: dict[str, Any], ctx: Ctx):
     return me_out(ctx.usuario)
 
 
-@router.post("/me/foto", response_model=UsuarioMe)
-async def enviar_foto(ctx: Ctx, arquivo: UploadFile = File(...)):
+async def _salvar_foto(u: Usuario, arquivo: UploadFile) -> None:
     ext = Path(arquivo.filename or "").suffix.lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie a foto em PNG, JPG ou WEBP.")
@@ -164,11 +163,22 @@ async def enviar_foto(ctx: Ctx, arquivo: UploadFile = File(...)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A foto deve ter no máximo 4 MB.")
     pasta = Path(settings.storage_dir) / "usuarios"
     pasta.mkdir(parents=True, exist_ok=True)
-    for antigo in pasta.glob(f"usuario_{ctx.usuario.id}.*"):
+    for antigo in pasta.glob(f"usuario_{u.id}.*"):
         antigo.unlink()
-    destino = pasta / f"usuario_{ctx.usuario.id}{ext}"
+    destino = pasta / f"usuario_{u.id}{ext}"
     destino.write_bytes(conteudo)
-    ctx.usuario.foto_path = str(destino)
+    u.foto_path = str(destino)
+
+
+def _apagar_foto(u: Usuario) -> None:
+    if u.foto_path and Path(u.foto_path).exists():
+        Path(u.foto_path).unlink()
+    u.foto_path = None
+
+
+@router.post("/me/foto", response_model=UsuarioMe)
+async def enviar_foto(ctx: Ctx, arquivo: UploadFile = File(...)):
+    await _salvar_foto(ctx.usuario, arquivo)
     ctx.auditar("usuario.foto", "usuario", ctx.usuario.id, descricao="Nova foto de perfil")
     ctx.db.commit()
     return me_out(ctx.usuario)
@@ -176,11 +186,35 @@ async def enviar_foto(ctx: Ctx, arquivo: UploadFile = File(...)):
 
 @router.delete("/me/foto", response_model=UsuarioMe)
 def remover_foto(ctx: Ctx):
-    if ctx.usuario.foto_path and Path(ctx.usuario.foto_path).exists():
-        Path(ctx.usuario.foto_path).unlink()
-    ctx.usuario.foto_path = None
+    _apagar_foto(ctx.usuario)
     ctx.db.commit()
     return me_out(ctx.usuario)
+
+
+def _profissional(ctx, uid: int) -> Usuario:
+    u = ctx.db.get(Usuario, uid)
+    if not u or u.tenant_id != ctx.tenant_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Profissional não encontrado.")
+    return u
+
+
+@router.post("/usuarios/{uid}/foto", response_model=Mensagem)
+async def enviar_foto_de(uid: int, ctx: Admin, arquivo: UploadFile = File(...)):
+    """O administrador troca a foto de outro profissional (ex.: quem não acessa o sistema)."""
+    u = _profissional(ctx, uid)
+    await _salvar_foto(u, arquivo)
+    ctx.auditar("usuario.foto", "usuario", u.id, descricao=f"Foto de {u.nome} trocada por {ctx.usuario.nome}")
+    ctx.db.commit()
+    return Mensagem(mensagem=f"Foto de {u.nome} atualizada.")
+
+
+@router.delete("/usuarios/{uid}/foto", response_model=Mensagem)
+def remover_foto_de(uid: int, ctx: Admin):
+    u = _profissional(ctx, uid)
+    _apagar_foto(u)
+    ctx.auditar("usuario.foto", "usuario", u.id, descricao=f"Foto de {u.nome} removida por {ctx.usuario.nome}")
+    ctx.db.commit()
+    return Mensagem(mensagem="Foto removida.")
 
 
 @router.get("/usuarios/{uid}/foto")

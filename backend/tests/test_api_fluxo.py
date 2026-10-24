@@ -127,3 +127,13 @@ def test_cidades_da_uf(cliente):
     sp = cliente.get("/api/cadastros/cidades/sp", headers=h).json()
     assert "São Paulo" in sp and "Campinas" in sp and len(sp) == 645
     assert cliente.get("/api/cadastros/cidades/XX", headers=h).status_code == 404
+
+
+def test_admin_troca_foto_de_outro_profissional(cliente):
+    h = _login(cliente)
+    outro = next(u for u in cliente.get("/api/config/usuarios", headers=h).json() if u["email"].startswith("operador"))
+    r = cliente.post(f"/api/auth/usuarios/{outro['id']}/foto", headers=h, files={"arquivo": ("f.png", b"\x89PNG\r\n\x1a\nx", "image/png")})
+    assert r.status_code == 200, r.text
+    u = next(x for x in cliente.get("/api/config/usuarios", headers=h).json() if x["id"] == outro["id"])
+    assert u["foto_url"]
+    assert cliente.delete(f"/api/auth/usuarios/{outro['id']}/foto", headers=h).status_code == 200

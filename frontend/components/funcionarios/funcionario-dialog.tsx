@@ -157,24 +157,26 @@ function Secao({ id, icone: I, titulo, descricao, children }: { id: string; icon
   );
 }
 
-/** Foto: só a própria pessoa envia a dela (o backend aceita /auth/me/foto). */
+/** Foto: a própria pessoa troca a dela; o administrador troca a de qualquer profissional já cadastrado. */
 function FotoEditor({ usuario, nome, eu }: { usuario: UsuarioOut | null; nome: string; eu: boolean }) {
   const qc = useQueryClient();
+  const { isAdmin } = useAuth();
+  const pode = eu || (isAdmin && !!usuario);
   const enviar = useMutation({
-    mutationFn: (f: File) => {
+    mutationFn: async (f: File) => {
       const fd = new FormData();
       fd.append("arquivo", f);
-      return api.post<UsuarioMe>("/auth/me/foto", fd);
+      if (eu) qc.setQueryData(["me"], await api.post<UsuarioMe>("/auth/me/foto", fd));
+      else await api.post(`/auth/usuarios/${usuario!.id}/foto`, fd);
     },
-    onSuccess: (u) => {
-      qc.setQueryData(["me"], u);
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["usuarios"] });
       toast.success("Foto atualizada");
     },
   });
   const dz = useDropzone({
     multiple: false,
-    disabled: !eu,
+    disabled: !pode,
     accept: { "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] },
     maxSize: 4 * 1024 * 1024,
     onDrop: (f) => f[0] && enviar.mutate(f[0]),
@@ -183,14 +185,14 @@ function FotoEditor({ usuario, nome, eu }: { usuario: UsuarioOut | null; nome: s
   const avatar = (
     <UserAvatar nome={nome || "?"} fotoUrl={usuario?.foto_url} className="size-20 ring-4 ring-card shadow-lg" textoClassName="text-xl" />
   );
-  if (!eu)
+  if (!pode)
     return (
-      <div className="relative" title={usuario ? "A foto é enviada pela própria pessoa em Minha conta." : undefined}>
+      <div className="relative" title={!usuario ? "Salve o cadastro para enviar a foto." : undefined}>
         {avatar}
       </div>
     );
   return (
-    <div {...dz.getRootProps()} className="group relative cursor-pointer rounded-full" aria-label="Trocar minha foto">
+    <div {...dz.getRootProps()} className="group relative cursor-pointer rounded-full" aria-label={eu ? "Trocar minha foto" : `Trocar a foto de ${nome}`}>
       <input {...dz.getInputProps()} aria-label="Arquivo da foto" />
       {avatar}
       <span className="absolute inset-0 grid place-items-center rounded-full bg-black/45 text-white opacity-0 transition group-hover:opacity-100">
