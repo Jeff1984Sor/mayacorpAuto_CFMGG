@@ -4,7 +4,7 @@
 # Regra: não atualizar, reiniciar nem reconfigurar nada que já exista. Só acrescentar.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Jeff1984Sor/mayacorpAuto_CFMGG/main/deploy/instalar.sh -o instalar.sh
-#   sudo bash instalar.sh prod      # automacoes.mayacorp.com.br     (API 10021, web 10022)
+#   sudo bash instalar.sh prod      # automacoes1.mayacorp.com.br     (API 10021, web 10022)
 #   sudo bash instalar.sh hml       # hml-automacoes.mayacorp.com.br (API 10031, web 10032)
 # Portas na faixa 10000+ (convenção do servidor, a mesma do Flicsales).
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 
 AMB="${1:?informe o ambiente: prod ou hml}"
 case "$AMB" in
-  prod) BRANCH=main;    API_PORTA=10021; WEB_PORTA=10022; DOMINIO=automacoes.mayacorp.com.br ;;
+  prod) BRANCH=main;    API_PORTA=10021; WEB_PORTA=10022; DOMINIO=automacoes1.mayacorp.com.br ;;
   hml)  BRANCH=develop; API_PORTA=10031; WEB_PORTA=10032; DOMINIO=hml-automacoes.mayacorp.com.br ;;
   *) echo "Ambiente inválido: $AMB (use prod ou hml)"; exit 1 ;;
 esac

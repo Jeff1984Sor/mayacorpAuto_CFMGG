@@ -100,7 +100,7 @@ export function CommandPalette() {
           {ativo && (clientes.data?.itens.length ?? 0) > 0 && (
             <CommandGroup heading="Clientes">
               {clientes.data!.itens.map((c) => (
-                <CommandItem key={c.id} value={`cli-${c.id}`} onSelect={() => ir(`/nfse/clientes?id=${c.id}`)}>
+                <CommandItem key={c.id} value={`cli-${c.id}`} onSelect={() => ir(`/cadastros/clientes?id=${c.id}`)}>
                   <UsersRound />
                   <span className="truncate">{c.nome}</span>
                   <CommandShortcut className="num">{documento(c.cpf_cnpj)}</CommandShortcut>

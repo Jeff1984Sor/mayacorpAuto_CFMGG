@@ -1,6 +1,6 @@
 ---
 name: deploy-prod
-description: Promove para produção (automacoes.mayacorp.com.br) o que já foi validado em homologação, criando a tag vN. Use só quando o Jefferson mandar publicar em produção.
+description: Promove para produção (automacoes1.mayacorp.com.br) o que já foi validado em homologação, criando a tag vN. Use só quando o Jefferson mandar publicar em produção.
 ---
 
 # Publicar em produção

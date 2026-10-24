@@ -143,7 +143,7 @@ function Saude() {
         .map((e) => (
           <Link
             key={e.id}
-            href={`/nfse/emissoras?id=${e.id}`}
+            href={`/cadastros/emissoras?id=${e.id}`}
             className={cn(
               "group flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3 transition-colors hover:border-brand/40",
             )}

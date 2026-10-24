@@ -48,6 +48,13 @@ export const NAV: NavGrupo[] = [
     itens: [{ label: "Início", href: "/", icone: Home, perfis: TODOS, exato: true }],
   },
   {
+    titulo: "Cadastros",
+    itens: [
+      { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, perfis: TODOS, atalho: "G C" },
+      { label: "Empresas emissoras", href: "/cadastros/emissoras", icone: Building2, perfis: TODOS },
+    ],
+  },
+  {
     titulo: "NFS-e · RPA 01",
     itens: [
       { label: "Painel", href: "/nfse", icone: Gauge, perfis: TODOS, exato: true, atalho: "G P" },
@@ -56,8 +63,6 @@ export const NAV: NavGrupo[] = [
       { label: "Notas emitidas", href: "/nfse/notas", icone: FileCheck2, perfis: TODOS, atalho: "G N" },
       { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText, perfis: TODOS, atalho: "G F" },
       { label: "Recebimentos", href: "/nfse/recebimentos", icone: HandCoins, perfis: TODOS, atalho: "G R" },
-      { label: "Empresa emissora", href: "/nfse/emissoras", icone: Building2, perfis: TODOS },
-      { label: "Clientes", href: "/nfse/clientes", icone: UsersRound, perfis: TODOS, atalho: "G C" },
     ],
   },
   {

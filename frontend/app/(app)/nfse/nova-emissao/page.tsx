@@ -143,7 +143,7 @@ function EtapaUpload({ onImportado }: { onImportado: (l: LoteDetalhe) => void })
           icone={Building2}
           titulo="Cadastre a empresa emissora primeiro"
           descricao="Precisamos do CNPJ, da inscrição municipal (CCM) e do certificado digital para emitir."
-          acao={<Button render={<Link href="/nfse/emissoras" />}>Cadastrar emissora</Button>}
+          acao={<Button render={<Link href="/cadastros/emissoras" />}>Cadastrar emissora</Button>}
         />
       </div>
     );

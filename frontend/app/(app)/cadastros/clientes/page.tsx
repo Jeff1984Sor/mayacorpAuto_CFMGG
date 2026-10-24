@@ -317,7 +317,7 @@ export default function ClientesPage() {
         titulo="Clientes"
         descricao="Tomadores das notas — alimentados automaticamente pelos arquivos importados."
         icone={UsersRound}
-        migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Clientes" }]}
+        migalhas={[{ label: "Cadastros", href: "/cadastros" }, { label: "Clientes" }]}
         acoes={
           <>
             <Button variant="outline" onClick={() => exportar.mutate()} disabled={exportar.isPending}>

@@ -184,7 +184,7 @@ export default function NotaDetalhePage() {
               <Linha l="E-mails">{n.tomador_emails.length ? n.tomador_emails.join(", ") : "—"}</Linha>
             </div>
             {n.tomador_id && (
-              <Button variant="ghost" size="sm" className="mt-2 -ml-2" render={<Link href={`/nfse/clientes?id=${n.tomador_id}`} />}>
+              <Button variant="ghost" size="sm" className="mt-2 -ml-2" render={<Link href={`/cadastros/clientes?id=${n.tomador_id}`} />}>
                 Ver cadastro →
               </Button>
             )}

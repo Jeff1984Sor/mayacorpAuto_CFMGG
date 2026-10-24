@@ -7,7 +7,7 @@
 | Ambiente | Endereço | Pasta no servidor | Portas (API/web) | Banco | Branch |
 |---|---|---|---|---|---|
 | Homologação | `hml-automacoes.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/hml` | 10031 / 10032 | `automacoes_hml` | `develop` |
-| Produção | `automacoes.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/prod` | 10021 / 10022 | `automacoes_prod` | `main` |
+| Produção | `automacoes1.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/prod` | 10021 / 10022 | `automacoes_prod` | `main` |
 
 **O servidor é compartilhado** (Hostinger VPS `srv1703721`, IP `2.25.130.240`, acesso `ssh flicsales` como `deploy` com sudo; Ubuntu 24.04) com Flicsales, MayaSec, MayaPost, MayaAssinador,
 Pilates, App Beach, Print3D (Docker), Evolution e o site da MayaCorp. Regras: só **acrescentar** (nunca atualizar
@@ -27,6 +27,7 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     `extrato.py` + `conciliacao.py` (extrato OFX/CSV/XLSX → baixa automática), `raio_x.py` (análise do arquivo antes de emitir).
     Nota e fatura andam juntas: toda mudança de pagamento/cancelamento da nota chama `fatura.sincronizar(db, nota)`.
   - `app/modules/rpa_nfse/prefeitura_sp/` concentra **toda** a conversa com a Prefeitura. Quando o layout mudar, só esse pacote muda.
+- Menu **Cadastros** (`/cadastros/clientes`, `/cadastros/emissoras`): cadastros do escritório, compartilhados por todos os robôs.
 - `frontend/` é Next.js (App Router) + Tailwind + shadcn/ui. Os tipos em `lib/types.ts` espelham os schemas Pydantic.
 - `deploy/` tem `deploy.sh hml|prod`, `rollback.sh`, `backup.sh`, systemd templated (`@hml`/`@prod`) e nginx.
 
