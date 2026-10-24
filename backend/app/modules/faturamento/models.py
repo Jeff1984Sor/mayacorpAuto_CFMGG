@@ -170,6 +170,7 @@ class Caso(Base, Timestamped):
     tipo: Mapped[TipoCaso | None] = mapped_column(_enum(TipoCaso), index=True)
     area_id: Mapped[int | None] = mapped_column(ForeignKey("fat_area.id", ondelete="SET NULL"), index=True)
     polo: Mapped[str | None] = mapped_column(String(10))  # ativo | passivo | terceiro | consultivo
+    instancia: Mapped[str | None] = mapped_column(String(20))  # primeira | juizado | segunda | turma_recursal | superior | stf
     tribunal: Mapped[str | None] = mapped_column(String(80))
     vara: Mapped[str | None] = mapped_column(String(120))
     comarca: Mapped[str | None] = mapped_column(String(80))

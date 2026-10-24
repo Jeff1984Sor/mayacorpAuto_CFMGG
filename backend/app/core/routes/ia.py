@@ -105,7 +105,7 @@ def _chamar(ctx, acao: str, sistema: str, usuario: str) -> dict:
     return resultado
 
 
-SISTEMA_BASE = ("Você é o assistente do Maya Jus, sistema de gestão usado por um escritório de advocacia de São Paulo "
+SISTEMA_BASE = ("Você é o assistente do MayaJus, sistema de gestão usado por um escritório de advocacia de São Paulo "
                 "para emitir NFS-e (layout 2, com ISS, IBS e CBS). Escreva em português do Brasil, claro, sem jargão "
                 "técnico e sem inventar dados. Responda SOMENTE com um objeto JSON válido no formato pedido.")
 

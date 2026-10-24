@@ -98,3 +98,23 @@ def consultar_cnpj(cnpj: str, ctx: Ctx):
         raise HTTPException(404, "CNPJ não encontrado na Receita Federal.") from None
     except RuntimeError:
         raise HTTPException(503, "A consulta à Receita está fora do ar agora. Preencha manualmente ou tente de novo.") from None
+
+
+# ---------------------------------------------------------------- municípios por UF (IBGE), para o campo Cidade
+# Lista oficial embutida (app/core/dados/municipios.json): o servidor não depende de nenhum site externo.
+_MUNICIPIOS: dict[str, list[str]] | None = None
+
+
+@router.get("/cidades/{uf}", response_model=list[str])
+def cidades(uf: str, ctx: Ctx):
+    """Todos os municípios da UF, em ordem alfabética."""
+    global _MUNICIPIOS
+    if _MUNICIPIOS is None:
+        import json
+        from pathlib import Path
+
+        _MUNICIPIOS = json.loads((Path(__file__).parent / "dados" / "municipios.json").read_text(encoding="utf-8"))
+    lista = _MUNICIPIOS.get(uf.strip().upper())
+    if lista is None:
+        raise HTTPException(404, "UF inválida.")
+    return lista

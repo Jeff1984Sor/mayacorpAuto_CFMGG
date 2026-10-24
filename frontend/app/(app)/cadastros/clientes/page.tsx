@@ -41,6 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CidadeInput } from "@/components/mayacorp/cidade-input";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -302,7 +303,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
         <Input {...f.register("bairro")} />
       </Field>
       <Field label="Cidade" className="sm:col-span-3">
-        <Input {...f.register("cidade")} />
+        <CidadeInput uf={f.watch("uf")} {...f.register("cidade")} />
       </Field>
       <Field label="UF" className="sm:col-span-1">
         <NativeSelect {...f.register("uf")}>

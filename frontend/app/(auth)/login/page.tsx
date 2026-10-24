@@ -169,7 +169,7 @@ export default function LoginPage() {
         <MayaJusLogo className="mb-8 lg:hidden" />
         <h1 className="text-2xl font-semibold tracking-tight">{modo === "login" ? "Entrar" : "Recuperar acesso"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {modo === "login" ? "Acesse o Maya Jus com seu e-mail ou usuário." : "Vamos te ajudar a voltar."}
+          {modo === "login" ? "Acesse o MayaJus com seu e-mail ou usuário." : "Vamos te ajudar a voltar."}
         </p>
       </div>
       <AnimatePresence mode="wait">

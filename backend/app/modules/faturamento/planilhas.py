@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 from app.core.deps import Ctx, Operador
 from app.core.documentos import so_digitos
 from app.core.models import Usuario
+from app.modules.faturamento.judiciario import INSTANCIAS
 from app.modules.faturamento.models import (
     ROTULO_TIPO_CASO,
     AreaAtuacao,
@@ -37,7 +38,7 @@ NAVY = PatternFill("solid", fgColor="1E2D6B")
 
 COL_CONTRATO = ["Nº", "Cliente", "CPF/CNPJ do cliente", "Nome do contrato", "Objeto", "Início", "Fim", "Empresa emissora",
                 "Tabela de preço", "Ativo", "Observação"]
-COL_CASO = ["Nº", "Nº do contrato", "Título", "Tipo do caso", "Nº do processo", "Parte contrária", "Área", "Polo", "Tribunal", "Vara", "Comarca",
+COL_CASO = ["Nº", "Nº do contrato", "Título", "Tipo do caso", "Nº do processo", "Parte contrária", "Área", "Polo", "Instância", "Tribunal", "Vara", "Comarca",
             "Valor da causa", "Distribuição", "Responsável (e-mail)", "Situação", "Abertura", "Encerramento", "Tabela de preço",
             "Descrição"]
 POLOS = {"ativo": "ativo", "autor": "ativo", "polo ativo": "ativo", "passivo": "passivo", "réu": "passivo", "reu": "passivo",
@@ -258,7 +259,7 @@ def exportar_casos(ctx: Ctx):
                 v = float(v)
             extra.append(v)
         linhas.append([c.numero, c.contrato.numero, c.titulo, ROTULO_TIPO_CASO.get(c.tipo) if c.tipo else None, c.numero_processo, c.parte_contraria, c.area.nome if c.area else None,
-                       ROTULO_POLO.get(c.polo or ""), c.tribunal, c.vara, c.comarca, c.valor_causa, c.data_distribuicao,
+                       ROTULO_POLO.get(c.polo or ""), INSTANCIAS.get(c.instancia or ""), c.tribunal, c.vara, c.comarca, c.valor_causa, c.data_distribuicao,
                        resp.email if resp else None, "Aberto" if c.status == StatusCaso.aberto else "Encerrado", c.data_abertura,
                        c.data_encerramento, tab.nome if tab else None, c.descricao, *extra])
     return _baixar(_planilha("Casos", COL_CASO + [cp.nome for cp in campos], linhas, _instr_casos(campos)),
@@ -268,7 +269,7 @@ def exportar_casos(ctx: Ctx):
 @router.get("/casos/modelo.xlsx")
 def modelo_casos(ctx: Ctx):
     campos = _campos_caso(ctx)
-    exemplo = [[None, 1, "Ação de cobrança — exemplo", "Judicial Estadual", "0000000-00.2026.8.26.0100", "Fulano de Tal", "Cível", "Ativo", "TJSP",
+    exemplo = [[None, 1, "Ação de cobrança — exemplo", "Judicial Estadual", "0000000-00.2026.8.26.0100", "Fulano de Tal", "Cível", "Ativo", "1ª instância", "TJSP",
                 "1ª Vara Cível", "São Paulo", 50000, date.today(), None, "Aberto", date.today(), None, None,
                 "Linha de exemplo: apague antes de importar", *[None for _ in campos]]]
     return _baixar(_planilha("Casos", COL_CASO + [cp.nome for cp in campos], exemplo, _instr_casos(campos)), "modelo_casos.xlsx")
@@ -322,6 +323,8 @@ async def importar_casos(ctx: Operador, arquivo: UploadFile = File(...)):
                 c.tipo = achado
             else:
                 erros.append(f"Linha {i}: tipo “{tipo}” inválido (use {', '.join(ROTULO_TIPO_CASO.values())}).")
+        if inst := _col(cab, row, "instância", "instancia"):
+            c.instancia = next((k for k, rot in INSTANCIAS.items() if _sem_acento(rot) == _sem_acento(str(inst)) or k == str(inst).lower()), c.instancia)
         if polo := _col(cab, row, "polo"):
             c.polo = POLOS.get(str(polo).strip().lower())
         if (v := ler_valor(_col(cab, row, "valor da causa"))) is not None:

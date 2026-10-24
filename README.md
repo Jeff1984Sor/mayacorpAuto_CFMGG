@@ -1,4 +1,4 @@
-# Maya Jus
+# MayaJus
 
 Hub de robôs (RPAs) da MayaCorp, white-label, com a marca do cliente. Primeiro cliente: **CFME Advogados**.
 

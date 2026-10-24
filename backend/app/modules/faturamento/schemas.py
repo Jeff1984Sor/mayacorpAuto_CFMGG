@@ -138,6 +138,7 @@ class CasoIn(BaseModel):
     tipo: TipoCaso | None = None  # consultivo, administrativo, judicial estadual/federal/trabalhista
     area_id: int | None = None
     polo: str | None = Field(default=None, pattern="^(ativo|passivo|terceiro|consultivo)$")
+    instancia: str | None = Field(default=None, pattern="^(primeira|juizado|segunda|turma_recursal|superior|stf)$")
     tribunal: str | None = Field(default=None, max_length=80)
     vara: str | None = Field(default=None, max_length=120)
     comarca: str | None = Field(default=None, max_length=80)
@@ -171,6 +172,8 @@ class CasoOut(Schema):
     area_nome: str | None = None
     area_cor: str | None = None
     polo: str | None = None
+    instancia: str | None = None
+    instancia_nome: str | None = None
     tribunal: str | None = None
     vara: str | None = None
     comarca: str | None = None

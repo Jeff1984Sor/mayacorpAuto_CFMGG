@@ -12,6 +12,7 @@ import { SenhaInput } from "@/components/mayacorp/senha-input";
 import { UserAvatar } from "@/components/mayacorp/user-avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { CidadeInput } from "@/components/mayacorp/cidade-input";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useCep } from "@/hooks/use-cep";
@@ -493,7 +494,7 @@ export function FuncionarioDialog({
                   <Input id="func-bairro" value={f.bairro} onChange={(e) => set("bairro", e.target.value)} maxLength={80} />
                 </Field>
                 <Field label="Cidade" htmlFor="func-cidade" className="sm:col-span-3">
-                  <Input id="func-cidade" value={f.cidade} onChange={(e) => set("cidade", e.target.value)} maxLength={80} />
+                  <CidadeInput uf={f.uf} id="func-cidade" value={f.cidade} onChange={(e) => set("cidade", e.target.value)} maxLength={80} />
                 </Field>
                 <Field label="UF" htmlFor="func-uf" className="sm:col-span-1">
                   <NativeSelect id="func-uf" value={f.uf} onChange={(e) => set("uf", e.target.value)}>

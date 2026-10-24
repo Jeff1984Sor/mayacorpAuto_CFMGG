@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "Maya Jus"
+    app_name: str = "MayaJus"
     ambiente: Literal["dev", "hml", "prod"] = "dev"
     database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'dev.db').as_posix()}"
     storage_dir: Path = BASE_DIR / "storage"

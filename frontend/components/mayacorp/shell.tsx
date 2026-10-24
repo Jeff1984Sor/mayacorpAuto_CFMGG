@@ -196,7 +196,7 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
         {!recolhido && (
           <div className="min-w-0 flex-1 leading-tight">
             <p className="truncate text-sm font-semibold text-white">{nome_exibicao}</p>
-            <p className="text-[11px] text-sidebar-foreground/60">Maya Jus</p>
+            <p className="text-[11px] text-sidebar-foreground/60">MayaJus</p>
           </div>
         )}
         {onRecolher && !recolhido && (

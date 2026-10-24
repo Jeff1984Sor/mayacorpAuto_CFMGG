@@ -32,7 +32,7 @@ export function ClientLogo({ className, compacto }: { className?: string; compac
   );
 }
 
-/** Marca do produto Maya Jus (telas públicas não mostram o nome do cliente). */
+/** Marca do produto MayaJus (telas públicas não mostram o nome do cliente). */
 export function MayaJusLogo({ className, claro }: { className?: string; claro?: boolean }) {
   return (
     <div className={cn("flex items-center gap-3", className)}>
@@ -43,7 +43,7 @@ export function MayaJusLogo({ className, claro }: { className?: string; claro?: 
       </div>
       <div>
         <p className={cn("text-lg leading-tight font-semibold tracking-tight", claro ? "text-white" : "text-foreground")}>
-          Maya <span className="text-brand">Jus</span>
+          Maya<span className="text-brand">Jus</span>
         </p>
         <p className={cn("text-xs", claro ? "text-white/60" : "text-muted-foreground")}>Gestão para escritórios de advocacia</p>
       </div>

@@ -57,7 +57,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const publica = /^\/(login|redefinir-senha)/.test(window.location.pathname);
-    document.title = publica ? "Maya Jus · Gestão jurídica" : `${ident.nome_exibicao} · Maya Jus`;
+    document.title = publica ? "MayaJus · Gestão jurídica" : `${ident.nome_exibicao} · MayaJus`;
   }, [ident.nome_exibicao]);
 
   return (

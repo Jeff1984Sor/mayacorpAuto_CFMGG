@@ -15,6 +15,7 @@ from app.core.deps import Admin, Ctx, Operador
 from app.core.models import Cargo, Usuario
 from app.core.schemas import Mensagem
 from app.modules.faturamento import service
+from app.modules.faturamento.judiciario import INSTANCIAS
 from app.modules.faturamento.models import (
     ROTULO_TIPO_CASO,
     Andamento,
@@ -244,7 +245,7 @@ def _caso_out(ctx, c: Caso) -> CasoOut:
         responsavel_id=c.responsavel_id, responsavel_nome=resp.nome if resp else None, status=c.status,
         tipo=c.tipo, tipo_nome=ROTULO_TIPO_CASO.get(c.tipo) if c.tipo else None,
         area_id=c.area_id, area_nome=c.area.nome if c.area else None, area_cor=c.area.cor if c.area else None, polo=c.polo,
-        tribunal=c.tribunal, vara=c.vara, comarca=c.comarca, valor_causa=c.valor_causa, data_distribuicao=c.data_distribuicao,
+        instancia=c.instancia, instancia_nome=INSTANCIAS.get(c.instancia or ""), tribunal=c.tribunal, vara=c.vara, comarca=c.comarca, valor_causa=c.valor_causa, data_distribuicao=c.data_distribuicao,
         campos=c.campos or {}, qtd_anexos=len(c.anexos), qtd_andamentos=len(c.andamentos),
         tabela_preco_id=c.tabela_preco_id,
         tabela_preco_efetiva=(t.nome if (t := ctx.db.get(TabelaPreco, c.tabela_preco_id or c.contrato.tabela_preco_id or 0)) else None),
@@ -436,7 +437,7 @@ def _ia(ctx, acao: str, sistema: str, usuario: str, anexo=None) -> dict:
     return r
 
 
-SISTEMA_CASO = ("Você é assistente jurídico do Maya Jus, sistema de gestão de um escritório de advocacia brasileiro. "
+SISTEMA_CASO = ("Você é assistente jurídico do MayaJus, sistema de gestão de um escritório de advocacia brasileiro. "
                 "Escreva em português do Brasil, de forma objetiva e profissional, sem inventar fatos. "
                 "Responda SOMENTE com um objeto JSON válido no formato pedido.")
 
@@ -477,7 +478,7 @@ async def preencher_caso_ia(ctx: Operador, texto: str | None = Form(None), arqui
     extra = {str(c.id): f"{c.nome} ({c.tipo.value}{': ' + '|'.join(c.opcoes) if c.opcoes else ''})" for c in campos_}
     formato = ('{"titulo": "título curto do caso", "numero_processo": "formato CNJ", "parte_contraria": str, '
                '"tipo": "consultivo|administrativo|judicial_estadual|judicial_federal|judicial_trabalhista", '
-               '"polo": "ativo|passivo|terceiro|consultivo", "tribunal": "ex.: TJSP", "vara": str, "comarca": str, '
+               '"polo": "ativo|passivo|terceiro|consultivo", "instancia": "primeira|juizado|segunda|turma_recursal|superior|stf", "tribunal": "ex.: TJSP", "vara": str, "comarca": str, '
                '"valor_causa": number, "data_distribuicao": "AAAA-MM-DD", "area": "uma das áreas", '
                '"descricao": "resumo do caso em 3-6 frases", "campos": {"<id>": valor}}')
     r = _ia(ctx, "preencher_caso", SISTEMA_CASO,
@@ -485,12 +486,14 @@ async def preencher_caso_ia(ctx: Operador, texto: str | None = Form(None), arqui
             f"Áreas do escritório: {', '.join(areas_) or '(nenhuma cadastrada)'}. "
             f"Campos adicionais (id: nome e tipo): {extra or '{}'}.\nFormato: {formato}\n\nDocumento:\n{conteudo_txt[:30000]}",
             anexo)
-    sug = {k: r.get(k) for k in ("titulo", "tipo", "numero_processo", "parte_contraria", "polo", "tribunal", "vara", "comarca",
+    sug = {k: r.get(k) for k in ("titulo", "tipo", "instancia", "numero_processo", "parte_contraria", "polo", "tribunal", "vara", "comarca",
                                  "valor_causa", "data_distribuicao", "descricao") if r.get(k) not in (None, "", "null")}
     if sug.get("polo") not in ("ativo", "passivo", "terceiro", "consultivo"):
         sug.pop("polo", None)
     if sug.get("tipo") not in {t.value for t in TipoCaso}:
         sug.pop("tipo", None)
+    if sug.get("instancia") not in INSTANCIAS:
+        sug.pop("instancia", None)
     try:
         if "data_distribuicao" in sug:
             sug["data_distribuicao"] = date.fromisoformat(str(sug["data_distribuicao"])[:10]).isoformat()

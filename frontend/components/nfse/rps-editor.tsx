@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
+import { CidadeInput } from "@/components/mayacorp/cidade-input";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -238,7 +239,7 @@ export function RpsEditor({
                     <Input value={t.bairro} disabled={desab} onChange={(e) => setT({ ...t, bairro: e.target.value })} />
                   </Field>
                   <Field label="Cidade">
-                    <Input value={t.cidade} disabled={desab} onChange={(e) => setT({ ...t, cidade: e.target.value })} />
+                    <CidadeInput uf={t.uf} value={t.cidade} disabled={desab} onChange={(e) => setT({ ...t, cidade: e.target.value })} />
                   </Field>
                   <Field label="UF">
                     <NativeSelect value={t.uf} disabled={desab} onChange={(e) => setT({ ...t, uf: e.target.value })}>

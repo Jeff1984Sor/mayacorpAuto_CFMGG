@@ -362,3 +362,25 @@ def test_comprovante_da_despesa_vai_para_anexos(cliente):  # noqa: F811
     assert cliente.delete(f"/api/faturamento/anexos/{anexos[0]['id']}", headers=h).status_code == 400
     assert cliente.delete(f"/api/faturamento/despesas/{d['id']}", headers=h).status_code == 200
     assert cliente.get(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h).json() == []
+
+
+def test_judiciario_tribunais_comarcas_varas_instancia(cliente):  # noqa: F811
+    h = _login(cliente)
+    est = cliente.get("/api/faturamento/judiciario/tribunais", headers=h, params={"tipo": "judicial_estadual"}).json()
+    assert len(est) == 27 and any(t["sigla"] == "TJSP" for t in est) and any(t["sigla"] == "TJDFT" for t in est)
+    fed = cliente.get("/api/faturamento/judiciario/tribunais", headers=h, params={"tipo": "judicial_federal"}).json()
+    assert [t["sigla"] for t in fed] == ["TRF1", "TRF2", "TRF3", "TRF4", "TRF5", "TRF6"]
+    trab = cliente.get("/api/faturamento/judiciario/tribunais", headers=h, params={"tipo": "judicial_trabalhista"}).json()
+    assert len(trab) == 24
+    sup = cliente.get("/api/faturamento/judiciario/tribunais", headers=h, params={"instancia": "superior"}).json()
+    assert {t["sigla"] for t in sup} >= {"STF", "STJ", "TST"}
+    com = cliente.get("/api/faturamento/judiciario/comarcas", headers=h, params={"tribunal": "TJSP"}).json()
+    assert "Campinas" in com and len(com) == 645
+    assert "Vitória (ES)" in cliente.get("/api/faturamento/judiciario/comarcas", headers=h, params={"tribunal": "TRF2"}).json()
+    _, _, caso = _base(cliente, h, "J")
+    r = cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={
+        "titulo": "Caso J", "tipo": "judicial_estadual", "instancia": "primeira", "tribunal": "TJSP", "comarca": "Campinas",
+        "vara": "3ª Vara Cível de Campinas"})
+    assert r.status_code == 200 and r.json()["instancia_nome"] == "1ª instância"
+    varas = cliente.get("/api/faturamento/judiciario/varas", headers=h, params={"tribunal": "TJSP", "comarca": "Campinas"}).json()
+    assert varas[0] == "3ª Vara Cível de Campinas" and "1ª Vara Cível" in varas

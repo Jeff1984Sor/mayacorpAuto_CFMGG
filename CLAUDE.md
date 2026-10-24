@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> **Leia primeiro.** **Maya Jus** (MayaCorp): gestão de escritório de advocacia, white-label, com hub de RPAs. Cliente atual: **CFME Advogados**
+> **Leia primeiro.** **MayaJus** (MayaCorp): gestão de escritório de advocacia, white-label, com hub de RPAs. Cliente atual: **CFME Advogados**
 > (o nome, o logo e a cor vêm de Configurações › Identidade; nunca deixe "CFME" fixo no código de produto).
 > Especificação: `MayaCorp_Automacoes_RPA01_NFSe.md`.
 

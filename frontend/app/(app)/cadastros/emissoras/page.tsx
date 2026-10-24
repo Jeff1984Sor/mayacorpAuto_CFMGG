@@ -20,6 +20,7 @@ import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
+import { CidadeInput } from "@/components/mayacorp/cidade-input";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -355,7 +356,7 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
           </Field>
           <div className="grid grid-cols-[1fr_80px] gap-3">
             <Field label="Cidade">
-              <Input {...f.register("cidade")} />
+              <CidadeInput uf={f.watch("uf")} {...f.register("cidade")} />
             </Field>
             <Field label="UF">
               <Input {...f.register("uf")} maxLength={2} className="uppercase" />

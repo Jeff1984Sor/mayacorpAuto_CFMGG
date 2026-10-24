@@ -120,3 +120,10 @@ def test_raio_x_aponta_dobro_e_valor_atipico(cliente):
     tipos = {i["tipo"] for i in rx["insights"]}
     assert {"duplicidade", "valor_atipico"} <= tipos
     assert 0 <= rx["score"] <= 100 and rx["frase"]
+
+
+def test_cidades_da_uf(cliente):
+    h = _login(cliente)
+    sp = cliente.get("/api/cadastros/cidades/sp", headers=h).json()
+    assert "São Paulo" in sp and "Campinas" in sp and len(sp) == 645
+    assert cliente.get("/api/cadastros/cidades/XX", headers=h).status_code == 404
