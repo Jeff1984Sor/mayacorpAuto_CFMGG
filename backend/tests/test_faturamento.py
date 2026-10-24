@@ -427,3 +427,27 @@ def test_tarefas_crud_filtros_e_anexos(cliente):  # noqa: F811
     assert r["status"] == "concluida" and r["concluida_em"] == hoje.isoformat() and not r["atrasada"]
     assert cliente.delete(f"/api/faturamento/tarefas/{avulsa['id']}", headers=h).status_code == 200
     assert cliente.get(f"/api/faturamento/anexos/{b[0]['id']}", headers=h).status_code == 404
+
+
+def test_timesheet_central(cliente):  # noqa: F811
+    h = _login(cliente)
+    _, contrato, caso = _base(cliente, h, "K")
+    cargo = cliente.post("/api/config/cargos", headers=h, json={"nome": "Cargo K"}).json()
+    tab = cliente.post("/api/faturamento/tabelas", headers=h, json={"nome": "Tabela K", "itens": [{"cargo_id": cargo["id"], "valor_hora": "600"}]}).json()
+    cliente.put(f"/api/faturamento/contratos/{contrato['id']}", headers=h, json={**contrato, "tabela_preco_id": tab["id"]})
+    cliente.post(f"/api/faturamento/contratos/{contrato['id']}/regras", headers=h, json={"tipo": "hora", "descricao": "Horas"})
+    eu = cliente.get("/api/auth/me", headers=h).json()
+    cliente.patch(f"/api/config/usuarios/{eu['id']}", headers=h, json={"cargo_id": cargo["id"]})
+    hoje = date.today().isoformat()
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/timesheet", headers=h, json={"data": hoje, "minutos": 90, "descricao": "Parecer"})
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/timesheet", headers=h, json={"data": hoje, "minutos": 30, "descricao": "Interno", "faturavel": False})
+    r = cliente.get("/api/faturamento/timesheet", headers=h, params={"caso_id": caso["id"]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["resumo"]["minutos"] == 120 and d["resumo"]["minutos_faturaveis"] == 90 and d["resumo"]["aproveitamento"] == 75
+    assert d["resumo"]["valor_a_faturar"] == "900.00" and d["por_profissional"][0]["minutos"] == 120
+    parecer = next(x for x in d["itens"] if x["descricao"] == "Parecer")
+    assert parecer["valor_hora"] == "600.00" and parecer["cliente_nome"].startswith("Cliente Faturamento K")
+    assert d["resumo"]["meus_minutos_hoje"] >= 120
+    assert cliente.get("/api/faturamento/timesheet", headers=h, params={"caso_id": caso["id"], "faturavel": False}).json()["resumo"]["minutos"] == 30
+    assert cliente.get("/api/faturamento/timesheet/exportar.xlsx", headers=h).content[:2] == b"PK"
