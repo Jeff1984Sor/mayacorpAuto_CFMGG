@@ -84,6 +84,8 @@ class ConfigNfse(Base, Timestamped):
     # Fatura (Nota de Honorários) gerada para cada NFS-e emitida
     fatura_ativa: Mapped[bool] = mapped_column(Boolean, default=True)
     fatura_dias_vencimento: Mapped[int] = mapped_column(Integer, default=10)
+    # "dias": vence N dias após a emissão · "emissao": vence na própria data de emissão da nota (à vista)
+    fatura_vencimento_modo: Mapped[str] = mapped_column(String(10), default="dias")
     fatura_instrucoes: Mapped[str | None] = mapped_column(Text)
     fatura_anexar_email: Mapped[bool] = mapped_column(Boolean, default=True)
 

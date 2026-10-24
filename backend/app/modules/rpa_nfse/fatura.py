@@ -37,7 +37,8 @@ def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:
     fat = Fatura(
         tenant_id=nota.tenant_id, emissora_id=nota.emissora_id, nfse_id=nota.id, tomador_id=nota.tomador_id,
         ano=emissao.year, numero=proximo_numero(db, nota.emissora_id, emissao.year), data_emissao=emissao,
-        data_vencimento=emissao + timedelta(days=cfg.fatura_dias_vencimento or 10),
+        data_vencimento=emissao if cfg.fatura_vencimento_modo == "emissao"
+        else emissao + timedelta(days=cfg.fatura_dias_vencimento if cfg.fatura_dias_vencimento is not None else 10),
         descricao=nota.rps.discriminacao or "Honorários advocatícios", valor=nota.valor,
     )
     db.add(fat)

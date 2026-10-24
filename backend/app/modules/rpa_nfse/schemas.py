@@ -317,6 +317,7 @@ class RaioXOut(Schema):
 class ConfigAutomacoesIn(BaseModel):
     fatura_ativa: bool = True
     fatura_dias_vencimento: int = Field(default=10, ge=0, le=120)
+    fatura_vencimento_modo: str = Field(default="dias", pattern="^(dias|emissao)$")
     fatura_instrucoes: str | None = None
     fatura_anexar_email: bool = True
     relatorio_emissao_ativo: bool = False
@@ -331,6 +332,7 @@ class ConfigAutomacoesIn(BaseModel):
 class ConfigAutomacoesOut(Schema):
     fatura_ativa: bool
     fatura_dias_vencimento: int
+    fatura_vencimento_modo: str
     fatura_instrucoes: str | None
     fatura_anexar_email: bool
     relatorio_emissao_ativo: bool

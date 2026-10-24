@@ -156,17 +156,53 @@ export default function AutomacoesPage() {
           <Switch checked={c.fatura_ativa} onCheckedChange={(v) => set("fatura_ativa", v)} />
         </SwitchRow>
         <div className={cn("grid gap-4 sm:grid-cols-[200px_1fr]", !c.fatura_ativa && "pointer-events-none opacity-50")}>
-          <Field label="Dias para vencimento" dica="Contados da emissão.">
-            <Input
-              type="number"
-              min={0}
-              max={120}
-              value={c.fatura_dias_vencimento}
-              onChange={(e) => set("fatura_dias_vencimento", Math.max(0, Math.min(120, Number(e.target.value))))}
-              className="num"
-            />
+          <Field label="Vencimento da fatura" className="sm:col-span-2" dica={
+            c.fatura_vencimento_modo === "emissao"
+              ? "A fatura vence no mesmo dia em que a NFS-e é gerada (à vista)."
+              : `A fatura vence ${c.fatura_dias_vencimento} dia(s) depois da emissão da NFS-e.`
+          }>
+            <div className="flex flex-wrap items-center gap-2">
+              <div role="radiogroup" className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+                {(
+                  [
+                    ["emissao", "Na data de emissão da nota"],
+                    ["dias", "Dias após a emissão"],
+                  ] as const
+                ).map(([modo, rotulo]) => (
+                  <button
+                    key={modo}
+                    type="button"
+                    role="radio"
+                    aria-checked={c.fatura_vencimento_modo === modo}
+                    onClick={() => set("fatura_vencimento_modo", modo)}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm transition",
+                      c.fatura_vencimento_modo === modo
+                        ? "bg-background font-medium text-foreground shadow-sm ring-1 ring-border"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+              {c.fatura_vencimento_modo === "dias" && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={120}
+                    aria-label="Dias para vencimento"
+                    value={c.fatura_dias_vencimento}
+                    onChange={(e) => set("fatura_dias_vencimento", Math.max(0, Math.min(120, Number(e.target.value))))}
+                    className="num w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">dias</span>
+                </div>
+              )}
+            </div>
           </Field>
-          <Field label="Instruções de pagamento" dica="Saem no rodapé da fatura.">
+          <Field label="Instruções de pagamento" dica="Saem no rodapé da fatura." className="sm:col-span-2">
             <Textarea
               rows={3}
               value={c.fatura_instrucoes ?? ""}

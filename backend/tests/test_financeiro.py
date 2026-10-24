@@ -173,3 +173,16 @@ def test_dashboard_faturamento(cliente):  # noqa: F811
     assert d["notas"] and {"cliente", "emissao", "valor", "situacao", "fatura", "pagamento"} <= set(d["notas"][0])
     assert d["lotes"] and d["inicial"]["ate"] == d["hoje"]
     assert {n["situacao"] for n in d["notas"]} <= {"aberta", "vencida", "paga", "cancelada"}
+
+
+def test_fatura_vence_na_data_de_emissao(cliente):  # noqa: F811
+    h = _login(cliente)
+    cfg = cliente.get("/api/config/automacoes", headers=h).json()
+    assert cfg["fatura_vencimento_modo"] == "dias"
+    cfg.update(fatura_vencimento_modo="emissao", relatorio_emissao_ativo=False)
+    assert cliente.put("/api/config/automacoes", headers=h, json=cfg).status_code == 200
+    lote = _emitir(cliente, h, [9601], "555.55")
+    f = cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote["id"]}).json()["itens"][0]
+    assert f["data_vencimento"] == f["data_emissao"]
+    cfg.update(fatura_vencimento_modo="dias")
+    cliente.put("/api/config/automacoes", headers=h, json=cfg)

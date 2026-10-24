@@ -247,3 +247,66 @@ html.ambiente-hml {
   background-size: 200% 100%;
   animation: ia-shimmer 1.4s linear infinite;
 }
+
+/* Dataviz — paleta MayaCorp validada (scripts/validate_palette.js do skill dataviz):
+   séries Emitido×Recebido: claro #4a5bc4/#1a8f5e (surface #fff) · escuro #6c7ff0/#1f9e68 (surface card escuro)
+   aging ordinal vermelho e heatmap sequencial indigo: monotônicos, matiz único. Situação = status (sempre com ícone + rótulo). */
+:root {
+  --viz-1: #4a5bc4;
+  --viz-2: #1a8f5e;
+  --viz-aberta: #4a5bc4;
+  --viz-vencida: #c94343;
+  --viz-paga: #1a8f5e;
+  --viz-cancelada: #8a90a6;
+  --viz-age-1: #e58f8f;
+  --viz-age-2: #d96a6a;
+  --viz-age-3: #c94343;
+  --viz-age-4: #a83434;
+  --viz-age-5: #862828;
+  --viz-heat-1: #dfe4fb;
+  --viz-heat-2: #b9c3f6;
+  --viz-heat-3: #8e9cef;
+  --viz-heat-4: #6577e2;
+  --viz-heat-5: #4a5bc4;
+  --viz-heat-6: #33439c;
+  --viz-heat-7: #1e2d6b;
+  --viz-muted: color-mix(in oklab, #0f1729 22%, #ffffff);
+  --viz-grid: color-mix(in oklab, #1e2d6b 9%, #ffffff);
+  --viz-axis: color-mix(in oklab, #0f1729 50%, #ffffff);
+}
+.dark {
+  --viz-1: #6c7ff0;
+  --viz-2: #1f9e68;
+  --viz-aberta: #6c7ff0;
+  --viz-vencida: #d65252;
+  --viz-paga: #1f9e68;
+  --viz-cancelada: #9aa0b4;
+  --viz-age-1: #a53838;
+  --viz-age-2: #c94343;
+  --viz-age-3: #d96a6a;
+  --viz-age-4: #e58f8f;
+  --viz-age-5: #efb2b2;
+  --viz-heat-1: #26336e;
+  --viz-heat-2: #33439c;
+  --viz-heat-3: #4a5bc4;
+  --viz-heat-4: #6c7ff0;
+  --viz-heat-5: #8e9cef;
+  --viz-heat-6: #b9c3f6;
+  --viz-heat-7: #dfe4fb;
+  --viz-muted: color-mix(in oklab, #f7f8fc 26%, #18203a);
+  --viz-grid: rgb(247 248 252 / 0.07);
+  --viz-axis: color-mix(in oklab, #f7f8fc 55%, #18203a);
+}
+
+/* gráficos: sem contorno no clique de mouse; o foco por teclado continua visível */
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible),
+.recharts-sector:focus:not(:focus-visible),
+.recharts-rectangle:focus:not(:focus-visible) {
+  outline: none;
+}
+.recharts-wrapper:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: 8px;
+}

@@ -431,6 +431,8 @@ export interface RaioXOut {
 export interface ConfigAutomacoes {
   fatura_ativa: boolean;
   fatura_dias_vencimento: number;
+  /** "dias": N dias após a emissão · "emissao": vence na data de emissão da nota */
+  fatura_vencimento_modo: "dias" | "emissao";
   fatura_instrucoes: string | null;
   fatura_anexar_email: boolean;
   relatorio_emissao_ativo: boolean;

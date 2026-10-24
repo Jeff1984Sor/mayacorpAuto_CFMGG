@@ -9,6 +9,7 @@ import {
   KeyRound,
   Landmark,
   Layers,
+  LayoutDashboard,
   Mail,
   Palette,
   Percent,
@@ -46,7 +47,10 @@ const ADMIN: Perfil[] = ["admin"];
 export const NAV: NavGrupo[] = [
   {
     titulo: "Geral",
-    itens: [{ label: "Início", href: "/", icone: Home, perfis: TODOS, exato: true }],
+    itens: [
+      { label: "Início", href: "/", icone: Home, perfis: TODOS, exato: true },
+      { label: "Dashboard", href: "/dashboard", icone: LayoutDashboard, perfis: TODOS, atalho: "G D" },
+    ],
   },
   {
     titulo: "Cadastros",
