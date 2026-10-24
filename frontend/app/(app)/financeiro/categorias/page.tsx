@@ -105,7 +105,7 @@ function Bloco({
   titulo,
   tipo,
   cats,
-  abertos,
+  fechados,
   alternar,
   selecao,
   sel,
@@ -116,7 +116,7 @@ function Bloco({
   titulo: string;
   tipo?: TipoCategoria;
   cats: CategoriaOut[];
-  abertos: Set<number>;
+  fechados: Set<number>;
   alternar: (id: number) => void;
   selecao: boolean;
   sel: { cats: Set<number>; subs: Set<number> };
@@ -126,6 +126,8 @@ function Bloco({
 }) {
   const qc = useQueryClient();
   const [nova, setNova] = useState("");
+  const [recolhido, setRecolhido] = useState(false);
+  const qtdItens = cats.reduce((n, c) => n + c.subcategorias.length, 0);
   const [novaSub, setNovaSub] = useState<Record<number, string>>({});
   const invalidar = () => qc.invalidateQueries({ queryKey: ["fin"] });
   const salvarCat = useMutation({
@@ -159,10 +161,16 @@ function Bloco({
 
   return (
     <section className={cn("card-surface overflow-hidden", destaque && "ring-1 ring-warning/40")} aria-label={titulo}>
-      <header className={cn("flex flex-wrap items-center gap-2 border-b px-4 py-3", destaque && "bg-warning/8")}>
+      <header className={cn("flex flex-wrap items-center gap-2 border-b px-4 py-3", tipo === "despesa" && "bg-danger/5", tipo === "receita" && "bg-success/5", destaque && "bg-warning/8")}>
+        <button type="button" onClick={() => setRecolhido((r) => !r)} aria-expanded={!recolhido} aria-label={`${recolhido ? "Abrir" : "Recolher"} ${titulo}`} className="rounded p-0.5 hover:bg-muted">
+          <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", !recolhido && "rotate-90")} />
+        </button>
         {destaque && <AlertTriangle className="size-4 text-warning-ink" />}
-        <h2 className="font-semibold">{titulo}</h2>
-        <span className="text-xs text-muted-foreground">{cats.length}</span>
+        <span className={cn("size-2.5 rounded-full", tipo === "despesa" ? "bg-danger" : tipo === "receita" ? "bg-success" : "bg-warning")} />
+        <h2 className="text-base font-semibold">{titulo}</h2>
+        <span className="text-xs text-muted-foreground">
+          {cats.length} categoria(s) · {qtdItens} item(ns)
+        </span>
         {tipo && podeEditar && (
           <form
             className="ml-auto flex items-center gap-1.5"
@@ -179,38 +187,38 @@ function Bloco({
         )}
       </header>
       {destaque && <p className="border-b bg-warning/5 px-4 py-2 text-xs text-muted-foreground">Nomes com vírgula costumam ser dois campos colados na planilha. Renomeie, junte ou exclua.</p>}
-      {cats.length === 0 ? (
+      {recolhido ? null : cats.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma categoria{tipo ? "" : " para revisar"}.</p>
       ) : (
         <ul className="divide-y">
           {cats.map((c) => {
-            const aberto = abertos.has(c.id);
+            const aberto = !fechados.has(c.id);
             const emUso = c.uso_contas + c.uso_lancamentos > 0;
             const podeExcluir = !emUso && c.subcategorias.length === 0;
             return (
               <li key={c.id} className={cn(!c.ativo && "opacity-60")}>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 hover:bg-accent/30">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5 pr-4 pl-8 hover:bg-accent/30">
                   {selecao && <Checkbox checked={sel.cats.has(c.id)} onCheckedChange={(v) => marcar("cats", c.id, !!v)} aria-label={`Selecionar ${c.nome}`} />}
                   <button type="button" onClick={() => alternar(c.id)} aria-expanded={aberto} aria-label={`${aberto ? "Recolher" : "Abrir"} ${c.nome}`} className="rounded p-0.5 hover:bg-muted">
                     <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", aberto && "rotate-90")} />
                   </button>
                   <CorPicker cor={c.cor} rotulo={c.nome} desabilitado={!podeEditar} onChange={(cor) => salvarCat.mutate({ ...c, cor })} />
-                  <NomeEditavel valor={c.nome} rotulo={c.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarCat.mutate({ ...c, nome })} className="min-w-40 flex-1 font-medium" />
+                  <NomeEditavel valor={c.nome} rotulo={c.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarCat.mutate({ ...c, nome })} className="min-w-40 flex-1 font-semibold" />
                   {c.revisar && !destaque && <Pill tom="warning">revisar</Pill>}
                   <span className="text-xs text-muted-foreground">
-                    {c.subcategorias.length} sub · {c.uso_contas} conta(s) · {c.uso_lancamentos} lançamento(s)
+                    {c.subcategorias.length} item(ns) · {c.uso_contas + c.uso_lancamentos} uso(s)
                   </span>
                   <NativeSelect
                     aria-label={`Grupo da DRE de ${c.nome}`}
                     value={c.grupo_dre ?? ""}
                     disabled={!podeEditar}
                     onChange={(e) => salvarCat.mutate({ ...c, grupo_dre: (e.target.value || null) as GrupoDre | null })}
-                    className={cn("h-8 w-56 text-xs", !c.grupo_dre && "border-warning/60 text-warning-ink")}
+                    className={cn("h-7 w-52 text-xs", !c.grupo_dre && "border-warning/60 text-warning-ink")}
                   >
-                    <option value="">Não classificado (DRE)</option>
+                    <option value="">DRE: não classificado</option>
                     {Object.entries(ROTULO_GRUPO_DRE).map(([k, l]) => (
                       <option key={k} value={k}>
-                        {l}
+                        DRE: {l}
                       </option>
                     ))}
                   </NativeSelect>
@@ -221,7 +229,7 @@ function Bloco({
                         variant="ghost"
                         size="icon-sm"
                         disabled={!podeExcluir || excluirCat.isPending}
-                        title={emUso ? "Em uso: desative em vez de excluir" : c.subcategorias.length ? "Exclua as subcategorias antes" : "Excluir"}
+                        title={emUso ? "Em uso: desative em vez de excluir" : c.subcategorias.length ? "Exclua os itens antes" : "Excluir"}
                         aria-label={`Excluir ${c.nome}`}
                         onClick={() => excluirCat.mutate(c.id)}
                       >
@@ -231,13 +239,13 @@ function Bloco({
                   )}
                 </div>
                 {aberto && (
-                  <div className="border-t bg-muted/20 py-1.5 pr-4 pl-14">
-                    {c.subcategorias.length === 0 && <p className="py-1.5 text-xs text-muted-foreground">Sem subcategorias.</p>}
-                    <ul>
+                  <div className="pr-4 pb-2 pl-[4.25rem]">
+                    <ul className="border-l-2 border-border/70">
+                      {c.subcategorias.length === 0 && <li className="py-1.5 pl-4 text-xs text-muted-foreground">Nenhum item ainda.</li>}
                       {c.subcategorias.map((s) => (
-                        <li key={s.id} className={cn("flex items-center gap-3 py-1 text-sm", !s.ativo && "opacity-60")}>
+                        <li key={s.id} className={cn("relative flex items-center gap-3 rounded-r-lg py-1.5 pr-1 pl-4 text-sm hover:bg-accent/30", !s.ativo && "opacity-60")}>
+                          <span className="absolute top-1/2 left-0 h-px w-3 bg-border" aria-hidden />
                           {selecao && <Checkbox checked={sel.subs.has(s.id)} onCheckedChange={(v) => marcar("subs", s.id, !!v)} aria-label={`Selecionar ${s.nome}`} />}
-                          <span className="text-muted-foreground">›</span>
                           <NomeEditavel valor={s.nome} rotulo={s.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarSub.mutate({ ...s, nome })} className="min-w-0 flex-1" />
                           <span className="text-xs text-muted-foreground">{s.uso} uso(s)</span>
                           {podeEditar && (
@@ -260,7 +268,7 @@ function Bloco({
                     </ul>
                     {podeEditar && (
                       <form
-                        className="mt-1 flex items-center gap-1.5 pb-1"
+                        className="mt-0.5 flex items-center gap-1.5 border-l-2 border-dashed border-border/70 py-1 pl-4"
                         onSubmit={(e) => {
                           e.preventDefault();
                           const nome = (novaSub[c.id] ?? "").trim();
@@ -268,10 +276,10 @@ function Bloco({
                         }}
                       >
                         <Input
-                          aria-label={`Nova subcategoria de ${c.nome}`}
+                          aria-label={`Novo item de ${c.nome}`}
                           value={novaSub[c.id] ?? ""}
                           onChange={(e) => setNovaSub((o) => ({ ...o, [c.id]: e.target.value }))}
-                          placeholder="Nova subcategoria"
+                          placeholder="Novo item"
                           className="h-7 w-56 text-xs"
                         />
                         <Button type="submit" size="xs" variant="outline" disabled={!(novaSub[c.id] ?? "").trim() || criarSub.isPending}>
@@ -295,7 +303,7 @@ export default function CategoriasPage() {
   const { isOperador } = useAuth();
   const q = useCategoriasFin();
   const [busca, setBusca] = useState("");
-  const [abertos, setAbertos] = useState<Set<number>>(new Set());
+  const [fechados, setFechados] = useState<Set<number>>(new Set());
   const [selecao, setSelecao] = useState(false);
   const [sel, setSel] = useState({ cats: new Set<number>(), subs: new Set<number>() });
   const termo = busca.trim().toLowerCase();
@@ -307,9 +315,9 @@ export default function CategoriasPage() {
   const normais = filtradas.filter((c) => !c.revisar);
   const semDre = (q.data ?? []).filter((c) => c.ativo && !c.grupo_dre).length;
   const todosIds = filtradas.map((c) => c.id);
-  const tudoAberto = todosIds.length > 0 && todosIds.every((id) => abertos.has(id));
+  const tudoAberto = !todosIds.some((id) => fechados.has(id));
   const alternar = (id: number) =>
-    setAbertos((s) => {
+    setFechados((s) => {
       const n = new Set(s);
       if (n.has(id)) n.delete(id);
       else n.add(id);
@@ -333,19 +341,18 @@ export default function CategoriasPage() {
     },
   });
   const nSel = sel.cats.size + sel.subs.size;
-  const props = { abertos, alternar, selecao, sel, marcar, podeEditar: isOperador };
+  const props = { fechados, alternar, selecao, sel, marcar, podeEditar: isOperador };
 
   return (
     <div>
       <PageHeader
         titulo="Categorias e Subcategorias"
-        descricao="Como as despesas e receitas são agrupadas nos relatórios e em qual linha da DRE cada uma cai."
         icone={FolderTree}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Categorias" }]}
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SearchInput value={busca} onChange={setBusca} placeholder="Buscar categoria ou subcategoria" className="sm:w-80" />
-        <Button variant="ghost" size="sm" onClick={() => setAbertos(tudoAberto ? new Set() : new Set(todosIds))}>
+        <SearchInput value={busca} onChange={setBusca} placeholder="Buscar categoria ou item" className="sm:w-80" />
+        <Button variant="ghost" size="sm" onClick={() => setFechados(tudoAberto ? new Set(todosIds) : new Set())}>
           {tudoAberto ? <ChevronsDownUp /> : <ChevronsUpDown />} {tudoAberto ? "Recolher tudo" : "Abrir tudo"}
         </Button>
         {isOperador && (
@@ -382,10 +389,8 @@ export default function CategoriasPage() {
       ) : (
         <div className="space-y-5">
           {revisar.length > 0 && <Bloco titulo="Vindas da importação — revisar" cats={revisar} destaque {...props} />}
-          <div className="grid gap-5 2xl:grid-cols-2">
-            <Bloco titulo="Despesas" tipo="despesa" cats={normais.filter((c) => c.tipo === "despesa")} {...props} />
-            <Bloco titulo="Receitas" tipo="receita" cats={normais.filter((c) => c.tipo === "receita")} {...props} />
-          </div>
+          <Bloco titulo="Despesas" tipo="despesa" cats={normais.filter((c) => c.tipo === "despesa")} {...props} />
+          <Bloco titulo="Receitas" tipo="receita" cats={normais.filter((c) => c.tipo === "receita")} {...props} />
           {selecao && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Check className="size-3.5" /> Itens em uso são pulados na exclusão em lote; desative-os.</p>}
         </div>
       )}
