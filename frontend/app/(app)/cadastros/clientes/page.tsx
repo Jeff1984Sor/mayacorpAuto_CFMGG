@@ -404,7 +404,6 @@ export default function ClientesPage() {
     <div>
       <PageHeader
         titulo="Clientes"
-        descricao="Tomadores das notas — alimentados automaticamente pelos arquivos importados."
         icone={UsersRound}
         migalhas={[{ label: "Cadastros", href: "/cadastros" }, { label: "Clientes" }]}
         acoes={
