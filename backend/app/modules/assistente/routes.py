@@ -55,7 +55,7 @@ class ExecutarIn(BaseModel):
 CATALOGO = {
     "navegar": "Abrir uma tela. {rota: '/financeiro/pagar?status=atrasado'} (rotas do sistema, começando com /)",
     "criar_andamento": "Andamento no caso. {caso_id, data: AAAA-MM-DD, tipo: andamento|publicacao|despacho|decisao|sentenca|"
-                       "audiencia|reuniao|nota, titulo, descricao?}",
+                       "nota, titulo, descricao?} (audiência, reunião e prazo são tarefas)",
     "criar_tarefa": "Tarefa (prazos, audiências, diligências...). {titulo, descricao?, prazo?: AAAA-MM-DD, hora?: HH:MM, caso_id?, "
                     "tipo?: prazo|audiencia|diligencia|reuniao|peticao|ligacao|administrativo|outro, prioridade?: baixa|media|alta|urgente, "
                     "responsavel_id?}",

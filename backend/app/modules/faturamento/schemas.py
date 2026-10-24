@@ -486,8 +486,8 @@ class AndamentoIn(BaseModel):
     @field_validator("tipo")
     @classmethod
     def _sem_prazo(cls, v):
-        if v == TipoAndamento.prazo:
-            raise ValueError("Prazos agora são Tarefas: use a aba Tarefas do caso.")
+        if v in (TipoAndamento.prazo, TipoAndamento.audiencia, TipoAndamento.reuniao):
+            raise ValueError("Prazos, audiências e reuniões agora são Tarefas: use a aba Tarefas do caso.")
         return v
 
     titulo: str = Field(min_length=2, max_length=200)

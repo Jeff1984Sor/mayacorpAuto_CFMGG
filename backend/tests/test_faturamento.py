@@ -274,14 +274,14 @@ def test_ficha_do_caso_areas_campos_anexos_andamentos(cliente):  # noqa: F811
 
     # andamentos
     r = cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
-        "data": "2026-04-01", "tipo": "audiencia", "titulo": "Contestação", "prazo": "2026-04-15"})
+        "data": "2026-04-01", "tipo": "despacho", "titulo": "Contestação", "prazo": "2026-04-15"})
     assert r.status_code == 201, r.text
     and1 = r.json()
     assert and1["atrasado"] is True  # prazo no passado e não concluído
     r = cliente.put(f"/api/faturamento/andamentos/{and1['id']}", headers=h, json={**and1, "concluido": True})
     assert r.json()["atrasado"] is False
     cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
-        "data": "2026-05-01", "tipo": "audiencia", "titulo": "Audiência inicial"})
+        "data": "2026-05-01", "tipo": "decisao", "titulo": "Audiência inicial"})
     lista = cliente.get(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h).json()
     assert [a["titulo"] for a in lista] == ["Audiência inicial", "Contestação"]
     assert cliente.delete(f"/api/faturamento/andamentos/{and1['id']}", headers=h).status_code == 200

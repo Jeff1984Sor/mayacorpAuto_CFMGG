@@ -627,15 +627,15 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
   const qc = useQueryClient();
   const { isOperador, usuario } = useAuth();
   const q = useQuery({ queryKey: ["fat", "tarefas", "caso", casoId], queryFn: () => api.get<TarefasListaOut>("/faturamento/tarefas", { caso_id: casoId }) });
-  const [rapida, setRapida] = useState({ titulo: "", prazo: "" });
+  const [rapida, setRapida] = useState({ titulo: "", prazo: "", descricao: "" });
   const [dlg, setDlg] = useState<{ t: TarefaOut | null } | null>(null);
   const [verConcluidas, setVerConcluidas] = useState(false);
   const [excluir, setExcluir] = useState<TarefaOut | null>(null);
   const criar = useMutation({
-    mutationFn: () => api.post<TarefaOut>("/faturamento/tarefas", { ...vazia(casoId, usuario?.id ?? null), titulo: rapida.titulo.trim(), prazo: rapida.prazo || null }),
+    mutationFn: () => api.post<TarefaOut>("/faturamento/tarefas", { ...vazia(casoId, usuario?.id ?? null), titulo: rapida.titulo.trim(), prazo: rapida.prazo || null, descricao: rapida.descricao.trim() || null }),
     onSuccess: (t) => {
       toast.success("Tarefa criada", { description: t.titulo });
-      setRapida({ titulo: "", prazo: "" });
+      setRapida({ titulo: "", prazo: "", descricao: "" });
       qc.invalidateQueries({ queryKey: ["fat"] });
     },
   });
@@ -671,6 +671,20 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
           <Button type="button" size="sm" variant="ghost" onClick={() => setDlg({ t: null })}>
             Mais detalhes
           </Button>
+          <Textarea
+            aria-label="Descrição da nova tarefa"
+            value={rapida.descricao}
+            onChange={(e) => setRapida({ ...rapida, descricao: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && rapida.titulo.trim().length >= 2) {
+                e.preventDefault();
+                criar.mutate();
+              }
+            }}
+            rows={2}
+            placeholder="Descrição (opcional) — Ctrl+Enter para criar"
+            className="basis-full resize-y text-sm"
+          />
         </form>
       )}
       {r && (r.atrasadas > 0 || r.hoje > 0) && (

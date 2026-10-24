@@ -35,7 +35,9 @@ export const TIPO_ANDAMENTO: Record<TipoAndamento, { l: string; icone: React.Com
   reuniao: { l: "Reunião", icone: Users, cor: "bg-teal-500/12 text-teal-700 ring-teal-500/25 dark:text-teal-300" },
   nota: { l: "Nota interna", icone: StickyNote, cor: "bg-muted text-muted-foreground ring-border" },
 };
-const COM_PRAZO: TipoAndamento[] = ["audiencia"];
+const COM_PRAZO: TipoAndamento[] = [];
+/** Audiência e reunião agora são Tarefas: ficam no mapa só para exibir registros antigos. */
+const TIPOS_NOVOS = (Object.keys(TIPO_ANDAMENTO) as TipoAndamento[]).filter((k) => k !== "audiencia" && k !== "reuniao");
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 const hoje = () => new Date().toLocaleDateString("sv-SE");
@@ -83,7 +85,7 @@ function AndamentoDialog({ open, onOpenChange, casoId, andamento }: { open: bool
     >
       <div className="space-y-4">
         <div role="radiogroup" aria-label="Tipo" className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
-          {(Object.entries(TIPO_ANDAMENTO) as [TipoAndamento, (typeof TIPO_ANDAMENTO)[TipoAndamento]][]).map(([k, t]) => (
+          {TIPOS_NOVOS.map((k) => [k, TIPO_ANDAMENTO[k]] as const).map(([k, t]) => (
             <button
               key={k}
               type="button"

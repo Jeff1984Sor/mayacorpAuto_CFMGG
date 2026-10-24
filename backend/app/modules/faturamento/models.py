@@ -201,7 +201,7 @@ class TipoAndamento(enum.StrEnum):
     decisao = "decisao"
     sentenca = "sentenca"
     audiencia = "audiencia"
-    prazo = "prazo"  # legado: prazos agora são Tarefas (não aceito em novos andamentos)
+    prazo = "prazo"  # legado: prazo, audiência e reunião agora são Tarefas (não aceitos em novos andamentos)
     reuniao = "reuniao"
     nota = "nota"  # nota interna
 
