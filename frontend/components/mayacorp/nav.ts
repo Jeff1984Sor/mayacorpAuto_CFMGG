@@ -3,6 +3,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   Briefcase,
+  Clock,
   ListTodo,
   Calculator,
   CalendarClock,
@@ -84,6 +85,7 @@ export const NAV: NavGrupo[] = [
       { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, perfis: TODOS },
       { label: "Casos", href: "/faturamento/casos", icone: Briefcase, perfis: TODOS },
       { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, perfis: TODOS, badge: "tarefas" },
+      { label: "Timesheet", href: "/faturamento/timesheet", icone: Clock, perfis: TODOS },
     ],
   },
   {
