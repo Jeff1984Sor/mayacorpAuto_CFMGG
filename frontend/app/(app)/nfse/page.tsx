@@ -186,7 +186,7 @@ export default function PainelNfsePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <PageHeader analiseIA={false}
         titulo="Painel da NFS-e"
         descricao="Emissor inteligente em lote · layout 2 (ISS, IBS e CBS)"
         icone={Gauge}

@@ -40,7 +40,6 @@ export default function RevisoesPage() {
     <div>
       <PageHeader
         titulo="Revisões"
-        descricao="Faturas montadas esperando conferência antes de virar NH ou ND."
         icone={FileSearch}
         migalhas={[{ label: "Faturamento" }, { label: "Revisões" }]}
         acoes={

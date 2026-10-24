@@ -58,11 +58,59 @@ export interface ContratoOut extends ContratoIn {
   qtd_regras: number;
 }
 
+export type Polo = "ativo" | "passivo" | "terceiro" | "consultivo";
+export type TipoCaso = "consultivo" | "administrativo" | "judicial_estadual" | "judicial_federal" | "judicial_trabalhista";
+
+export const ROTULO_TIPO_CASO: Record<TipoCaso, string> = {
+  consultivo: "Consultivo",
+  administrativo: "Administrativo",
+  judicial_estadual: "Judicial Estadual",
+  judicial_federal: "Judicial Federal",
+  judicial_trabalhista: "Judicial Trabalhista",
+};
+export type TipoCampo = "texto" | "texto_longo" | "numero" | "moeda" | "data" | "sim_nao" | "lista";
+export type ValorCampo = string | number | boolean | null;
+
+export interface AreaOut {
+  id: number;
+  nome: string;
+  cor: string | null;
+  ordem: number;
+  ativo: boolean;
+  qtd_casos: number;
+}
+
+export interface CampoIn {
+  nome: string;
+  tipo: TipoCampo;
+  opcoes: string[];
+  obrigatorio: boolean;
+  ajuda: string | null;
+  area_id: number | null;
+  ordem: number;
+  ativo: boolean;
+}
+
+export interface CampoOut extends CampoIn {
+  id: number;
+  qtd_preenchidos: number;
+}
+
 export interface CasoIn {
   titulo: string;
   descricao: string | null;
   numero_processo: string | null;
   parte_contraria: string | null;
+  tipo: TipoCaso | null;
+  area_id: number | null;
+  polo: Polo | null;
+  tribunal: string | null;
+  vara: string | null;
+  comarca: string | null;
+  valor_causa: string | null;
+  data_distribuicao: string | null;
+  /** {"<id do campo>": valor} */
+  campos: Record<string, ValorCampo>;
   responsavel_id: number | null;
   tabela_preco_id: number | null;
   status: StatusCaso;
@@ -79,6 +127,11 @@ export interface CasoOut extends CasoIn {
   tomador_id: number;
   tomador_nome: string;
   responsavel_nome: string | null;
+  tipo_nome: string | null;
+  area_nome: string | null;
+  area_cor: string | null;
+  qtd_anexos: number;
+  qtd_andamentos: number;
   tabela_preco_efetiva: string | null;
   tem_regra_propria: boolean;
   horas_pendentes: Decimal;
@@ -116,6 +169,57 @@ export interface SimulacaoOut {
   parcelas: { n: number; data: string }[];
   total_parcelas: number | null;
 }
+
+export type TipoAndamento = "andamento" | "publicacao" | "despacho" | "decisao" | "sentenca" | "audiencia" | "prazo" | "reuniao" | "nota";
+
+export interface AndamentoIn {
+  data: string;
+  tipo: TipoAndamento;
+  titulo: string;
+  descricao: string | null;
+  prazo: string | null;
+  concluido: boolean;
+  responsavel_id: number | null;
+}
+
+export interface AndamentoOut extends AndamentoIn {
+  id: number;
+  caso_id: number;
+  responsavel_nome: string | null;
+  criado_por: string | null;
+  criado_em: string;
+  atrasado: boolean;
+}
+
+export interface AnexoOut {
+  id: number;
+  caso_id: number;
+  nome: string;
+  descricao: string | null;
+  categoria: string | null;
+  tamanho: number;
+  mime: string | null;
+  enviado_por: string | null;
+  criado_em: string;
+}
+
+export interface ResumoCaso {
+  resumo: string;
+  situacao_atual: string;
+  proximos_passos: string[];
+  riscos: string[];
+  gerado_em: string;
+}
+
+/** Sugestões da IA para a ficha do caso (nada é salvo). */
+export type SugestaoCaso = Partial<Omit<CasoIn, "campos">> & { campos?: Record<string, ValorCampo> };
+
+export const ROTULO_POLO: Record<Polo, string> = {
+  ativo: "Polo ativo (autor)",
+  passivo: "Polo passivo (réu)",
+  terceiro: "Terceiro interessado",
+  consultivo: "Consultivo",
+};
 
 export interface TimesheetOut {
   id: number;

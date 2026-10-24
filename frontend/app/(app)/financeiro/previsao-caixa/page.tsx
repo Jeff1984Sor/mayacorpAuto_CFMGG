@@ -161,7 +161,6 @@ export default function PrevisaoCaixaPage() {
     <div>
       <PageHeader
         titulo="Previsão de Caixa"
-        descricao="Dia a dia, quanto vai ter na conta: recebimentos previstos, contas a pagar e gastos do dia a dia."
         icone={ChartLine}
         migalhas={[{ label: "Conta Bancária" }, { label: "Previsão de Caixa" }]}
       />

@@ -11,11 +11,11 @@ import { csv, normalizarBusca, ROTULO_SITUACAO, type Nota } from "@/lib/dashboar
 import { data, documento, moeda, numero } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Campo = "nf" | "fatura" | "cliente" | "emissao" | "vencimento" | "pagamento" | "valor" | "situacao" | "previsao";
+type Campo = "tipo" | "nf" | "fatura" | "cliente" | "emissao" | "vencimento" | "pagamento" | "valor" | "situacao" | "previsao";
 
 const COLS: { k: Campo; l: string; num?: boolean; classe?: string }[] = [
-  { k: "nf", l: "NF" },
-  { k: "fatura", l: "Fatura", classe: "hidden md:table-cell" },
+  { k: "fatura", l: "Fatura" },
+  { k: "nf", l: "NFS-e", classe: "hidden md:table-cell" },
   { k: "cliente", l: "Cliente" },
   { k: "emissao", l: "Emissão", classe: "hidden sm:table-cell" },
   { k: "vencimento", l: "Vencimento", classe: "hidden lg:table-cell" },
@@ -45,10 +45,14 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
 
   const exportar = () => {
     const linhas: (string | number | null)[][] = [
-      ["NF", "Fatura", "Cliente", "CPF/CNPJ", "Emissora", "Serviço", "Lote", "Emissão", "Vencimento", "Pagamento", "Valor", "ISS", "Recebido", "Situação", "Previsão de pagamento"],
+      ["Tipo", "Fatura", "NFS-e", "Situação da NFS-e", "Origem", "Contrato", "Cliente", "CPF/CNPJ", "Emissora", "Serviço", "Lote", "Emissão", "Vencimento", "Pagamento", "Valor", "ISS", "Recebido", "Situação", "Previsão de pagamento"],
       ...lista.map((n) => [
-        n.nf,
+        n.tipo,
         n.fatura,
+        n.nf,
+        n.nfse,
+        n.origem,
+        n.contrato,
         n.cliente,
         n.doc,
         n.emissora,
@@ -79,9 +83,9 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
     <section className="card-surface overflow-hidden">
       <div className="flex flex-col gap-2 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="font-semibold">Notas do filtro</h3>
+          <h3 className="font-semibold">Documentos do filtro</h3>
           <p className="text-xs text-muted-foreground">
-            <span className="num">{numero(lista.length)}</span> nota(s) · <span className="num">{moeda(total)}</span>
+            <span className="num">{numero(lista.length)}</span> documento(s) · <span className="num">{moeda(total)}</span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -93,7 +97,7 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
                 setQ(e.target.value);
                 setLimite(50);
               }}
-              placeholder="NF, fatura, cliente, CNPJ…"
+              placeholder="Fatura, NFS-e, cliente, contrato, CNPJ…"
               className="h-9 w-full rounded-lg border bg-background pr-2 pl-8 text-sm outline-none focus:border-ring"
             />
           </div>
@@ -124,19 +128,27 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
             {lista.slice(0, limite).map((n) => {
               const atrasada = !!n.previsao && n.previsao < hoje;
               return (
-                <tr key={n.id} className="transition-colors hover:bg-accent/40">
-                  <td className="px-3 py-2">
-                    <Link href={`/nfse/notas/${n.id}`} className="font-mono font-semibold text-info-ink hover:underline">
-                      {n.nf}
-                    </Link>
-                  </td>
-                  <td className="hidden px-3 py-2 md:table-cell">
+                <tr key={n.chave} className="transition-colors hover:bg-accent/40">
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span className={cn("mr-1.5 inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset", n.tipo === "ND" ? "bg-sky-500/10 text-sky-700 ring-sky-500/25 dark:text-sky-300" : "bg-brand/10 text-info-ink ring-brand/25")}>
+                      {n.tipo}
+                    </span>
                     {n.fatura_id ? (
-                      <Link href={`/nfse/faturas/${n.fatura_id}`} className="font-mono text-xs hover:underline">
+                      <Link href={`/nfse/faturas/${n.fatura_id}`} className="font-mono text-xs font-semibold text-info-ink hover:underline">
                         {n.fatura}
                       </Link>
                     ) : (
-                      "—"
+                      <span className="text-xs text-muted-foreground">sem fatura</span>
+                    )}
+                    {n.contrato !== "—" && <p className="max-w-44 truncate text-[11px] text-muted-foreground">{n.contrato}</p>}
+                  </td>
+                  <td className="hidden px-3 py-2 md:table-cell">
+                    {n.nf != null && n.nfse_id ? (
+                      <Link href={`/nfse/notas/${n.nfse_id}`} className={cn("font-mono font-semibold hover:underline", n.nfse === "Cancelada" ? "text-muted-foreground line-through" : "text-info-ink")}>
+                        {n.nf}
+                      </Link>
+                    ) : (
+                      <span className={cn("text-xs", n.nfse === "Aguardando NFS-e" ? "text-warning-ink" : "text-muted-foreground")}>{n.nfse === "Não se aplica (reembolso)" ? "não se aplica" : n.nfse}</span>
                     )}
                   </td>
                   <td className="max-w-56 px-3 py-2">

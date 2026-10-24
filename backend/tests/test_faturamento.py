@@ -232,3 +232,119 @@ def test_excluir_caso(cliente):  # noqa: F811
     r = cliente.delete(f"/api/faturamento/casos/{caso['id']}", headers=h).json()
     assert "encerrado" in r["mensagem"]
     assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()["status"] == "encerrado"
+
+
+def test_ficha_do_caso_areas_campos_anexos_andamentos(cliente):  # noqa: F811
+    h = _login(cliente)
+    _, contrato, caso = _base(cliente, h, "F")
+    area = cliente.post("/api/faturamento/areas", headers=h, json={"nome": "Trabalhista", "cor": "#1A8F5E"}).json()
+    assert cliente.post("/api/faturamento/areas", headers=h, json={"nome": "trabalhista"}).status_code == 409
+    fase = cliente.post("/api/faturamento/campos", headers=h, json={
+        "nome": "Fase", "tipo": "lista", "opcoes": ["Conhecimento", "Recursal", "Execução"], "obrigatorio": True}).json()
+    sindicato = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Sindicato", "tipo": "texto",
+                                                                         "area_id": area["id"]}).json()
+    assert cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Lista vazia", "tipo": "lista"}).status_code == 422
+
+    base = {"titulo": "Reclamação trabalhista", "area_id": area["id"], "polo": "passivo", "tribunal": "TRT-2",
+            "vara": "12ª Vara do Trabalho", "comarca": "São Paulo", "valor_causa": "150000.00", "data_distribuicao": "2026-03-10"}
+    r = cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={**base, "campos": {}})
+    assert r.status_code == 400 and "Fase" in r.json()["detail"]  # obrigatório
+    r = cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={**base, "campos": {str(fase["id"]): "Outra"}})
+    assert r.status_code == 400  # fora das opções
+    r = cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={
+        **base, "campos": {str(fase["id"]): "Recursal", str(sindicato["id"]): "Sindicato X", "999": "ignorado"}})
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert c["area_nome"] == "Trabalhista" and c["polo"] == "passivo" and c["valor_causa"] == "150000.00"
+    assert c["campos"] == {str(fase["id"]): "Recursal", str(sindicato["id"]): "Sindicato X"}
+    assert any(a["id"] == area["id"] and a["qtd_casos"] == 1 for a in cliente.get("/api/faturamento/areas", headers=h).json())
+
+    # anexos
+    r = cliente.post(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h, data={"descricao": "Inicial", "categoria": "Petição"},
+                     files=[("arquivos", ("inicial.pdf", b"%PDF-1.4 teste", "application/pdf")),
+                            ("arquivos", ("procuracao.docx", b"PK..", "application/octet-stream"))])
+    assert r.status_code == 201, r.text
+    anexos = r.json()
+    assert len(anexos) == 2 and anexos[0]["categoria"] == "Petição"
+    assert cliente.get(f"/api/faturamento/anexos/{anexos[0]['id']}", headers=h).content == b"%PDF-1.4 teste"
+    assert cliente.post(f"/api/faturamento/casos/{caso['id']}/anexos", headers=h,
+                        files=[("arquivos", ("virus.exe", b"MZ", "application/octet-stream"))]).status_code == 400
+    assert cliente.delete(f"/api/faturamento/anexos/{anexos[1]['id']}", headers=h).status_code == 200
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()["qtd_anexos"] == 1
+
+    # andamentos
+    r = cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
+        "data": "2026-04-01", "tipo": "prazo", "titulo": "Contestação", "prazo": "2026-04-15"})
+    assert r.status_code == 201, r.text
+    and1 = r.json()
+    assert and1["atrasado"] is True  # prazo no passado e não concluído
+    r = cliente.put(f"/api/faturamento/andamentos/{and1['id']}", headers=h, json={**and1, "concluido": True})
+    assert r.json()["atrasado"] is False
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h, json={
+        "data": "2026-05-01", "tipo": "audiencia", "titulo": "Audiência inicial"})
+    lista = cliente.get(f"/api/faturamento/casos/{caso['id']}/andamentos", headers=h).json()
+    assert [a["titulo"] for a in lista] == ["Audiência inicial", "Contestação"]
+    assert cliente.delete(f"/api/faturamento/andamentos/{and1['id']}", headers=h).status_code == 200
+
+    # IA sem provedor configurado: mensagem clara
+    assert cliente.post(f"/api/faturamento/casos/{caso['id']}/ia/resumo", headers=h).status_code == 400
+    assert cliente.post("/api/faturamento/casos/ia/preencher", headers=h, data={"texto": "Processo 0001234-56.2026.5.02.0012"}).status_code == 400
+    # campo usado só desativa
+    assert "desativado" in cliente.delete(f"/api/faturamento/campos/{fase['id']}", headers=h).json()["mensagem"]
+
+
+def test_dashboard_mostra_todas_as_faturas(cliente):  # noqa: F811
+    h = _login(cliente)
+    d = cliente.get("/api/dashboard/faturamento", headers=h).json()
+    tipos = {x["tipo"] for x in d["notas"]}
+    assert "ND" in tipos and "NH" in tipos  # criadas nos testes anteriores
+    nd = next(x for x in d["notas"] if x["tipo"] == "ND")
+    assert nd["nf"] is None and nd["nfse"].startswith("Não se aplica") and nd["origem"] == "Contrato"
+    assert len({x["chave"] for x in d["notas"]}) == len(d["notas"])
+
+
+def test_exportar_importar_contratos_e_casos(cliente):  # noqa: F811
+    import io
+
+    from openpyxl import load_workbook
+
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "G")
+    r = cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={"titulo": "Caso G", "tipo": "judicial_federal"})
+    assert r.status_code == 200 and r.json()["tipo_nome"] == "Judicial Federal"
+    assert any(c["id"] == caso["id"] for c in cliente.get("/api/faturamento/casos", headers=h, params={"tipo": "judicial_federal"}).json())
+
+    # contratos: exporta, edita e importa de volta + linha nova
+    x = cliente.get("/api/faturamento/contratos/exportar.xlsx", headers=h)
+    assert x.status_code == 200 and x.content[:2] == b"PK"
+    wb = load_workbook(io.BytesIO(x.content))
+    ws = wb["Contratos"]
+    linha = next(r for r in ws.iter_rows(min_row=2) if r[0].value == contrato["numero"])
+    linha[3].value = "Consultivo G (renomeado)"
+    ws.append([None, cli["nome"], None, "Contrato importado", "Objeto", "01/02/2026", None, None, None, "Sim", None])
+    ws.append([None, "Cliente que não existe", None, "X", None, None, None, None, None, None, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    r = cliente.post("/api/faturamento/contratos/importar", headers=h, files={"arquivo": ("c.xlsx", buf.getvalue())}).json()
+    assert r["criados"] == 1 and r["atualizados"] >= 1 and r["qtd_erros"] == 1
+    assert cliente.get(f"/api/faturamento/contratos/{contrato['id']}", headers=h).json()["nome"] == "Consultivo G (renomeado)"
+
+    # casos: modelo + importação com tipo, área nova e campo adicional
+    m = load_workbook(io.BytesIO(cliente.get("/api/faturamento/casos/modelo.xlsx", headers=h).content))
+    ws = m["Casos"]
+    cab = [c.value for c in ws[1]]
+    assert cab[:4] == ["Nº", "Nº do contrato", "Título", "Tipo do caso"]
+    ws.delete_rows(2)
+    nova = {k: None for k in cab}
+    nova.update({"Nº do contrato": contrato["numero"], "Título": "Caso importado", "Tipo do caso": "Judicial Trabalhista",
+                 "Área": "Previdenciário", "Polo": "Réu", "Valor da causa": "10.000,50", "Distribuição": "05/03/2026"})
+    ws.append([nova[k] for k in cab])
+    ws.append([None, 99999, "Sem contrato"] + [None] * (len(cab) - 3))
+    buf = io.BytesIO()
+    m.save(buf)
+    r = cliente.post("/api/faturamento/casos/importar", headers=h, files={"arquivo": ("k.xlsx", buf.getvalue())}).json()
+    assert r["criados"] == 1 and r["qtd_erros"] == 1, r
+    novo = next(c for c in cliente.get("/api/faturamento/casos", headers=h, params={"q": "Caso importado"}).json())
+    assert novo["tipo"] == "judicial_trabalhista" and novo["area_nome"] == "Previdenciário" and novo["polo"] == "passivo"
+    assert novo["valor_causa"] == "10000.50" and novo["data_distribuicao"] == "2026-03-05"
+    assert cliente.get("/api/faturamento/casos/exportar.xlsx", headers=h).content[:2] == b"PK"

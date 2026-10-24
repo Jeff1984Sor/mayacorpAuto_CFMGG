@@ -3,9 +3,20 @@
 
 export type Situacao = "aberta" | "vencida" | "paga" | "cancelada";
 
+export type StatusNfse = "Emitida" | "Aguardando NFS-e" | "Cancelada" | "Não se aplica (reembolso)";
+
+/** Uma linha por fatura (NH ou ND, do arquivo da Lello ou de contrato) e as NFS-e sem fatura. */
 export interface NotaDash {
   id: number;
-  nf: number;
+  /** chave única da linha ("f12" fatura, "n34" nota sem fatura) */
+  chave: string;
+  tipo: "NH" | "ND";
+  origem: "Contrato" | "Arquivo da Lello";
+  /** "#n nome" ou "—" */
+  contrato: string;
+  nfse: StatusNfse;
+  nfse_id: number | null;
+  nf: number | null;
   fatura_id: number | null;
   fatura: string | null;
   cliente: string;
@@ -13,8 +24,8 @@ export interface NotaDash {
   doc: string | null;
   emissora: string;
   servico: string;
-  lote: number;
-  lote_id: number;
+  lote: number | null;
+  lote_id: number | null;
   emissao: string;
   vencimento: string | null;
   pagamento: string | null;
@@ -57,7 +68,7 @@ export interface Nota extends NotaDash {
 export const FAIXAS = ["A vencer", "1–15 dias", "16–30 dias", "31–60 dias", "61–90 dias", "+90 dias"] as const;
 export type FaixaAtraso = (typeof FAIXAS)[number];
 
-export const DIMENSOES = ["cliente", "emissora", "situacao", "mes", "atraso", "servico", "lote", "previsao"] as const;
+export const DIMENSOES = ["cliente", "emissora", "situacao", "mes", "atraso", "tipo", "origem", "contrato", "nfse", "servico", "lote", "previsao"] as const;
 export type Dimensao = (typeof DIMENSOES)[number];
 export type Filtros = Partial<Record<Dimensao, string[]>>;
 
@@ -67,6 +78,10 @@ export const ROTULO_DIM: Record<Dimensao, string> = {
   situacao: "Situação",
   mes: "Mês",
   atraso: "Atraso",
+  tipo: "Tipo",
+  origem: "Origem",
+  contrato: "Contrato",
+  nfse: "NFS-e",
   servico: "Serviço",
   lote: "Lote",
   previsao: "Previsão",
@@ -180,8 +195,8 @@ export function preparar(d: DashboardOut): Nota[] {
       atraso: faixaAtraso(n, d.hoje),
       previsao: aberta ? somaDias(n.emissao, dias) : null,
       prazoBase: aberta ? { dias, doCliente } : null,
-      loteRotulo: `#${String(n.lote).padStart(4, "0")}`,
-      busca: semAcento([n.nf, n.fatura, n.cliente, n.doc, n.emissora, n.servico, n.lote].join(" ")),
+      loteRotulo: n.lote != null ? `#${String(n.lote).padStart(4, "0")}` : "—",
+      busca: semAcento([n.nf, n.fatura, n.cliente, n.doc, n.emissora, n.servico, n.lote, n.contrato, n.tipo].filter((x) => x != null).join(" ")),
     };
   });
 }
@@ -206,6 +221,14 @@ export function valorDim(n: Nota, d: Dimensao, hoje: string, g: "semana" | "mes"
       return n.mes;
     case "atraso":
       return n.atraso;
+    case "tipo":
+      return n.tipo;
+    case "origem":
+      return n.origem;
+    case "contrato":
+      return n.contrato;
+    case "nfse":
+      return n.nfse;
     case "servico":
       return n.servico;
     case "lote":

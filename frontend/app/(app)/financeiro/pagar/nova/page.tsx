@@ -12,7 +12,6 @@ export default function NovaContaPagarPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         titulo="Nova conta a pagar"
-        descricao="Boleto, aluguel, salário, imposto… Pode ratear entre categorias e repetir todo mês."
         icone={FilePlus2}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Lançamentos", href: "/financeiro/pagar" }, { label: "Nova conta" }]}
       />

@@ -170,6 +170,52 @@ def analisar_painel(ctx: Ctx):
     return _analise(r)
 
 
+class TelaIn(BaseModel):
+    """O que está na tela no momento (texto visível: indicadores, tabelas, filtros)."""
+
+    tela: str = Field(max_length=300)  # rota, ex.: /financeiro/pagar?status=atrasado
+    titulo: str = Field(default="", max_length=200)
+    conteudo: str = Field(min_length=20, max_length=60000)
+
+
+# o que o escritório espera de cada área do sistema (pelo começo da rota)
+FOCO_TELA = [
+    ("/financeiro/previsao-caixa", "risco de faltar caixa, quando e quanto transferir do investimento, recebimentos atrasados"),
+    ("/financeiro/projecao-despesas", "meses em que o saldo aperta, despesas que mais pesam, tendência"),
+    ("/financeiro/dre", "margem, linhas que mais pesam, variações mês a mês, categorias sem classificação"),
+    ("/financeiro/fluxo-caixa", "entradas x saídas, concentração de gastos, dias de maior saída"),
+    ("/financeiro/pagar", "contas atrasadas, vencimentos próximos, concentração por fornecedor/categoria, duplicidades"),
+    ("/financeiro/fornecedores", "concentração de gastos, cadastros incompletos (sem CNPJ/PIX)"),
+    ("/financeiro/categorias", "categorias duplicadas ou mal nomeadas, sem linha da DRE, plano de contas confuso"),
+    ("/financeiro", "saldo, movimentações fora do padrão, lançamentos sem categoria"),
+    ("/faturamento/itens", "o que está pronto para faturar, itens com aviso, clientes com valores altos parados"),
+    ("/faturamento/revisoes", "revisões paradas há muitos dias, valores alterados contra o original"),
+    ("/faturamento/fluxo", "gargalos do fluxo, faturas aguardando NFS-e, vencidas"),
+    ("/faturamento/relatorio", "concentração de receita por cliente, inadimplência, prazo de recebimento"),
+    ("/faturamento/impostos", "carga tributária, mudança de faixa, próximos pagamentos e como planejar"),
+    ("/faturamento/casos", "casos sem andamento recente, prazos, horas e despesas a faturar"),
+    ("/faturamento/contratos", "contratos sem regra de cobrança, vigência vencendo, casos e faturamento"),
+    ("/dashboard", "tendências de faturamento e recebimento, clientes que concentram ou atrasam"),
+    ("/nfse", "emissão de notas, rejeições, recebimentos e pendências"),
+    ("/cadastros", "cadastros incompletos ou duplicados e o que completar"),
+    ("/configuracoes", "configurações faltando ou arriscadas e o que ajustar"),
+]
+
+
+@router.post("/ia/analise/tela", response_model=AnaliseOut)
+def analisar_tela(dados: TelaIn, ctx: Ctx):
+    """Análise por IA de qualquer tela: recebe o conteúdo visível e devolve pontos de atenção e recomendação."""
+    foco = next((f for prefixo, f in FOCO_TELA if dados.tela.startswith(prefixo)), "o que chama atenção e o que fazer")
+    r = _chamar(ctx, "analise_tela", SISTEMA_BASE.replace("para emitir NFS-e (layout 2, com ISS, IBS e CBS)",
+                                                          "(faturamento, financeiro, casos e NFS-e)"),
+                f"Você está vendo a tela “{dados.titulo or dados.tela}” do sistema (rota {dados.tela}). "
+                f"Analise SOMENTE os dados abaixo, como um controller experiente do escritório. Foco: {foco}. "
+                "Cite números e nomes da tela quando ajudar; se a tela estiver vazia ou sem dados suficientes, diga isso "
+                "e sugira o primeiro passo.\n"
+                f"Formato: {FORMATO_ANALISE}\nConteúdo da tela:\n{dados.conteudo}")
+    return _analise(r)
+
+
 # ======================================================================== preenchimento por IA
 class TextoIn(BaseModel):
     texto: str = Field(min_length=10, max_length=8000)

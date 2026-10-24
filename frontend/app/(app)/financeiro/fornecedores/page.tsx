@@ -49,7 +49,6 @@ export default function FornecedoresPage() {
     <div>
       <PageHeader
         titulo="Fornecedores"
-        descricao="Quem recebe os pagamentos: dados bancários, PIX e a categoria de costume."
         icone={Truck}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Fornecedores" }]}
         acoes={

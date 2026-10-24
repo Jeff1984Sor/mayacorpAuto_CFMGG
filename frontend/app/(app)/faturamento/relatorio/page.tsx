@@ -77,7 +77,6 @@ export default function RelatorioFaturamentoPage() {
     <div>
       <PageHeader
         titulo="Relatório de Faturamento"
-        descricao="Quanto foi faturado, recebido e está em aberto, por mês, cliente, contrato e profissional."
         icone={BarChart3}
         migalhas={[{ label: "Faturamento" }, { label: "Relatório" }]}
         acoes={

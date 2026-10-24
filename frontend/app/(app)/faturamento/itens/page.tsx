@@ -297,7 +297,6 @@ export default function ItensAFaturarPage() {
     <div className="pb-24">
       <PageHeader
         titulo="Itens a faturar"
-        descricao="Tudo o que já pode ser cobrado: parcelas das regras, horas e despesas reembolsáveis."
         icone={ListChecks}
         migalhas={[{ label: "Faturamento" }, { label: "Itens a faturar" }]}
       />

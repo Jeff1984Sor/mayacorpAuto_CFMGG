@@ -224,6 +224,7 @@ export default function ProfissionaisPage() {
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Nome</th>
                   <th className="px-3 py-2.5 font-medium">Cargo</th>
+                  <th className="hidden px-3 py-2.5 font-medium md:table-cell">Login</th>
                   <th className="hidden px-3 py-2.5 font-medium lg:table-cell">E-mail</th>
                   <th className="px-3 py-2.5 font-medium">Acesso</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">Último acesso</th>
@@ -255,6 +256,7 @@ export default function ProfissionaisPage() {
                       </div>
                     </td>
                     <td className="px-3 py-3">{u.cargo_nome ?? <span className="text-xs text-warning-ink">Sem cargo</span>}</td>
+                    <td className="hidden px-3 py-3 md:table-cell">{u.login ? <span className="font-mono text-xs">{u.login}</span> : <span className="text-xs text-muted-foreground">—</span>}</td>
                     <td className="hidden max-w-56 truncate px-3 py-3 text-muted-foreground lg:table-cell">{u.email}</td>
                     <td className="px-3 py-3">
                       {!u.acesso_sistema ? (

@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { ContratoDialog } from "@/components/faturamento/dialogos";
+import { PlanilhaAcoes } from "@/components/faturamento/importar-planilha";
 import { linhaClicavel, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { PageHeader } from "@/components/mayacorp/page-header";
@@ -41,11 +42,14 @@ export default function ContratosPage() {
         icone={FileSignature}
         migalhas={[{ label: "Cadastros" }, { label: "Contratos" }]}
         acoes={
-          isOperador && (
-            <Button onClick={() => setNovo(true)}>
-              <FilePlus2 /> Novo contrato
-            </Button>
-          )
+          <>
+            <PlanilhaAcoes recurso="contratos" rotulo="contratos" podeImportar={isOperador} />
+            {isOperador && (
+              <Button onClick={() => setNovo(true)}>
+                <FilePlus2 /> Novo contrato
+              </Button>
+            )}
+          </>
         }
       />
       <TableCard>

@@ -402,7 +402,6 @@ export default function ImpostosPage() {
     <div>
       <PageHeader
         titulo="Projeção de Impostos"
-        descricao="Quanto de imposto vem pela frente, com base nas NFS-e emitidas e na média de faturamento."
         icone={Calculator}
         migalhas={[{ label: "Faturamento" }, { label: "Projeção de Impostos" }]}
         acoes={

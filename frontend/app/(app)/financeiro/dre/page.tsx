@@ -72,7 +72,6 @@ export default function DrePage() {
     <div>
       <PageHeader
         titulo="DRE"
-        descricao="Demonstrativo de resultado gerencial: receitas e despesas pelo grupo de cada categoria."
         icone={ListOrdered}
         migalhas={[{ label: "Conta Bancária" }, { label: "DRE" }]}
         acoes={

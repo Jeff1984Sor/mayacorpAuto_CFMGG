@@ -85,7 +85,6 @@ export default function ContasPage() {
     <div>
       <PageHeader
         titulo="Contas"
-        descricao="Saldo de cada conta do escritório, com o extrato e os lançamentos."
         icone={Wallet}
         migalhas={[{ label: "Conta Bancária" }, { label: "Contas" }]}
         acoes={

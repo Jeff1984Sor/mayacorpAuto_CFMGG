@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, Check, Eraser, FileUp, LayoutDashboard, Link2, X } from "lucide-react";
+import { BarChart3, Check, Eraser, FileUp, LayoutDashboard, Link2, ListChecks, X } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -52,7 +52,7 @@ import {
 import { data, moeda, moedaCompacta, numero } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const SLICERS: Dimensao[] = ["cliente", "emissora", "situacao", "mes", "atraso", "servico", "lote"];
+const SLICERS: Dimensao[] = ["cliente", "tipo", "origem", "contrato", "nfse", "situacao", "mes", "atraso", "emissora", "servico", "lote"];
 const ATALHOS = [
   { k: "mes", l: "Este mês" },
   { k: "tri", l: "Trimestre" },
@@ -272,14 +272,19 @@ export default function DashboardPage() {
         <div className="card-surface">
           <EmptyState
             icone={BarChart3}
-            titulo="Ainda não há notas emitidas"
-            descricao="O painel ganha vida com o primeiro lote: faturamento, recebimentos, atrasos e a previsão de caixa aparecem aqui."
+            titulo="Ainda não há faturas"
+            descricao="Faturamento, recebimentos, atrasos e a previsão de caixa aparecem aqui assim que a primeira NH ou ND for gerada."
             acao={
-              isOperador && (
-                <Button render={<Link href="/nfse/nova-emissao" />}>
-                  <FileUp /> Emitir o primeiro lote
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button render={<Link href="/faturamento/itens" />}>
+                  <ListChecks /> Ver itens a faturar
                 </Button>
-              )
+                {isOperador && (
+                  <Button variant="outline" render={<Link href="/nfse/nova-emissao" />}>
+                    <FileUp /> Nova emissão
+                  </Button>
+                )}
+              </div>
             }
           />
         </div>
@@ -319,7 +324,6 @@ export default function DashboardPage() {
             )}
           </span>
         }
-        descricao={`De ${data(de)} a ${data(ate)} · comparado com ${data(calc.ant.de)} a ${data(calc.ant.ate)}`}
         icone={LayoutDashboard}
         migalhas={[{ label: "Início", href: "/" }, { label: "Dashboard" }]}
         acoes={
@@ -361,10 +365,13 @@ export default function DashboardPage() {
           <span className="text-xs text-muted-foreground">até</span>
           <Input type="date" value={ate} min={de} onChange={(e) => e.target.value && periodo(de, e.target.value)} className="h-9 w-38" aria-label="Até" />
         </div>
+        <span className="text-xs text-muted-foreground lg:ml-auto">
+          comparado com {data(calc.ant.de)} a {data(calc.ant.ate)}
+        </span>
       </div>
 
       {/* segmentações */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
         {SLICERS.map((dim) => (
           <Slicer
             key={dim}
@@ -398,7 +405,7 @@ export default function DashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9 [&>*]:min-w-0">
-        <KpiTile rotulo="Emitido" valor={moedaCompacta(a.emitido)} delta={variacao(a.emitido, b.emitido)} serie={calc.serie("emitido")} dica={moeda(a.emitido)} />
+        <KpiTile rotulo="Faturado" valor={moedaCompacta(a.emitido)} delta={variacao(a.emitido, b.emitido)} serie={calc.serie("emitido")} dica={moeda(a.emitido)} />
         <KpiTile
           rotulo="Recebido"
           valor={moedaCompacta(a.recebido)}
@@ -436,10 +443,10 @@ export default function DashboardPage() {
           delta={variacao(a.prazo, b.prazo)}
           bomSubir={false}
           serie={calc.serie("prazo")}
-          dica="Da emissão ao pagamento, nas notas pagas no período"
+          dica="Da emissão ao pagamento, nas faturas pagas no período"
         />
         <KpiTile rotulo="Ticket médio" valor={a.ticket == null ? "—" : moedaCompacta(a.ticket)} delta={variacao(a.ticket, b.ticket)} serie={calc.serie("ticket")} dica={a.ticket == null ? undefined : moeda(a.ticket)} />
-        <KpiTile rotulo="Notas emitidas" valor={numero(a.qtd)} delta={variacao(a.qtd, b.qtd)} serie={calc.serie("qtd")} />
+        <KpiTile rotulo="Documentos emitidos" valor={numero(a.qtd)} delta={variacao(a.qtd, b.qtd)} serie={calc.serie("qtd")} />
         <KpiTile
           rotulo="Taxa de rejeição"
           valor={a.rejeicao == null ? "—" : `${a.rejeicao.toFixed(1).replace(".", ",")}%`}
@@ -472,7 +479,7 @@ export default function DashboardPage() {
         <div className="card-surface flex flex-col justify-center gap-2 p-5 text-sm">
           <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Em uma frase</p>
           <p className="leading-relaxed">
-            No período, foram emitidos <strong>{moeda(a.emitido)}</strong> em <strong>{numero(a.qtd)}</strong> notas e recebidos{" "}
+            No período, foram faturados <strong>{moeda(a.emitido)}</strong> em <strong>{numero(a.qtd)}</strong> documentos (NH e ND) e recebidos{" "}
             <strong>{moeda(a.recebido)}</strong>. A carteira em aberto soma <strong>{moeda(a.aberto)}</strong>
             {a.vencido > 0 ? (
               <>

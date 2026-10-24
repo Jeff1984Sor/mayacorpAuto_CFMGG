@@ -76,7 +76,6 @@ export default function FluxoCaixaPage() {
     <div>
       <PageHeader
         titulo="Fluxo de Caixa"
-        descricao="O que entrou e saiu de verdade, conta a conta ou de todas juntas."
         icone={ArrowLeftRight}
         migalhas={[{ label: "Conta Bancária" }, { label: "Fluxo de Caixa" }]}
         acoes={

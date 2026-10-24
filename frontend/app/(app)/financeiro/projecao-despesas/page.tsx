@@ -48,7 +48,6 @@ export default function ProjecaoDespesasPage() {
     <div>
       <PageHeader
         titulo="Projeção de Despesas"
-        descricao="Para onde o caixa vai nos próximos meses, com o que já está lançado e a média de gastos."
         icone={TrendingDown}
         migalhas={[{ label: "Conta Bancária" }, { label: "Projeção de Despesas" }]}
         acoes={

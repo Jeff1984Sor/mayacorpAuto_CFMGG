@@ -304,7 +304,7 @@ export function SituacaoRosca({ dados, sel, onSituacao }: { dados: PontoSituacao
     );
   };
   return (
-    <ChartCard titulo="Situação" subtitulo="Valor das notas emitidas no período">
+    <ChartCard titulo="Situação" subtitulo="Valor dos documentos emitidos no período">
       <div className="flex flex-col items-center gap-4 sm:flex-row lg:flex-col">
         <div className="relative size-44 shrink-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -406,7 +406,7 @@ export function Previsao({
       <TooltipCaixa
         titulo={p.atrasada ? "Previsão já passou (pagamento atrasado)" : p.rotulo}
         linhas={[{ cor: p.atrasada ? "var(--viz-vencida)" : "var(--viz-2)", rotulo: `${numero(p.qtd)} nota(s)`, valor: moeda(p.valor) }]}
-        rodape="Clique para ver estas notas na tabela"
+        rodape="Clique para ver estes documentos na tabela"
       />
     );
   };

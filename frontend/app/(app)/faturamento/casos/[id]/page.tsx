@@ -7,7 +7,12 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { CasoDialog, useProfissionais } from "@/components/faturamento/dialogos";
+import { AndamentosCaso } from "@/components/faturamento/andamentos";
+import { AnexosCaso } from "@/components/faturamento/anexos";
+import { useAreas, useCampos } from "@/components/faturamento/campos-adicionais";
+import { CasoIAMenu, PreencherCasoDialog, ResumoCasoSheet } from "@/components/faturamento/caso-ia";
+import { CasoDialog, casoParaIn, normalizarCampos, useProfissionais } from "@/components/faturamento/dialogos";
+import { AreaBadge, DetalhesCaso } from "@/components/faturamento/ficha-caso";
 import { RegrasCobranca } from "@/components/faturamento/regras";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
@@ -22,7 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { type CasoOut, type DespesaOut, hhmm, horasDecimal, paraMinutos, ROTULO_DESPESA, type TimesheetOut, type TipoDespesa } from "@/lib/faturamento";
+import { type CasoIn, type CasoOut, type DespesaOut, hhmm, paraMinutos, ROTULO_DESPESA, type TimesheetOut, type TipoDespesa } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -510,78 +515,31 @@ function Despesas({ caso }: { caso: CasoOut }) {
   );
 }
 
-// ================================================================ resumo
-function Resumo({ caso, irPara }: { caso: CasoOut; irPara: (aba: string) => void }) {
-  const ts = useQuery({ queryKey: ["fat", "timesheet", caso.id], queryFn: () => api.get<TimesheetOut[]>(`/faturamento/casos/${caso.id}/timesheet`) });
-  const porProf = new Map<string, { min: number; cargo: string | null }>();
-  (ts.data ?? [])
-    .filter((t) => t.faturavel && !t.faturado)
-    .forEach((t) => {
-      const o = porProf.get(t.profissional_nome) ?? { min: 0, cargo: t.cargo_nome };
-      o.min += t.minutos;
-      porProf.set(t.profissional_nome, o);
-    });
-  const maxMin = Math.max(1, ...[...porProf.values()].map((v) => v.min));
-  return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <button type="button" onClick={() => irPara("timesheet")} className="card-surface p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md">
-        <span className="grid size-10 place-items-center rounded-xl bg-warning/12 text-warning-ink">
-          <Timer className="size-5" />
-        </span>
-        <p className="mt-3 text-xs text-muted-foreground">Horas a faturar</p>
-        <p className="font-mono text-3xl font-semibold tabular-nums">{horasDecimal(caso.horas_pendentes)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">Tabela {caso.tabela_preco_efetiva ?? <span className="text-warning-ink">não definida</span>}</p>
-      </button>
-      <button type="button" onClick={() => irPara("despesas")} className="card-surface p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md">
-        <span className="grid size-10 place-items-center rounded-xl bg-brand/10 text-info-ink">
-          <Wallet className="size-5" />
-        </span>
-        <p className="mt-3 text-xs text-muted-foreground">Despesas a reembolsar</p>
-        <p className="font-mono text-3xl font-semibold tabular-nums">{moeda(caso.despesas_pendentes)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">Entram na próxima ND</p>
-      </button>
-      <div className="card-surface p-5">
-        <p className="mb-3 text-sm font-semibold">Horas a faturar por profissional</p>
-        {porProf.size === 0 ? (
-          <p className="text-sm text-muted-foreground">Nada pendente.</p>
-        ) : (
-          <ul className="space-y-2.5">
-            {[...porProf.entries()]
-              .sort((a, b) => b[1].min - a[1].min)
-              .map(([nome, v]) => (
-                <li key={nome}>
-                  <div className="flex justify-between text-xs">
-                    <span className="truncate">
-                      {nome} <span className="text-muted-foreground">· {v.cargo ?? "sem cargo"}</span>
-                    </span>
-                    <span className="font-mono">{hhmm(v.min)}</span>
-                  </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="brand-gradient h-full rounded-full" style={{ width: `${(v.min / maxMin) * 100}%` }} />
-                  </div>
-                </li>
-              ))}
-          </ul>
-        )}
-      </div>
-      {caso.descricao && (
-        <div className="card-surface p-5 lg:col-span-3">
-          <p className="mb-1 text-sm font-semibold">Descrição</p>
-          <p className="text-sm whitespace-pre-line text-muted-foreground">{caso.descricao}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ================================================================ página
 export default function CasoPage() {
   const { id } = useParams<{ id: string }>();
   const cid = Number(id);
+  const qc = useQueryClient();
   const { isOperador } = useAuth();
-  const [aba, setAba] = useState("resumo");
+  const [aba, setAba] = useState("detalhes");
   const [editar, setEditar] = useState(false);
+  const [preencher, setPreencher] = useState(false);
+  const [resumo, setResumo] = useState(false);
   const q = useQuery({ queryKey: ["fat", "caso", cid], queryFn: () => api.get<CasoOut>(`/faturamento/casos/${cid}`) });
+  const areas = useAreas();
+  const campos = useCampos();
+  const aplicarIA = useMutation({
+    mutationFn: (patch: Partial<CasoIn>) => {
+      const base = casoParaIn(q.data!);
+      const corpo: CasoIn = { ...base, ...patch, campos: normalizarCampos({ ...base.campos, ...(patch.campos ?? {}) }, campos.data ?? []) };
+      return api.put<CasoOut>(`/faturamento/casos/${cid}`, corpo);
+    },
+    onSuccess: (r) => {
+      qc.setQueryData(["fat", "caso", cid], r);
+      qc.invalidateQueries({ queryKey: ["fat"] });
+      setPreencher(false);
+      toast.success("Ficha atualizada com as sugestões da IA");
+    },
+  });
   if (q.isPending) return <Skeleton className="h-48 rounded-2xl" />;
   if (!q.data) return <EmptyState icone={Briefcase} titulo="Caso não encontrado" />;
   const c = q.data;
@@ -592,14 +550,16 @@ export default function CasoPage() {
         <ArrowLeft className="size-3.5" /> Contrato #{c.contrato_numero} {c.contrato_nome}
       </Link>
       <div className="card-surface relative mb-5 overflow-hidden p-5">
-        <div className="brand-gradient absolute inset-x-0 top-0 h-1.5" />
+        <div className="absolute inset-x-0 top-0 h-1.5" style={{ background: c.area_cor ? c.area_cor : undefined }} />
+        {!c.area_cor && <div className="brand-gradient absolute inset-x-0 top-0 h-1.5" />}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm text-muted-foreground">Caso #{c.numero}</span>
               <h1 className="text-2xl font-semibold tracking-tight">{c.titulo}</h1>
               <StatusBadge tom={c.status === "aberto" ? "success" : "neutral"} label={c.status === "aberto" ? "Aberto" : "Encerrado"} />
-              {c.tem_regra_propria && <Pill tom="brand">regra própria</Pill>}
+              {c.tipo_nome && <Pill tom="neutral">{c.tipo_nome}</Pill>}
+              <AreaBadge nome={c.area_nome} cor={c.area_cor} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{c.tomador_nome}</span>
@@ -614,27 +574,50 @@ export default function CasoPage() {
               {c.data_abertura && ` · aberto em ${data(c.data_abertura)}`}
             </p>
           </div>
-          {isOperador && (
-            <Button variant="outline" size="sm" onClick={() => setEditar(true)}>
-              <Pencil /> Editar
-            </Button>
-          )}
+          <div className="flex shrink-0 gap-2">
+            <CasoIAMenu podeEditar={isOperador} onPreencher={() => setPreencher(true)} onResumir={() => setResumo(true)} />
+            {isOperador && (
+              <Button variant="outline" size="sm" onClick={() => setEditar(true)}>
+                <Pencil /> Editar
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
       <Tabs value={aba} onValueChange={(v) => setAba(String(v))}>
-        <TabsList>
-          <TabsTrigger value="resumo">Resumo</TabsTrigger>
-          <TabsTrigger value="regra">Regra própria</TabsTrigger>
-          <TabsTrigger value="timesheet">
-            <Clock /> Timesheet
-          </TabsTrigger>
-          <TabsTrigger value="despesas">
-            <Receipt /> Despesas
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="resumo" className="pt-4">
-          <Resumo caso={c} irPara={setAba} />
+        <div className="-mx-1 overflow-x-auto px-1">
+          <TabsList>
+            <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
+            <TabsTrigger value="andamentos">
+              Andamentos{c.qtd_andamentos > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_andamentos}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="timesheet">
+              <Clock /> Timesheet
+            </TabsTrigger>
+            <TabsTrigger value="despesas">
+              <Receipt /> Despesas
+            </TabsTrigger>
+            <TabsTrigger value="anexos">
+              Anexos{c.qtd_anexos > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_anexos}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="regra">Regra de Cobrança</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="detalhes" className="pt-4">
+          <DetalhesCaso caso={c} irPara={setAba} podeEditar={isOperador} onEditar={() => setEditar(true)} />
+        </TabsContent>
+        <TabsContent value="andamentos" className="pt-4">
+          <AndamentosCaso casoId={c.id} />
+        </TabsContent>
+        <TabsContent value="timesheet" className="pt-4">
+          <Timesheet caso={c} />
+        </TabsContent>
+        <TabsContent value="despesas" className="pt-4">
+          <Despesas caso={c} />
+        </TabsContent>
+        <TabsContent value="anexos" className="pt-4">
+          <AnexosCaso casoId={c.id} />
         </TabsContent>
         <TabsContent value="regra" className="pt-4">
           <RegrasCobranca
@@ -643,14 +626,18 @@ export default function CasoPage() {
             vazioTexto="Sem regra própria, o caso segue as regras do contrato. Crie uma se este caso é cobrado de outro jeito (ex.: êxito, valor fixo do processo)."
           />
         </TabsContent>
-        <TabsContent value="timesheet" className="pt-4">
-          <Timesheet caso={c} />
-        </TabsContent>
-        <TabsContent value="despesas" className="pt-4">
-          <Despesas caso={c} />
-        </TabsContent>
       </Tabs>
       <CasoDialog open={editar} onOpenChange={setEditar} contratoId={c.contrato_id} caso={c} />
+      <PreencherCasoDialog
+        open={preencher}
+        onOpenChange={setPreencher}
+        atual={casoParaIn(c)}
+        areas={areas.data ?? []}
+        campos={campos.data ?? []}
+        aplicando={aplicarIA.isPending}
+        onAplicar={(patch) => aplicarIA.mutate(patch)}
+      />
+      <ResumoCasoSheet casoId={c.id} titulo={`Caso #${c.numero} · ${c.titulo}`} aberto={resumo} onOpenChange={setResumo} />
     </div>
   );
 }

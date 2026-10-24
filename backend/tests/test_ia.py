@@ -107,3 +107,15 @@ def test_so_a_equipe_mayacorp_altera_a_ia(cliente, ia_falsa):  # noqa: F811
     me = cliente.get("/api/auth/me", headers=h).json()
     cliente.patch(f"/api/config/usuarios/{me['id']}", headers=h, json={"equipe_mayacorp": True})
     assert cliente.get("/api/auth/me", headers=h).json()["equipe_mayacorp"] is False
+
+
+def test_analise_de_qualquer_tela(cliente, ia_falsa):  # noqa: F811
+    h = _login(cliente)
+    _ativar(cliente, h)
+    ia_falsa["proxima"] = {"titulo": "3 contas atrasadas", "resumo": "Há atrasos.", "recomendacao": "Pagar hoje.",
+                           "pontos": [{"nivel": "risco", "texto": "Aluguel vencido"}]}
+    r = cliente.post("/api/ia/analise/tela", headers=h, json={
+        "tela": "/financeiro/pagar?status=atrasado", "titulo": "Lançamentos",
+        "conteudo": "Em aberto R$ 3.000 · Atrasado R$ 1.000 · Aluguel venc. 10/10 R$ 1.000 atrasado"})
+    assert r.status_code == 200 and r.json()["pontos"][0]["nivel"] == "risco"
+    assert "contas atrasadas" in ia_falsa["ultimo"][1] and "Aluguel venc." in ia_falsa["ultimo"][1]

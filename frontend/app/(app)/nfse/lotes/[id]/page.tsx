@@ -124,7 +124,7 @@ export default function LoteDetalhePage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <PageHeader analiseIA={false}
         titulo={
           <span className="flex items-center gap-3">
             Lote <Mono>#{String(l.numero).padStart(4, "0")}</Mono> <StatusBadge status={l.status} />

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CamposAdicionaisForm, camposDaArea, useAreas, useCampos } from "@/components/faturamento/campos-adicionais";
+import { PreencherCasoDialog } from "@/components/faturamento/caso-ia";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Input } from "@/components/ui/input";
@@ -12,7 +14,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api } from "@/lib/api";
-import type { CasoIn, CasoOut, ContratoIn, ContratoOut, ProfissionalOut, TabelaOut } from "@/lib/faturamento";
+import { IaButton } from "@/components/ia/ia-button";
+import { type CampoOut, type CasoIn, type CasoOut, type ContratoIn, type ContratoOut, type Polo, type ProfissionalOut, ROTULO_POLO, ROTULO_TIPO_CASO, type TabelaOut, type TipoCaso, type ValorCampo } from "@/lib/faturamento";
+import { paraBr, paraDecimalApi } from "@/lib/financeiro";
+import { cn } from "@/lib/utils";
 import type { Pagina, TomadorOut } from "@/lib/types";
 
 const nulo = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null);
@@ -194,6 +199,83 @@ export function ContratoDialog({
 }
 
 // ---------------------------------------------------------------- caso
+const vazioCaso = (): CasoIn => ({
+  titulo: "",
+  descricao: null,
+  numero_processo: null,
+  parte_contraria: null,
+  tipo: null,
+  area_id: null,
+  polo: null,
+  tribunal: null,
+  vara: null,
+  comarca: null,
+  valor_causa: null,
+  data_distribuicao: null,
+  campos: {},
+  responsavel_id: null,
+  tabela_preco_id: null,
+  status: "aberto",
+  data_abertura: new Date().toLocaleDateString("sv-SE"),
+  data_encerramento: null,
+});
+
+/** Ficha do caso no formato da API (para salvar mesclando alterações). */
+export function casoParaIn(c: CasoOut): CasoIn {
+  return {
+    titulo: c.titulo,
+    descricao: c.descricao,
+    numero_processo: c.numero_processo,
+    parte_contraria: c.parte_contraria,
+    tipo: c.tipo,
+    area_id: c.area_id,
+    polo: c.polo,
+    tribunal: c.tribunal,
+    vara: c.vara,
+    comarca: c.comarca,
+    valor_causa: c.valor_causa,
+    data_distribuicao: c.data_distribuicao,
+    campos: c.campos ?? {},
+    responsavel_id: c.responsavel_id,
+    tabela_preco_id: c.tabela_preco_id,
+    status: c.status,
+    data_abertura: c.data_abertura,
+    data_encerramento: c.data_encerramento,
+  };
+}
+
+/** Valores de número/moeda dos campos adicionais vão para a API com ponto decimal. */
+export function normalizarCampos(valores: Record<string, ValorCampo>, campos: CampoOut[]) {
+  const out: Record<string, ValorCampo> = {};
+  for (const [k, v] of Object.entries(valores)) {
+    const c = campos.find((x) => String(x.id) === k);
+    if (v === "" || v === undefined) continue;
+    out[k] = c && (c.tipo === "moeda" || c.tipo === "numero") && v !== null && typeof v !== "boolean" ? paraDecimalApi(String(v)) : v;
+  }
+  return out;
+}
+
+/** Valores vindos da API (ponto decimal) prontos para editar (vírgula). */
+function camposParaForm(valores: Record<string, ValorCampo>, campos: CampoOut[]) {
+  const out: Record<string, ValorCampo> = { ...valores };
+  for (const c of campos) {
+    const v = out[String(c.id)];
+    if (v === null || v === undefined || typeof v === "boolean") continue;
+    if (c.tipo === "moeda") out[String(c.id)] = paraBr(String(v));
+    if (c.tipo === "numero") out[String(c.id)] = String(v).replace(".", ",");
+  }
+  return out;
+}
+
+function SecaoForm({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="rounded-2xl border bg-card p-4">
+      <legend className="px-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{titulo}</legend>
+      <div className="grid gap-4 sm:grid-cols-6">{children}</div>
+    </fieldset>
+  );
+}
+
 export function CasoDialog({
   open,
   onOpenChange,
@@ -209,47 +291,32 @@ export function CasoDialog({
 }) {
   const qc = useQueryClient();
   const usuarios = useProfissionais(open);
+  const areas = useAreas(open);
+  const campos = useCampos(open);
   const escolherContrato = !contratoId && !caso;
   const [contrato, setContrato] = useState<number | null>(null);
+  const [ia, setIa] = useState(false);
   const contratos = useQuery({
     queryKey: ["fat", "contratos", "ativos-select"],
     queryFn: () => api.get<ContratoOut[]>("/faturamento/contratos", { ativos: true }),
     enabled: open && escolherContrato,
   });
-  const [f, setF] = useState<CasoIn>({
-    titulo: "",
-    descricao: null,
-    numero_processo: null,
-    parte_contraria: null,
-    responsavel_id: null,
-    tabela_preco_id: null,
-    status: "aberto",
-    data_abertura: null,
-    data_encerramento: null,
-  });
+  const [f, setF] = useState<CasoIn>(vazioCaso);
 
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o formulário ao abrir */
   useEffect(() => {
     if (!open) return;
-    setF(
-      caso
-        ? {
-            titulo: caso.titulo,
-            descricao: caso.descricao,
-            numero_processo: caso.numero_processo,
-            parte_contraria: caso.parte_contraria,
-            responsavel_id: caso.responsavel_id,
-            tabela_preco_id: caso.tabela_preco_id,
-            status: caso.status,
-            data_abertura: caso.data_abertura,
-            data_encerramento: caso.data_encerramento,
-          }
-        : { titulo: "", descricao: null, numero_processo: null, parte_contraria: null, responsavel_id: null, tabela_preco_id: null, status: "aberto", data_abertura: new Date().toLocaleDateString("sv-SE"), data_encerramento: null },
-    );
-  }, [open, caso]);
+    if (!caso) {
+      setF(vazioCaso());
+      return;
+    }
+    const base = casoParaIn(caso);
+    setF({ ...base, valor_causa: base.valor_causa != null ? paraBr(base.valor_causa) : null, campos: camposParaForm(base.campos, campos.data ?? []) });
+  }, [open, caso, campos.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const set = <K extends keyof CasoIn>(k: K, v: CasoIn[K]) => setF((o) => ({ ...o, [k]: v }));
+  const extras = camposDaArea(campos.data, f.area_id);
   const salvar = useMutation({
     mutationFn: () => {
       const body: CasoIn = {
@@ -258,6 +325,11 @@ export function CasoDialog({
         descricao: nulo(f.descricao),
         numero_processo: nulo(f.numero_processo),
         parte_contraria: nulo(f.parte_contraria),
+        tribunal: nulo(f.tribunal),
+        vara: nulo(f.vara),
+        comarca: nulo(f.comarca),
+        valor_causa: f.valor_causa && f.valor_causa.trim() ? paraDecimalApi(f.valor_causa) : null,
+        campos: normalizarCampos(f.campos, campos.data ?? []),
         data_encerramento: f.status === "encerrado" ? f.data_encerramento : null,
       };
       return caso
@@ -271,77 +343,187 @@ export function CasoDialog({
       onOpenChange(false);
     },
   });
+  const vazioExtra = (id: number) => {
+    const v = f.campos[String(id)];
+    return v === undefined || v === null || v === "";
+  };
 
   return (
-    <FormDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      titulo={caso ? `Editar caso #${caso.numero}` : "Novo caso"}
-      largura="lg"
-      salvando={salvar.isPending}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (escolherContrato && !contrato) {
-          toast.error("Escolha o contrato do caso.");
-          return;
+    <>
+      <FormDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        titulo={caso ? `Editar caso #${caso.numero}` : "Novo caso"}
+        largura="xl"
+        salvando={salvar.isPending}
+        acaoCabecalho={
+          <IaButton tamanho="sm" onClick={() => setIa(true)}>
+            Preencher com IA
+          </IaButton>
         }
-        salvar.mutate();
-      }}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        {escolherContrato && (
-          <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-2">
-            <NativeSelect id="caso-contrato" value={contrato ?? ""} onChange={(e) => setContrato(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">Escolha o contrato…</option>
-              {contratos.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  #{c.numero} {c.nome} — {c.tomador_nome}
-                </option>
-              ))}
-            </NativeSelect>
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (escolherContrato && !contrato) return toast.error("Escolha o contrato do caso.");
+          if (f.titulo.trim().length < 2) return toast.error("Informe o título do caso.");
+          const faltando = extras.find((c) => c.obrigatorio && vazioExtra(c.id));
+          if (faltando) return toast.error(`Preencha o campo “${faltando.nome}”.`);
+          salvar.mutate();
+        }}
+      >
+        <div className="space-y-4">
+          <SecaoForm titulo="Identificação">
+            {escolherContrato && (
+              <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-6">
+                <NativeSelect id="caso-contrato" value={contrato ?? ""} onChange={(e) => setContrato(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">Escolha o contrato…</option>
+                  {contratos.data?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.numero} {c.nome} — {c.tomador_nome}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            )}
+            <Field label="Título" obrigatorio htmlFor="caso-titulo" className="sm:col-span-4">
+              <Input id="caso-titulo" value={f.titulo} onChange={(e) => set("titulo", e.target.value)} placeholder="ex.: Ação de cobrança — Cond. Solar" autoFocus={!escolherContrato} />
+            </Field>
+            <div className="sm:col-span-6" role="radiogroup" aria-label="Tipo do caso">
+              <p className="mb-1.5 text-[13px] text-foreground/80">Tipo do caso</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(Object.entries(ROTULO_TIPO_CASO) as [TipoCaso, string][]).map(([k, l]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={f.tipo === k}
+                    onClick={() => set("tipo", f.tipo === k ? null : k)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-sm transition",
+                      f.tipo === k ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground hover:border-brand/40",
+                    )}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Field label="Área de atuação" htmlFor="caso-area" className="sm:col-span-2">
+              <NativeSelect id="caso-area" value={f.area_id ?? ""} onChange={(e) => set("area_id", e.target.value ? Number(e.target.value) : null)}>
+                <option value="">—</option>
+                {areas.data
+                  ?.filter((a) => a.ativo || a.id === f.area_id)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Responsável" htmlFor="caso-resp" className="sm:col-span-2">
+              <NativeSelect id="caso-resp" value={f.responsavel_id ?? ""} onChange={(e) => set("responsavel_id", e.target.value ? Number(e.target.value) : null)}>
+                <option value="">—</option>
+                {usuarios.data?.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nome}
+                    {u.cargo_nome ? ` · ${u.cargo_nome}` : ""}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Situação" htmlFor="caso-status" className="sm:col-span-2">
+              <NativeSelect id="caso-status" value={f.status} onChange={(e) => set("status", e.target.value as CasoIn["status"])}>
+                <option value="aberto">Aberto</option>
+                <option value="encerrado">Encerrado</option>
+              </NativeSelect>
+            </Field>
+            <Field label="Abertura" htmlFor="caso-abertura" className={f.status === "encerrado" ? "sm:col-span-1" : "sm:col-span-2"}>
+              <Input id="caso-abertura" type="date" value={f.data_abertura ?? ""} onChange={(e) => set("data_abertura", e.target.value || null)} />
+            </Field>
+            {f.status === "encerrado" && (
+              <Field label="Encerramento" htmlFor="caso-encerramento" className="sm:col-span-1">
+                <Input id="caso-encerramento" type="date" value={f.data_encerramento ?? ""} onChange={(e) => set("data_encerramento", e.target.value || null)} />
+              </Field>
+            )}
+          </SecaoForm>
+
+          <SecaoForm titulo="Processo">
+            <Field label="Nº do processo" htmlFor="caso-processo" className="sm:col-span-3">
+              <Input id="caso-processo" value={f.numero_processo ?? ""} onChange={(e) => set("numero_processo", e.target.value)} className="font-mono" placeholder="0000000-00.0000.0.00.0000" />
+            </Field>
+            <Field label="Polo" htmlFor="caso-polo" className="sm:col-span-3">
+              <NativeSelect id="caso-polo" value={f.polo ?? ""} onChange={(e) => set("polo", (e.target.value || null) as Polo | null)}>
+                <option value="">—</option>
+                {Object.entries(ROTULO_POLO).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    {l}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Parte contrária" htmlFor="caso-parte" className="sm:col-span-6">
+              <Input id="caso-parte" value={f.parte_contraria ?? ""} onChange={(e) => set("parte_contraria", e.target.value)} />
+            </Field>
+            <Field label="Tribunal" htmlFor="caso-tribunal" className="sm:col-span-2">
+              <Input id="caso-tribunal" value={f.tribunal ?? ""} onChange={(e) => set("tribunal", e.target.value)} placeholder="ex.: TJSP" maxLength={80} />
+            </Field>
+            <Field label="Vara" htmlFor="caso-vara" className="sm:col-span-2">
+              <Input id="caso-vara" value={f.vara ?? ""} onChange={(e) => set("vara", e.target.value)} maxLength={120} />
+            </Field>
+            <Field label="Comarca" htmlFor="caso-comarca" className="sm:col-span-2">
+              <Input id="caso-comarca" value={f.comarca ?? ""} onChange={(e) => set("comarca", e.target.value)} maxLength={80} />
+            </Field>
+            <Field label="Valor da causa" htmlFor="caso-valor" className="sm:col-span-3">
+              <div className="relative">
+                <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                <Input id="caso-valor" inputMode="decimal" value={f.valor_causa ?? ""} onChange={(e) => set("valor_causa", e.target.value.replace(/[^\d,.]/g, ""))} className="pl-8 text-right font-mono" />
+              </div>
+            </Field>
+            <Field label="Distribuição" htmlFor="caso-distrib" className="sm:col-span-3">
+              <Input id="caso-distrib" type="date" value={f.data_distribuicao ?? ""} onChange={(e) => set("data_distribuicao", e.target.value || null)} />
+            </Field>
+          </SecaoForm>
+
+          <SecaoForm titulo="Cobrança">
+            <Field label="Tabela de preço (vazio = a do contrato)" htmlFor="caso-tabela" dica={dicaTabela} className="sm:col-span-6">
+              <TabelaPrecoSelect id="caso-tabela" valor={f.tabela_preco_id} onChange={(v) => set("tabela_preco_id", v)} vazio="A do contrato" />
+            </Field>
+          </SecaoForm>
+
+          {extras.length > 0 && (
+            <fieldset className="rounded-2xl border bg-card p-4">
+              <legend className="px-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Campos adicionais</legend>
+              <CamposAdicionaisForm
+                idBase="caso-extra"
+                campos={extras}
+                valores={f.campos}
+                onChange={(id, v) => setF((o) => ({ ...o, campos: { ...o.campos, [String(id)]: v } }))}
+              />
+            </fieldset>
+          )}
+
+          <Field label="Descrição" htmlFor="caso-desc">
+            <Textarea id="caso-desc" rows={4} value={f.descricao ?? ""} onChange={(e) => set("descricao", e.target.value)} />
           </Field>
-        )}
-        <Field label="Título" obrigatorio htmlFor="caso-titulo" className="sm:col-span-2">
-          <Input id="caso-titulo" value={f.titulo} onChange={(e) => set("titulo", e.target.value)} placeholder="ex.: Ação de cobrança — Cond. Solar" autoFocus={!escolherContrato} />
-        </Field>
-        <Field label="Nº do processo" htmlFor="caso-processo">
-          <Input id="caso-processo" value={f.numero_processo ?? ""} onChange={(e) => set("numero_processo", e.target.value)} className="font-mono" placeholder="0000000-00.0000.0.00.0000" />
-        </Field>
-        <Field label="Parte contrária" htmlFor="caso-parte">
-          <Input id="caso-parte" value={f.parte_contraria ?? ""} onChange={(e) => set("parte_contraria", e.target.value)} />
-        </Field>
-        <Field label="Responsável" htmlFor="caso-resp">
-          <NativeSelect id="caso-resp" value={f.responsavel_id ?? ""} onChange={(e) => set("responsavel_id", e.target.value ? Number(e.target.value) : null)}>
-            <option value="">—</option>
-            {usuarios.data?.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.nome}
-                {u.cargo_nome ? ` · ${u.cargo_nome}` : ""}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="Situação" htmlFor="caso-status">
-          <NativeSelect id="caso-status" value={f.status} onChange={(e) => set("status", e.target.value as CasoIn["status"])}>
-            <option value="aberto">Aberto</option>
-            <option value="encerrado">Encerrado</option>
-          </NativeSelect>
-        </Field>
-        <Field label="Tabela de preço (vazio = a do contrato)" htmlFor="caso-tabela" dica={dicaTabela} className="sm:col-span-2">
-          <TabelaPrecoSelect id="caso-tabela" valor={f.tabela_preco_id} onChange={(v) => set("tabela_preco_id", v)} vazio="A do contrato" />
-        </Field>
-        <Field label="Abertura" htmlFor="caso-abertura">
-          <Input id="caso-abertura" type="date" value={f.data_abertura ?? ""} onChange={(e) => set("data_abertura", e.target.value || null)} />
-        </Field>
-        {f.status === "encerrado" && (
-          <Field label="Encerramento" htmlFor="caso-encerramento">
-            <Input id="caso-encerramento" type="date" value={f.data_encerramento ?? ""} onChange={(e) => set("data_encerramento", e.target.value || null)} />
-          </Field>
-        )}
-        <Field label="Descrição" htmlFor="caso-desc" className="sm:col-span-2">
-          <Textarea id="caso-desc" rows={3} value={f.descricao ?? ""} onChange={(e) => set("descricao", e.target.value)} />
-        </Field>
-      </div>
-    </FormDialog>
+        </div>
+      </FormDialog>
+      <PreencherCasoDialog
+        open={ia}
+        onOpenChange={setIa}
+        atual={{ ...f, valor_causa: f.valor_causa ? paraDecimalApi(f.valor_causa) : null, campos: normalizarCampos(f.campos, campos.data ?? []) }}
+        areas={areas.data ?? []}
+        campos={campos.data ?? []}
+        onAplicar={(patch) => {
+          setF((o) => ({
+            ...o,
+            ...patch,
+            valor_causa: patch.valor_causa != null ? paraBr(patch.valor_causa) : o.valor_causa,
+            campos: patch.campos ? camposParaForm({ ...o.campos, ...patch.campos }, campos.data ?? []) : o.campos,
+          }));
+          setIa(false);
+          toast.success("Sugestões aplicadas no formulário. Revise e salve.");
+        }}
+      />
+    </>
   );
 }

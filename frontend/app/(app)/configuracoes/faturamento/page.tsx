@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { AreasAtuacao, CamposAdicionaisConfig } from "@/components/faturamento/config-ficha";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field } from "@/components/mayacorp/form";
@@ -16,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import type { CargoOut, TabelaOut } from "@/lib/faturamento";
 import { moeda, toNum } from "@/lib/format";
@@ -483,9 +485,24 @@ function Tabelas() {
 
 export default function ConfigFaturamentoPage() {
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] xl:items-start">
-      <Cargos />
-      <Tabelas />
-    </div>
+    <Tabs defaultValue="precos">
+      <TabsList className="mb-4">
+        <TabsTrigger value="precos">Cargos e tabelas de preço</TabsTrigger>
+        <TabsTrigger value="areas">Áreas de atuação</TabsTrigger>
+        <TabsTrigger value="campos">Campos adicionais</TabsTrigger>
+      </TabsList>
+      <TabsContent value="precos">
+        <div className="grid gap-5 xl:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] xl:items-start">
+          <Cargos />
+          <Tabelas />
+        </div>
+      </TabsContent>
+      <TabsContent value="areas" className="max-w-3xl">
+        <AreasAtuacao />
+      </TabsContent>
+      <TabsContent value="campos" className="max-w-4xl">
+        <CamposAdicionaisConfig />
+      </TabsContent>
+    </Tabs>
   );
 }

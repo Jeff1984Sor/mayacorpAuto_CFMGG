@@ -1,10 +1,20 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.core.schemas import Schema
-from app.modules.faturamento.models import Frequencia, StatusCaso, Termino, TipoDespesa, TipoRegra
+from app.modules.faturamento.models import (
+    Frequencia,
+    StatusCaso,
+    Termino,
+    TipoAndamento,
+    TipoCampo,
+    TipoCaso,
+    TipoDespesa,
+    TipoRegra,
+)
 
 
 # ---------- funcionários e tabelas de preço (cargo × valor/hora)
@@ -73,11 +83,67 @@ class ContratoOut(Schema):
     qtd_regras: int = 0
 
 
+class AreaIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=100)
+    cor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    ordem: int = 0
+    ativo: bool = True
+
+
+class AreaOut(Schema):
+    id: int
+    nome: str
+    cor: str | None
+    ordem: int
+    ativo: bool
+    qtd_casos: int = 0
+
+
+class CampoIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=100)
+    tipo: TipoCampo = TipoCampo.texto
+    opcoes: list[str] = []
+    obrigatorio: bool = False
+    ajuda: str | None = Field(default=None, max_length=200)
+    area_id: int | None = None
+    ordem: int = 0
+    ativo: bool = True
+
+    @model_validator(mode="after")
+    def _opcoes(self):
+        self.opcoes = [o.strip() for o in self.opcoes if o and o.strip()]
+        if self.tipo == TipoCampo.lista and not self.opcoes:
+            raise ValueError("Informe as opções da lista.")
+        return self
+
+
+class CampoOut(Schema):
+    id: int
+    nome: str
+    tipo: TipoCampo
+    opcoes: list[str]
+    obrigatorio: bool
+    ajuda: str | None
+    area_id: int | None
+    ordem: int
+    ativo: bool
+    qtd_preenchidos: int = 0
+
+
 class CasoIn(BaseModel):
     titulo: str = Field(min_length=2, max_length=250)
     descricao: str | None = None
     numero_processo: str | None = Field(default=None, max_length=40)
     parte_contraria: str | None = Field(default=None, max_length=200)
+    tipo: TipoCaso | None = None  # consultivo, administrativo, judicial estadual/federal/trabalhista
+    area_id: int | None = None
+    polo: str | None = Field(default=None, pattern="^(ativo|passivo|terceiro|consultivo)$")
+    tribunal: str | None = Field(default=None, max_length=80)
+    vara: str | None = Field(default=None, max_length=120)
+    comarca: str | None = Field(default=None, max_length=80)
+    valor_causa: Decimal | None = Field(default=None, ge=0)
+    data_distribuicao: date | None = None
+    campos: dict[str, Any] | None = None  # {"<id do campo>": valor}
     responsavel_id: int | None = None
     tabela_preco_id: int | None = None  # vazio = a do contrato
     status: StatusCaso = StatusCaso.aberto
@@ -99,6 +165,20 @@ class CasoOut(Schema):
     parte_contraria: str | None
     responsavel_id: int | None
     responsavel_nome: str | None
+    tipo: TipoCaso | None = None
+    tipo_nome: str | None = None
+    area_id: int | None = None
+    area_nome: str | None = None
+    area_cor: str | None = None
+    polo: str | None = None
+    tribunal: str | None = None
+    vara: str | None = None
+    comarca: str | None = None
+    valor_causa: Decimal | None = None
+    data_distribuicao: date | None = None
+    campos: dict[str, Any] = {}
+    qtd_anexos: int = 0
+    qtd_andamentos: int = 0
     tabela_preco_id: int | None
     tabela_preco_efetiva: str | None = None  # nome da tabela que vale (caso ou contrato)
     status: StatusCaso
@@ -376,3 +456,49 @@ class IncluirIn(BaseModel):
 
 class DescartarIn(BaseModel):
     motivo: str | None = Field(default=None, max_length=500)
+
+
+class AnexoOut(Schema):
+    id: int
+    caso_id: int
+    nome: str
+    descricao: str | None
+    categoria: str | None
+    tamanho: int
+    mime: str | None
+    enviado_por: str | None = None
+    criado_em: str
+
+
+class AndamentoIn(BaseModel):
+    data: date
+    tipo: TipoAndamento = TipoAndamento.andamento
+    titulo: str = Field(min_length=2, max_length=200)
+    descricao: str | None = Field(default=None, max_length=20000)
+    prazo: date | None = None
+    concluido: bool = False
+    responsavel_id: int | None = None
+
+
+class AndamentoOut(Schema):
+    id: int
+    caso_id: int
+    data: date
+    tipo: TipoAndamento
+    titulo: str
+    descricao: str | None
+    prazo: date | None
+    concluido: bool
+    responsavel_id: int | None
+    responsavel_nome: str | None = None
+    criado_por: str | None = None
+    criado_em: datetime
+    atrasado: bool = False
+
+
+class ResumoCasoOut(BaseModel):
+    resumo: str
+    situacao_atual: str
+    proximos_passos: list[str]
+    riscos: list[str]
+    gerado_em: str

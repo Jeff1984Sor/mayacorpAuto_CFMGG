@@ -15,7 +15,6 @@ export default function NovaContaPage() {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         titulo="Nova conta"
-        descricao="Conta corrente, poupança, investimento ou o caixa do escritório."
         icone={Plus}
         migalhas={[{ label: "Conta Bancária" }, { label: "Contas", href: "/financeiro/contas" }, { label: "Nova conta" }]}
       />

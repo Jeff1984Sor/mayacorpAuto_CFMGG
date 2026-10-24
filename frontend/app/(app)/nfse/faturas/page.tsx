@@ -71,7 +71,6 @@ export default function FaturasPage() {
     <div>
       <PageHeader
         titulo="Faturas"
-        descricao="Notas de Honorários (NH) e de Despesas (ND), com PIX para pagamento. As do Faturamento podem gerar a NFS-e depois."
         icone={ReceiptText}
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Faturas" }]}
       />

@@ -34,7 +34,6 @@ export default function ModeloContasPagarPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         titulo="Modelo de contas a pagar"
-        descricao="Preencha a planilha e importe em Lançamentos › Importar."
         icone={FileSpreadsheet}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Baixar modelo" }]}
       />

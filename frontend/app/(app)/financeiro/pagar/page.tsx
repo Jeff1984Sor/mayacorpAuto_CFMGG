@@ -204,7 +204,6 @@ function Lancamentos() {
     <div className={cn(sel.size > 0 && "pb-24")}>
       <PageHeader
         titulo="Contas a pagar"
-        descricao="Tudo o que o escritório precisa pagar: vencimentos, rateios, comprovantes e baixas."
         icone={CalendarClock}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Lançamentos" }]}
         acoes={

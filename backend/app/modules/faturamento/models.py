@@ -96,6 +96,61 @@ class Contrato(Base, Timestamped):
     __table_args__ = (UniqueConstraint("tenant_id", "numero", name="uq_fat_contrato_numero"),)
 
 
+class AreaAtuacao(Base, Timestamped):
+    """Áreas de atuação do escritório (Cível, Trabalhista, Tributário...). Configurações › Faturamento."""
+
+    __tablename__ = "fat_area"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    nome: Mapped[str] = mapped_column(String(100))
+    cor: Mapped[str | None] = mapped_column(String(7))
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TipoCampo(enum.StrEnum):
+    texto = "texto"
+    texto_longo = "texto_longo"
+    numero = "numero"
+    moeda = "moeda"
+    data = "data"
+    sim_nao = "sim_nao"
+    lista = "lista"  # escolha entre as opções
+
+
+class CampoAdicional(Base, Timestamped):
+    """Campo criado pelo escritório; aparece na aba Detalhes do caso."""
+
+    __tablename__ = "fat_campo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    entidade: Mapped[str] = mapped_column(String(20), default="caso")
+    nome: Mapped[str] = mapped_column(String(100))
+    tipo: Mapped[TipoCampo] = mapped_column(_enum(TipoCampo), default=TipoCampo.texto)
+    opcoes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    obrigatorio: Mapped[bool] = mapped_column(Boolean, default=False)
+    ajuda: Mapped[str | None] = mapped_column(String(200))
+    area_id: Mapped[int | None] = mapped_column(ForeignKey("fat_area.id", ondelete="SET NULL"))  # só para casos desta área
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TipoCaso(enum.StrEnum):
+    consultivo = "consultivo"
+    administrativo = "administrativo"
+    judicial_estadual = "judicial_estadual"
+    judicial_federal = "judicial_federal"
+    judicial_trabalhista = "judicial_trabalhista"
+
+
+ROTULO_TIPO_CASO = {
+    TipoCaso.consultivo: "Consultivo", TipoCaso.administrativo: "Administrativo", TipoCaso.judicial_estadual: "Judicial Estadual",
+    TipoCaso.judicial_federal: "Judicial Federal", TipoCaso.judicial_trabalhista: "Judicial Trabalhista",
+}
+
+
 class StatusCaso(enum.StrEnum):
     aberto = "aberto"
     encerrado = "encerrado"
@@ -112,6 +167,15 @@ class Caso(Base, Timestamped):
     descricao: Mapped[str | None] = mapped_column(Text)
     numero_processo: Mapped[str | None] = mapped_column(String(40))
     parte_contraria: Mapped[str | None] = mapped_column(String(200))
+    tipo: Mapped[TipoCaso | None] = mapped_column(_enum(TipoCaso), index=True)
+    area_id: Mapped[int | None] = mapped_column(ForeignKey("fat_area.id", ondelete="SET NULL"), index=True)
+    polo: Mapped[str | None] = mapped_column(String(10))  # ativo | passivo | terceiro | consultivo
+    tribunal: Mapped[str | None] = mapped_column(String(80))
+    vara: Mapped[str | None] = mapped_column(String(120))
+    comarca: Mapped[str | None] = mapped_column(String(80))
+    valor_causa: Mapped[Decimal | None] = mapped_column(Dinheiro)
+    data_distribuicao: Mapped[date | None] = mapped_column(Date)
+    campos: Mapped[dict | None] = mapped_column(JSON)  # {id do campo adicional: valor}
     responsavel_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
     tabela_preco_id: Mapped[int | None] = mapped_column(ForeignKey("fat_tabela.id"))  # vence a do contrato
     status: Mapped[StatusCaso] = mapped_column(_enum(StatusCaso), default=StatusCaso.aberto)
@@ -120,8 +184,60 @@ class Caso(Base, Timestamped):
 
     contrato: Mapped[Contrato] = relationship(back_populates="casos")
     regras: Mapped[list["RegraCobranca"]] = relationship(back_populates="caso")
+    area: Mapped["AreaAtuacao | None"] = relationship()
+    anexos: Mapped[list["AnexoCaso"]] = relationship(back_populates="caso", cascade="all, delete-orphan",
+                                                     order_by="AnexoCaso.id.desc()")
+    andamentos: Mapped[list["Andamento"]] = relationship(back_populates="caso", cascade="all, delete-orphan",
+                                                         order_by="(Andamento.data.desc(), Andamento.id.desc())")
 
     __table_args__ = (UniqueConstraint("tenant_id", "numero", name="uq_fat_caso_numero"),)
+
+
+class TipoAndamento(enum.StrEnum):
+    andamento = "andamento"
+    publicacao = "publicacao"
+    despacho = "despacho"
+    decisao = "decisao"
+    sentenca = "sentenca"
+    audiencia = "audiencia"
+    prazo = "prazo"
+    reuniao = "reuniao"
+    nota = "nota"  # nota interna
+
+
+class Andamento(Base, Timestamped):
+    """Histórico do caso: movimentações do processo, prazos, audiências e notas internas."""
+
+    __tablename__ = "fat_andamento"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    caso_id: Mapped[int] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)
+    data: Mapped[date] = mapped_column(Date, index=True)
+    tipo: Mapped[TipoAndamento] = mapped_column(_enum(TipoAndamento), default=TipoAndamento.andamento)
+    titulo: Mapped[str] = mapped_column(String(200))
+    descricao: Mapped[str | None] = mapped_column(Text)
+    prazo: Mapped[date | None] = mapped_column(Date)  # data limite (prazos e audiências)
+    concluido: Mapped[bool] = mapped_column(Boolean, default=False)
+    responsavel_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+
+    caso: Mapped["Caso"] = relationship(back_populates="andamentos")
+
+
+class AnexoCaso(Base, Timestamped):
+    __tablename__ = "fat_anexo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    caso_id: Mapped[int] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(255))  # nome original do arquivo
+    descricao: Mapped[str | None] = mapped_column(String(300))
+    categoria: Mapped[str | None] = mapped_column(String(60))  # Petição, Contrato, Procuração...
+    caminho: Mapped[str] = mapped_column(String(500))
+    tamanho: Mapped[int] = mapped_column(Integer, default=0)
+    mime: Mapped[str | None] = mapped_column(String(100))
+    enviado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+
+    caso: Mapped[Caso] = relationship(back_populates="anexos")
 
 
 class RegraCobranca(Base, Timestamped):

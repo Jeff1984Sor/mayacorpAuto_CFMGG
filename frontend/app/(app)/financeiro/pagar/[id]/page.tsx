@@ -23,7 +23,6 @@ export default function EditarContaPagarPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         titulo={q.data ? q.data.favorecido_nome || q.data.descricao : "Conta a pagar"}
-        descricao={q.data ? `${moeda(q.data.valor)} · vence ${data(q.data.data_vencimento)}` : undefined}
         icone={CalendarClock}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Lançamentos", href: "/financeiro/pagar" }, { label: "Editar" }]}
       />
