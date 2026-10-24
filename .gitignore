@@ -1,0 +1,33 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Dados locais (banco dev, PDFs/XMLs, certificados, e-mails de teste)
+backend/data/
+backend/storage/
+backend/VERSION
+*.pfx
+*.p12
+
+# Node / Next
+node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.claude/settings.local.json
+.claude/worktrees/

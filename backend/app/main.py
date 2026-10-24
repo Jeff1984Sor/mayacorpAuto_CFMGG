@@ -1,0 +1,99 @@
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.config import BASE_DIR, settings
+from app.core.routes import auditoria, auth, config, hub, public
+from app.modules.rpa_nfse import routes as nfse_routes
+from app.modules.rpa_nfse import routes_faturas, routes_financeiro, tasks
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+VERSAO = (BASE_DIR / "VERSION").read_text().strip() if (BASE_DIR / "VERSION").exists() else "dev"
+
+
+def migrar() -> None:
+    from alembic.config import Config
+
+    from alembic import command
+
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BASE_DIR / "alembic"))
+    cfg.attributes["configure_logger"] = False
+    command.upgrade(cfg, "head")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    Path(settings.storage_dir).mkdir(parents=True, exist_ok=True)
+    if settings.database_url.startswith("sqlite"):
+        Path(settings.database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+    if settings.migrar_na_subida:
+        migrar()
+    if settings.worker_embutido:
+        tasks.retomar_pendentes()
+    yield
+
+
+app = FastAPI(
+    title="MayaCorp Automações — API",
+    version=VERSAO,
+    description="Hub de automações MayaCorp. RPA 01: Emissor de NFS-e em lote, layout 2 (ISS + IBS + CBS).",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+
+
+def _traduzir(e: dict) -> str:
+    ctx = e.get("ctx") or {}
+    tipo = e.get("type", "")
+    if tipo == "missing":
+        return "campo obrigatório"
+    if tipo == "string_too_short":
+        return f"precisa ter pelo menos {ctx.get('min_length')} caracteres"
+    if tipo == "string_too_long":
+        return f"pode ter no máximo {ctx.get('max_length')} caracteres"
+    if tipo == "string_pattern_mismatch":
+        return "formato inválido"
+    if tipo == "value_error" and "email" in e.get("msg", "").lower():
+        return "e-mail inválido"
+    if tipo.startswith(("int_", "decimal_", "float_")):
+        return "número inválido"
+    if tipo.startswith("date"):
+        return "data inválida"
+    return e.get("msg", "valor inválido")
+
+
+@app.exception_handler(RequestValidationError)
+async def _validacao(_: Request, exc: RequestValidationError):
+    """422 em português claro: primeiro problema no `detail`, lista completa em `erros`."""
+    erros = []
+    for e in exc.errors():
+        campo = ".".join(str(p) for p in e["loc"] if p not in ("body", "query", "path"))
+        erros.append({"campo": campo, "mensagem": _traduzir(e)})
+    primeiro = erros[0] if erros else {"campo": "", "mensagem": "Dados inválidos."}
+    return JSONResponse(status_code=422, content={"detail": f"{primeiro['campo']}: {primeiro['mensagem']}".strip(": "), "erros": erros})
+
+
+for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
+          nfse_routes.router, routes_financeiro.router, routes_faturas.router, auditoria.router):
+    app.include_router(r, prefix="/api")
+
+
+@app.get("/api/health", tags=["infra"])
+def health():
+    return {"ok": True, "versao": VERSAO, "ambiente": settings.ambiente}

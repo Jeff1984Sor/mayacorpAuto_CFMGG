@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains);
+  --font-heading: var(--font-dm-sans);
+
+  --color-navy: #1e2d6b;
+  --color-indigo-maya: #7c8fff;
+  --color-teal-maya: #1a8f5e;
+  --color-amber-maya: #f5a623;
+  --color-red-maya: #c94343;
+  --color-dark-maya: #0f1729;
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-success-ink: var(--success-ink);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger-ink: var(--danger-ink);
+  --color-info-ink: var(--info-ink);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+}
+
+/* Paleta MayaCorp — a cor de destaque do cliente (white-label) sobrescreve --brand em runtime. */
+:root {
+  --brand: #7c8fff;
+  --brand-foreground: #ffffff;
+  --navy: #1e2d6b;
+  --success: #1a8f5e;
+  --warning: #f5a623;
+  --danger: #c94343;
+  --info: color-mix(in oklab, #7c8fff 70%, #1e2d6b);
+  /* texto sobre fundos tonais */
+  --success-ink: #1a8f5e;
+  --warning-ink: color-mix(in oklab, #f5a623 58%, #0f1729);
+  --danger-ink: #c94343;
+  --info-ink: #1e2d6b;
+
+  --background: #f7f8fc;
+  --foreground: #0f1729;
+  --card: #ffffff;
+  --card-foreground: #0f1729;
+  --popover: #ffffff;
+  --popover-foreground: #0f1729;
+  --primary: #1e2d6b;
+  --primary-foreground: #ffffff;
+  --secondary: color-mix(in oklab, #7c8fff 10%, #f7f8fc);
+  --secondary-foreground: #1e2d6b;
+  --muted: color-mix(in oklab, #1e2d6b 4%, #f7f8fc);
+  --muted-foreground: color-mix(in oklab, #0f1729 62%, #f7f8fc);
+  --accent: color-mix(in oklab, var(--brand) 12%, white);
+  --accent-foreground: #1e2d6b;
+  --destructive: #c94343;
+  --border: color-mix(in oklab, #1e2d6b 10%, #f7f8fc);
+  --input: color-mix(in oklab, #1e2d6b 13%, #f7f8fc);
+  --ring: var(--brand);
+  --chart-1: var(--brand);
+  --chart-2: #1e2d6b;
+  --chart-3: #1a8f5e;
+  --chart-4: #f5a623;
+  --chart-5: #c94343;
+  --radius: 0.75rem;
+
+  --sidebar: #0f1729;
+  --sidebar-foreground: color-mix(in oklab, #f7f8fc 78%, #7c8fff);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(255 255 255 / 0.06);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: var(--brand);
+}
+
+.dark {
+  /* Dark #0F1729 é o fundo; superfícies derivam dele + Gray #F7F8FC */
+  --background: #0f1729;
+  --foreground: #f7f8fc;
+  --card: color-mix(in oklab, #0f1729 94%, #f7f8fc);
+  --card-foreground: #f7f8fc;
+  --popover: color-mix(in oklab, #0f1729 91%, #f7f8fc);
+  --popover-foreground: #f7f8fc;
+  --primary: var(--brand);
+  --primary-foreground: #0f1729;
+  --success-ink: color-mix(in oklab, #1a8f5e 70%, #f7f8fc);
+  --warning-ink: #f5a623;
+  --danger-ink: color-mix(in oklab, #c94343 72%, #f7f8fc);
+  --info-ink: #7c8fff;
+  --secondary: color-mix(in oklab, #1e2d6b 45%, #0f1729);
+  --secondary-foreground: #f7f8fc;
+  --muted: color-mix(in oklab, #0f1729 90%, #f7f8fc);
+  --muted-foreground: color-mix(in oklab, #f7f8fc 58%, #0f1729);
+  --accent: color-mix(in oklab, var(--brand) 16%, #0f1729);
+  --accent-foreground: #f7f8fc;
+  --destructive: #c94343;
+  --border: rgb(247 248 252 / 0.08);
+  --input: rgb(247 248 252 / 0.12);
+  --chart-2: color-mix(in oklab, #7c8fff 60%, #f7f8fc);
+  --sidebar: #0f1729;
+  --sidebar-border: rgb(247 248 252 / 0.07);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv11";
+  }
+  html {
+    @apply font-sans;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 30%, transparent);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-card/70 backdrop-blur-xl supports-backdrop-filter:bg-card/60;
+  }
+  .card-surface {
+    @apply rounded-2xl border bg-card shadow-[0_1px_2px_rgb(15_23_41/0.04),0_8px_24px_-12px_rgb(15_23_41/0.08)];
+  }
+  .brand-gradient {
+    background: linear-gradient(135deg, var(--navy) 0%, color-mix(in oklab, var(--brand) 85%, var(--navy)) 100%);
+  }
+  .brand-text {
+    background: linear-gradient(90deg, var(--navy), var(--brand));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .dark .brand-text {
+    background: linear-gradient(90deg, #ffffff, var(--brand));
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgb(124 143 255 / 0.07) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(124 143 255 / 0.07) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .num {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+}
+
+/* Shell (padrão MayaCorp/RCA): sidebar 248px ↔ 64px, topbar 52px, faixa de ambiente. */
+:root {
+  --sb: 248px;
+  --tb: 52px;
+  --faixa: 0px;
+}
+html.sb-recolhido {
+  --sb: 64px;
+}
+html.ambiente-hml {
+  --faixa: 22px;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

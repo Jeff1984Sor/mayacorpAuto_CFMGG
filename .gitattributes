@@ -1,0 +1,7 @@
+# Tudo em LF: os scripts de deploy rodam no servidor Linux (CRLF quebra o bash)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.pfx binary
