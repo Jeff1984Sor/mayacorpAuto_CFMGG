@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Briefcase, Clock, Lock, Paperclip, Pencil, Plus, Receipt, Timer, Trash2, Upload, Wallet } from "lucide-react";
+import { ArrowLeft, Briefcase, Clock, Lock, Paperclip, Pencil, Plus, Receipt, Sparkles, Timer, Trash2, Upload, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -13,6 +13,8 @@ import { useAreas, useCampos } from "@/components/faturamento/campos-adicionais"
 import { CasoIAMenu, PreencherCasoDialog, ResumoCasoSheet } from "@/components/faturamento/caso-ia";
 import { CasoDialog, casoParaIn, normalizarCampos, useProfissionais } from "@/components/faturamento/dialogos";
 import { AreaBadge, DetalhesCaso } from "@/components/faturamento/ficha-caso";
+import { DespesaDialog, LancarRecibosDialog } from "@/components/faturamento/despesas-ia";
+import { EnriquecerIA, erroHoras, HorasInput, minutosDe } from "@/components/faturamento/horas-input";
 import { RegrasCobranca } from "@/components/faturamento/regras";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
@@ -27,14 +29,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { type CasoIn, type CasoOut, type DespesaOut, hhmm, paraMinutos, ROTULO_DESPESA, type TimesheetOut, type TipoDespesa } from "@/lib/faturamento";
+import { type CasoIn, type CasoOut, type DespesaOut, hhmm, ROTULO_DESPESA, type TimesheetOut } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const hoje = () => new Date().toLocaleDateString("sv-SE");
-const paraApi = (s: string) => String(toNum(s.replace(/\./g, "").replace(",", ".")));
-const valorOk = (s: string) => /^\d{1,3}(\.?\d{3})*(,\d{1,2})?$|^\d+(,\d{1,2})?$/.test(s.trim()) && toNum(paraApi(s)) > 0;
-const paraBr = (v: string | number) => toNum(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function Travado({ codigo }: { codigo: string | null }) {
   return (
@@ -53,8 +52,21 @@ interface FormHoras {
   faturavel: boolean;
 }
 
-function HorasForm({ f, set, profs, idp }: { f: FormHoras; set: <K extends keyof FormHoras>(k: K, v: FormHoras[K]) => void; profs: ReturnType<typeof useProfissionais>; idp: string }) {
-  const min = paraMinutos(f.horas);
+function HorasForm({
+  f,
+  set,
+  profs,
+  idp,
+  casoId,
+  tentou,
+}: {
+  f: FormHoras;
+  set: <K extends keyof FormHoras>(k: K, v: FormHoras[K]) => void;
+  profs: ReturnType<typeof useProfissionais>;
+  idp: string;
+  casoId: number;
+  tentou: boolean;
+}) {
   const prof = profs.data?.find((p) => String(p.id) === f.profissional_id);
   return (
     <div className="grid gap-3 sm:grid-cols-12">
@@ -71,8 +83,8 @@ function HorasForm({ f, set, profs, idp }: { f: FormHoras; set: <K extends keyof
       <Field label="Data" htmlFor={`${idp}-data`} className="sm:col-span-3">
         <Input id={`${idp}-data`} type="date" value={f.data} max={hoje()} onChange={(e) => set("data", e.target.value)} />
       </Field>
-      <Field label="Horas" htmlFor={`${idp}-horas`} className="sm:col-span-2" dica={min ? `= ${hhmm(min)}` : "hh:mm"}>
-        <Input id={`${idp}-horas`} value={f.horas} onChange={(e) => set("horas", e.target.value)} placeholder="1:30" className="font-mono" />
+      <Field label="Horas" obrigatorio htmlFor={`${idp}-horas`} className="sm:col-span-2">
+        <HorasInput id={`${idp}-horas`} value={f.horas} onChange={(v) => set("horas", v)} mostrarErro={tentou} />
       </Field>
       <div className="flex items-end pb-2 sm:col-span-3">
         <label className="flex items-center gap-2 text-sm">
@@ -81,21 +93,27 @@ function HorasForm({ f, set, profs, idp }: { f: FormHoras; set: <K extends keyof
       </div>
       <Field label="Descrição" htmlFor={`${idp}-desc`} className="sm:col-span-12">
         <Textarea id={`${idp}-desc`} rows={2} value={f.descricao} onChange={(e) => set("descricao", e.target.value)} placeholder="O que foi feito, como vai aparecer na fatura" />
+        <EnriquecerIA
+          className="mt-1.5"
+          valor={{ descricao: f.descricao }}
+          onChange={(v) => set("descricao", v.descricao)}
+          corpo={() => ({ tipo: "timesheet", texto: f.descricao, caso_id: casoId, minutos: minutosDe(f.horas) })}
+        />
       </Field>
     </div>
   );
 }
 
 function validarHoras(f: FormHoras) {
-  const m = paraMinutos(f.horas);
-  if (!m || m > 1440) return "Informe as horas no formato 1:30 (até 24h).";
+  const e = erroHoras(f.horas);
+  if (e) return e;
   if (f.descricao.trim().length < 2) return "Descreva o que foi feito.";
   return null;
 }
 const corpoHoras = (f: FormHoras) => ({
   profissional_id: f.profissional_id ? Number(f.profissional_id) : null,
   data: f.data,
-  minutos: paraMinutos(f.horas),
+  minutos: minutosDe(f.horas),
   descricao: f.descricao.trim(),
   faturavel: f.faturavel,
 });
@@ -110,6 +128,8 @@ function Timesheet({ caso }: { caso: CasoOut }) {
   const [editar, setEditar] = useState<TimesheetOut | null>(null);
   const [fe, setFe] = useState<FormHoras>(novo);
   const [excluir, setExcluir] = useState<TimesheetOut | null>(null);
+  const [tentou, setTentou] = useState(false);
+  const [tentouEd, setTentouEd] = useState(false);
   /* eslint-disable react-hooks/set-state-in-effect -- profissional padrão = eu, quando o usuário carrega */
   useEffect(() => {
     if (usuario && !f.profissional_id) setF((o) => ({ ...o, profissional_id: String(usuario.id) }));
@@ -119,8 +139,9 @@ function Timesheet({ caso }: { caso: CasoOut }) {
   const criar = useMutation({
     mutationFn: () => api.post(`/faturamento/casos/${caso.id}/timesheet`, corpoHoras(f)),
     onSuccess: () => {
-      toast.success(`${hhmm(paraMinutos(f.horas))} lançadas`);
+      toast.success(`${hhmm(minutosDe(f.horas))} lançadas`);
       setF((o) => ({ ...novo(), profissional_id: o.profissional_id, data: o.data }));
+      setTentou(false);
       invalidar();
     },
   });
@@ -151,6 +172,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
           className="card-surface p-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setTentou(true);
             const erro = validarHoras(f);
             if (erro) return toast.error(erro);
             criar.mutate();
@@ -159,7 +181,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Timer className="size-4 text-info-ink" /> Lançar horas
           </h3>
-          <HorasForm f={f} set={(k, v) => setF((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-novo" />
+          <HorasForm f={f} set={(k, v) => setF((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-novo" casoId={caso.id} tentou={tentou} />
           <div className="mt-3 flex justify-end">
             <Button type="submit" disabled={criar.isPending}>
               <Plus /> Lançar
@@ -217,6 +239,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
                             aria-label="Editar lançamento"
                             onClick={() => {
                               setFe({ profissional_id: String(t.profissional_id), data: t.data, horas: hhmm(t.minutos), descricao: t.descricao, faturavel: t.faturavel });
+                              setTentouEd(false);
                               setEditar(t);
                             }}
                           >
@@ -243,12 +266,13 @@ function Timesheet({ caso }: { caso: CasoOut }) {
         salvando={salvar.isPending}
         onSubmit={(e) => {
           e.preventDefault();
+          setTentouEd(true);
           const erro = validarHoras(fe);
           if (erro) return toast.error(erro);
           salvar.mutate();
         }}
       >
-        <HorasForm f={fe} set={(k, v) => setFe((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-edit" />
+        <HorasForm f={fe} set={(k, v) => setFe((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-edit" casoId={caso.id} tentou={tentouEd} />
       </FormDialog>
       <ConfirmDialog
         open={!!excluir}
@@ -265,104 +289,12 @@ function Timesheet({ caso }: { caso: CasoOut }) {
 }
 
 // ================================================================ despesas
-interface FormDespesa {
-  data: string;
-  tipo: TipoDespesa;
-  descricao: string;
-  valor: string;
-  reembolsavel: boolean;
-}
-
-function DespesaDialog({ open, onOpenChange, caso, despesa }: { open: boolean; onOpenChange: (o: boolean) => void; caso: CasoOut; despesa: DespesaOut | null }) {
-  const qc = useQueryClient();
-  const [f, setF] = useState<FormDespesa>({ data: hoje(), tipo: "custas", descricao: "", valor: "", reembolsavel: true });
-  const [arquivo, setArquivo] = useState<File | null>(null);
-  /* eslint-disable react-hooks/set-state-in-effect -- carrega ao abrir */
-  useEffect(() => {
-    if (!open) return;
-    setF(despesa ? { data: despesa.data, tipo: despesa.tipo, descricao: despesa.descricao, valor: paraBr(despesa.valor), reembolsavel: despesa.reembolsavel } : { data: hoje(), tipo: "custas", descricao: "", valor: "", reembolsavel: true });
-    setArquivo(null);
-  }, [open, despesa]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-  const set = <K extends keyof FormDespesa>(k: K, v: FormDespesa[K]) => setF((o) => ({ ...o, [k]: v }));
-  const salvar = useMutation({
-    mutationFn: async () => {
-      const body = { ...f, descricao: f.descricao.trim(), valor: paraApi(f.valor) };
-      const d = despesa ? await api.put<DespesaOut>(`/faturamento/despesas/${despesa.id}`, body) : await api.post<DespesaOut>(`/faturamento/casos/${caso.id}/despesas`, body);
-      if (arquivo) {
-        const fd = new FormData();
-        fd.append("arquivo", arquivo);
-        await api.post(`/faturamento/despesas/${d.id}/comprovante`, fd);
-      }
-      return d;
-    },
-    onSuccess: () => {
-      toast.success(despesa ? "Despesa atualizada" : "Despesa lançada");
-      qc.invalidateQueries({ queryKey: ["fat"] });
-      onOpenChange(false);
-    },
-  });
-  return (
-    <FormDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      titulo={despesa ? "Editar despesa" : "Nova despesa"}
-      descricao="Despesas reembolsáveis vão para a Nota de Despesas (ND) do cliente."
-      largura="lg"
-      salvando={salvar.isPending}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (f.descricao.trim().length < 2) return toast.error("Informe a descrição.");
-        if (!valorOk(f.valor)) return toast.error("Informe um valor maior que zero, ex.: 150,00.");
-        if (arquivo && arquivo.size > 15 * 1024 * 1024) return toast.error("O comprovante passa de 15 MB.");
-        salvar.mutate();
-      }}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Tipo" htmlFor="desp-tipo">
-          <NativeSelect id="desp-tipo" value={f.tipo} onChange={(e) => set("tipo", e.target.value as TipoDespesa)}>
-            {Object.entries(ROTULO_DESPESA).map(([k, l]) => (
-              <option key={k} value={k}>
-                {l}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="Data" htmlFor="desp-data">
-          <Input id="desp-data" type="date" value={f.data} onChange={(e) => set("data", e.target.value)} />
-        </Field>
-        <Field label="Descrição" obrigatorio htmlFor="desp-desc" className="sm:col-span-2">
-          <Input id="desp-desc" value={f.descricao} onChange={(e) => set("descricao", e.target.value)} maxLength={300} placeholder="ex.: Guia de custas iniciais" />
-        </Field>
-        <Field label="Valor" obrigatorio htmlFor="desp-valor">
-          <div className="relative">
-            <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
-            <Input id="desp-valor" value={f.valor} inputMode="decimal" onChange={(e) => set("valor", e.target.value.replace(/[^\d,.]/g, ""))} className="pl-8 font-mono" placeholder="0,00" />
-          </div>
-        </Field>
-        <div className="flex items-end pb-2">
-          <label className="flex items-center gap-2 text-sm">
-            <Switch checked={f.reembolsavel} onCheckedChange={(v) => set("reembolsavel", v)} aria-label="Reembolsável pelo cliente" /> Reembolsável pelo cliente
-          </label>
-        </div>
-        <Field label="Comprovante" htmlFor="desp-arquivo" dica={despesa?.tem_comprovante ? "Já tem comprovante; enviar outro substitui." : "PDF ou imagem, até 15 MB."} className="sm:col-span-2">
-          <label htmlFor="desp-arquivo" className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-3 py-3 text-sm transition hover:border-brand/50 hover:bg-brand/5">
-            <Upload className="size-4 text-info-ink" />
-            <span className="min-w-0 flex-1 truncate">{arquivo ? arquivo.name : "Escolher arquivo"}</span>
-            {arquivo && <span className="text-xs text-muted-foreground">{(arquivo.size / 1024).toFixed(0)} KB</span>}
-          </label>
-          <input id="desp-arquivo" type="file" accept="application/pdf,image/*" className="sr-only" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
-        </Field>
-      </div>
-    </FormDialog>
-  );
-}
-
 function Despesas({ caso }: { caso: CasoOut }) {
   const qc = useQueryClient();
   const { isOperador } = useAuth();
   const q = useQuery({ queryKey: ["fat", "despesas", caso.id], queryFn: () => api.get<DespesaOut[]>(`/faturamento/casos/${caso.id}/despesas`) });
   const [dlg, setDlg] = useState<{ d: DespesaOut | null } | null>(null);
+  const [lote, setLote] = useState(false);
   const [excluir, setExcluir] = useState<DespesaOut | null>(null);
   const upRef = useRef<HTMLInputElement>(null);
   const [upPara, setUpPara] = useState<number | null>(null);
@@ -412,9 +344,14 @@ function Despesas({ caso }: { caso: CasoOut }) {
             descricao="Custas, cópias e deslocamentos lançados aqui viram Nota de Despesas para o cliente."
             acao={
               isOperador && (
-                <Button onClick={() => setDlg({ d: null })}>
-                  <Plus /> Nova despesa
-                </Button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button onClick={() => setLote(true)}>
+                    <Sparkles /> Lançar recibos em lote
+                  </Button>
+                  <Button variant="outline" onClick={() => setDlg({ d: null })}>
+                    <Plus /> Nova despesa
+                  </Button>
+                </div>
               )
             }
           />
@@ -429,7 +366,12 @@ function Despesas({ caso }: { caso: CasoOut }) {
               A reembolsar <strong className="font-mono text-warning-ink">{moeda(pend)}</strong>
             </span>
             {isOperador && (
-              <Button size="sm" className="ml-auto" onClick={() => setDlg({ d: null })}>
+              <Button size="sm" variant="outline" className="ml-auto" onClick={() => setLote(true)}>
+                <Sparkles /> Lançar recibos em lote
+              </Button>
+            )}
+            {isOperador && (
+              <Button size="sm" onClick={() => setDlg({ d: null })}>
                 <Plus /> Nova despesa
               </Button>
             )}
@@ -500,7 +442,8 @@ function Despesas({ caso }: { caso: CasoOut }) {
           </div>
         </div>
       )}
-      <DespesaDialog open={!!dlg} onOpenChange={(o) => !o && setDlg(null)} caso={caso} despesa={dlg?.d ?? null} />
+      <DespesaDialog open={!!dlg} onOpenChange={(o) => !o && setDlg(null)} casoId={caso.id} despesa={dlg?.d ?? null} />
+      <LancarRecibosDialog open={lote} onOpenChange={setLote} casoId={caso.id} />
       <ConfirmDialog
         open={!!excluir}
         onOpenChange={(o) => !o && setExcluir(null)}
@@ -617,7 +560,7 @@ export default function CasoPage() {
           <Despesas caso={c} />
         </TabsContent>
         <TabsContent value="anexos" className="pt-4">
-          <AnexosCaso casoId={c.id} />
+          <AnexosCaso casoId={c.id} onVerDespesa={() => setAba("despesas")} />
         </TabsContent>
         <TabsContent value="regra" className="pt-4">
           <RegrasCobranca

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Mail, Save, Server } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -38,7 +39,7 @@ function render(t: string, nome: string) {
 
 export default function NotificacoesPage() {
   const qc = useQueryClient();
-  const { nome_exibicao, logoSrc } = useBrand();
+  const { nome_exibicao, logoSrc, cor_destaque } = useBrand();
   const q = useQuery({ queryKey: ["notificacoes"], queryFn: () => api.get<NotificacoesOut>("/config/notificacoes") });
   const [f, setF] = useState<Form | null>(null);
   const [avisos, setAvisos] = useState("");
@@ -102,6 +103,19 @@ export default function NotificacoesPage() {
           <SwitchRow titulo="Anexar XML">
             <Switch checked={f.anexar_xml} onCheckedChange={(v) => set("anexar_xml", v)} />
           </SwitchRow>
+          <div className="sm:col-span-2">
+            <SwitchRow titulo="Incluir o logo do escritório nos e-mails" descricao="O e-mail sai com o logo no topo, como na prévia ao lado.">
+              <Switch checked={!!f.email_logo} onCheckedChange={(v) => set("email_logo", v)} aria-label="Incluir o logo nos e-mails" />
+            </SwitchRow>
+            {!logoSrc && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Nenhum logo enviado ainda.{" "}
+                <Link href="/configuracoes/identidade" className="font-medium text-info-ink hover:underline">
+                  Enviar em Identidade
+                </Link>
+              </p>
+            )}
+          </div>
         </FormSection>
 
         <FormSection titulo="Modelo do e-mail" descricao="Clique numa variável para inserir no texto.">
@@ -235,15 +249,25 @@ export default function NotificacoesPage() {
               <span className="text-muted-foreground">Assunto:</span> <strong>{render(f.assunto_modelo, nome_exibicao)}</strong>
             </p>
           </div>
-          <div className="brand-gradient flex h-14 items-center px-5">
-            {logoSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoSrc} alt="" className="h-8 rounded bg-white object-contain p-1" />
-            ) : (
-              <span className="font-semibold text-white">{nome_exibicao}</span>
-            )}
+          <div className={cn(f.email_logo && "bg-[#f7f8fc] p-4")}>
+            <div className={cn(f.email_logo && "overflow-hidden rounded-xl border border-[#e6e8f0] bg-white text-[#0f1729]")}>
+              {f.email_logo &&
+                (logoSrc ? (
+                  <div className="px-6 py-4" style={{ borderBottom: `3px solid ${cor_destaque ?? "#1E2D6B"}` }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- logo do escritório (blob local) */}
+                    <img src={logoSrc} alt={nome_exibicao} className="block max-h-12 max-w-[200px] object-contain" />
+                  </div>
+                ) : (
+                  <p className="border-b px-6 py-3 text-xs text-muted-foreground">
+                    Sem logo: o e-mail vai só com o texto.{" "}
+                    <Link href="/configuracoes/identidade" className="text-info-ink hover:underline">
+                      Enviar o logo
+                    </Link>
+                  </p>
+                ))}
+              <div className={cn("text-sm whitespace-pre-wrap", f.email_logo ? "px-6 py-5 leading-relaxed" : "p-5")}>{render(f.corpo_modelo, nome_exibicao)}</div>
+            </div>
           </div>
-          <div className="p-5 text-sm whitespace-pre-wrap">{render(f.corpo_modelo, nome_exibicao)}</div>
           <div className="flex gap-2 border-t p-4">
             {f.anexar_pdf && (
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs">

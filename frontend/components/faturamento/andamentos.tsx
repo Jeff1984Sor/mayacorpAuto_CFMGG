@@ -23,6 +23,7 @@ import { data, relativo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { useProfissionais } from "./dialogos";
+import { EnriquecerIA } from "./horas-input";
 
 export const TIPO_ANDAMENTO: Record<TipoAndamento, { l: string; icone: React.ComponentType<{ className?: string }>; cor: string }> = {
   andamento: { l: "Andamento", icone: ScrollText, cor: "bg-brand/12 text-info-ink ring-brand/25" },
@@ -128,6 +129,12 @@ function AndamentoDialog({ open, onOpenChange, casoId, andamento }: { open: bool
           )}
           <Field label="Descrição" htmlFor="and-desc" className="sm:col-span-6">
             <Textarea id="and-desc" rows={5} value={f.descricao ?? ""} onChange={(e) => set("descricao", e.target.value)} />
+            <EnriquecerIA
+              className="mt-1.5"
+              valor={{ titulo: f.titulo, descricao: f.descricao ?? "" }}
+              onChange={(v) => setF((o) => ({ ...o, titulo: v.titulo ?? o.titulo, descricao: v.descricao }))}
+              corpo={() => ({ tipo: "andamento", texto: (f.descricao ?? "").trim() || f.titulo, titulo: f.titulo, tipo_andamento: f.tipo, caso_id: casoId })}
+            />
           </Field>
         </div>
       </div>

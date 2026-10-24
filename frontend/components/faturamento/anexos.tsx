@@ -5,6 +5,9 @@ import {
   Download,
   Eye,
   File,
+  Folder,
+  FolderOpen,
+  Receipt,
   FileArchive,
   FileImage,
   FileSpreadsheet,
@@ -128,7 +131,7 @@ function EditarAnexo({ anexo, onClose }: { anexo: AnexoOut | null; onClose: () =
       }}
     >
       <div className="space-y-4">
-        <Field label="Categoria" htmlFor="anexo-cat">
+        <Field label="Pasta" htmlFor="anexo-cat">
           <Input id="anexo-cat" list="anexo-categorias" value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} maxLength={60} />
           <datalist id="anexo-categorias">
             {CATEGORIAS.map((c) => (
@@ -144,7 +147,21 @@ function EditarAnexo({ anexo, onClose }: { anexo: AnexoOut | null; onClose: () =
   );
 }
 
-function Acoes({ a, podeEditar, onVer, onEditar, onExcluir }: { a: AnexoOut; podeEditar: boolean; onVer: (a: AnexoOut) => void; onEditar: (a: AnexoOut) => void; onExcluir: (a: AnexoOut) => void }) {
+function Acoes({
+  a,
+  podeEditar,
+  onVer,
+  onEditar,
+  onExcluir,
+  onVerDespesa,
+}: {
+  a: AnexoOut;
+  podeEditar: boolean;
+  onVer: (a: AnexoOut) => void;
+  onEditar: (a: AnexoOut) => void;
+  onExcluir: (a: AnexoOut) => void;
+  onVerDespesa?: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${a.nome}`} />}>
@@ -159,10 +176,15 @@ function Acoes({ a, podeEditar, onVer, onEditar, onExcluir }: { a: AnexoOut; pod
         <DropdownMenuItem onClick={() => baixar(`/faturamento/anexos/${a.id}`, { query: { download: true } }, a.nome)}>
           <Download /> Baixar
         </DropdownMenuItem>
-        {podeEditar && (
+        {a.despesa_id && onVerDespesa && (
+          <DropdownMenuItem onClick={onVerDespesa}>
+            <Receipt /> Ver despesa
+          </DropdownMenuItem>
+        )}
+        {podeEditar && !a.despesa_id && (
           <>
             <DropdownMenuItem onClick={() => onEditar(a)}>
-              <Pencil /> Categoria e descrição
+              <Pencil /> Pasta e descrição
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => onExcluir(a)}>
@@ -175,15 +197,55 @@ function Acoes({ a, podeEditar, onVer, onEditar, onExcluir }: { a: AnexoOut; pod
   );
 }
 
-export function AnexosCaso({ casoId }: { casoId: number }) {
+const SEM_PASTA = "Sem pasta";
+const pastaDe = (a: AnexoOut) => a.categoria?.trim() || SEM_PASTA;
+
+function ItemLista({ a, onAbrir, acoes }: { a: AnexoOut; onAbrir: () => void; acoes: React.ReactNode }) {
+  const I = iconeDo(a.nome);
+  return (
+    <li className="flex items-center gap-3 px-3 py-2.5 hover:bg-accent/30">
+      <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", I.cor)}>
+        <I.i className="size-4" />
+      </span>
+      <button type="button" onClick={onAbrir} className="min-w-0 flex-1 text-left">
+        <p className="truncate text-sm font-medium hover:underline">{a.nome}</p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {[a.descricao, tamanhoArquivo(a.tamanho), a.enviado_por && `por ${a.enviado_por}`, relativo(a.criado_em)].filter(Boolean).join(" · ")}
+        </p>
+      </button>
+      {a.despesa_id && <span className="hidden rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success-ink sm:inline">recibo de despesa</span>}
+      {acoes}
+    </li>
+  );
+}
+
+function ItemGrade({ a, onAbrir, acoes }: { a: AnexoOut; onAbrir: () => void; acoes: React.ReactNode }) {
+  const I = iconeDo(a.nome);
+  return (
+    <li className="group relative rounded-xl border bg-card p-3 transition hover:-translate-y-0.5 hover:shadow-md">
+      <button type="button" onClick={onAbrir} className="block w-full text-left">
+        <span className={cn("mb-3 grid h-20 w-full place-items-center rounded-lg", I.cor)}>
+          <I.i className="size-8" />
+        </span>
+        <p className="truncate text-sm font-medium">{a.nome}</p>
+        <p className="text-[11px] text-muted-foreground">
+          {tamanhoArquivo(a.tamanho)} · {relativo(a.criado_em)}
+        </p>
+      </button>
+      <div className="absolute top-2 right-2 rounded-md bg-card/80 backdrop-blur">{acoes}</div>
+    </li>
+  );
+}
+
+export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDespesa?: () => void }) {
   const qc = useQueryClient();
   const { isOperador } = useAuth();
   const q = useQuery({ queryKey: ["fat", "anexos", casoId], queryFn: () => api.get<AnexoOut[]>(`/faturamento/casos/${casoId}/anexos`) });
   const [modo, setModo] = useState<"lista" | "grade">("lista");
   const [fila, setFila] = useState<File[]>([]);
-  const [categoria, setCategoria] = useState("");
+  const [pasta, setPasta] = useState("");
   const [descricao, setDescricao] = useState("");
-  const [filtro, setFiltro] = useState<string | null>(null);
+  const [aberta, setAberta] = useState<string | null>(null);
   const [ver, setVer] = useState<AnexoOut | null>(null);
   const [editar, setEditar] = useState<AnexoOut | null>(null);
   const [excluir, setExcluir] = useState<AnexoOut | null>(null);
@@ -192,11 +254,11 @@ export function AnexosCaso({ casoId }: { casoId: number }) {
       const fd = new FormData();
       fila.forEach((f) => fd.append("arquivos", f));
       if (descricao.trim()) fd.append("descricao", descricao.trim());
-      if (categoria.trim()) fd.append("categoria", categoria.trim());
+      if (pasta.trim()) fd.append("categoria", pasta.trim());
       return api.post<AnexoOut[]>(`/faturamento/casos/${casoId}/anexos`, fd);
     },
     onSuccess: (r) => {
-      toast.success(`${r.length} arquivo(s) anexado(s)`);
+      toast.success(`${r.length} arquivo(s) anexado(s)${pasta.trim() ? ` na pasta ${pasta.trim()}` : ""}`);
       setFila([]);
       setDescricao("");
       qc.invalidateQueries({ queryKey: ["fat"] });
@@ -222,10 +284,11 @@ export function AnexosCaso({ casoId }: { casoId: number }) {
     onDropRejected: (r) => toast.error(`${r.length} arquivo(s) recusado(s): tipo não aceito ou maior que 50 MB.`),
   });
   const todos = q.data ?? [];
-  const cats = [...new Set(todos.map((a) => a.categoria).filter(Boolean))] as string[];
-  const lista = filtro ? todos.filter((a) => a.categoria === filtro) : todos;
+  const pastas = [...new Set(todos.map(pastaDe))].sort((a, b) => (a === SEM_PASTA ? 1 : b === SEM_PASTA ? -1 : a.localeCompare(b, "pt-BR")));
+  const sugestoes = [...new Set([...CATEGORIAS, ...pastas.filter((p) => p !== SEM_PASTA)])];
+  const visiveis = aberta ? pastas.filter((p) => p === aberta) : pastas;
   const abrir = (a: AnexoOut) => (previsualiza(a.nome) ? setVer(a) : baixar(`/faturamento/anexos/${a.id}`, { query: { download: true } }, a.nome));
-
+  const acoes = (a: AnexoOut) => <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} onVerDespesa={onVerDespesa} />;
 
   return (
     <div className="space-y-4">
@@ -258,16 +321,22 @@ export function AnexosCaso({ casoId }: { casoId: number }) {
                   </li>
                 ))}
               </ul>
-              <div className="grid gap-3 sm:grid-cols-[1fr_1.5fr_auto] sm:items-end">
-                <Field label="Categoria" htmlFor="up-cat">
-                  <div className="flex flex-wrap gap-1">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto] sm:items-start">
+                <Field label="Pasta" htmlFor="up-pasta" dica="Escolha uma sugestão ou digite uma pasta nova.">
+                  <Input id="up-pasta" list="up-pastas" value={pasta} onChange={(e) => setPasta(e.target.value)} maxLength={60} placeholder="Sem pasta" />
+                  <datalist id="up-pastas">
+                    {sugestoes.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
                     {CATEGORIAS.map((c) => (
                       <button
                         key={c}
                         type="button"
-                        onClick={() => setCategoria(categoria === c ? "" : c)}
-                        aria-pressed={categoria === c}
-                        className={cn("rounded-full border px-2.5 py-0.5 text-xs transition", categoria === c ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground hover:border-brand/40")}
+                        onClick={() => setPasta(pasta === c ? "" : c)}
+                        aria-pressed={pasta === c}
+                        className={cn("rounded-full border px-2 py-0.5 text-[11px] transition", pasta === c ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground hover:border-brand/40")}
                       >
                         {c}
                       </button>
@@ -277,7 +346,7 @@ export function AnexosCaso({ casoId }: { casoId: number }) {
                 <Field label="Descrição" htmlFor="up-desc">
                   <Input id="up-desc" value={descricao} onChange={(e) => setDescricao(e.target.value)} maxLength={300} />
                 </Field>
-                <Button onClick={() => enviar.mutate()} disabled={enviar.isPending}>
+                <Button className="sm:mt-6" onClick={() => enviar.mutate()} disabled={enviar.isPending}>
                   {enviar.isPending ? <Loader2 className="animate-spin" /> : <Upload />} Enviar {fila.length}
                 </Button>
               </div>
@@ -294,84 +363,74 @@ export function AnexosCaso({ casoId }: { casoId: number }) {
           Nenhum arquivo neste caso.
         </p>
       ) : (
-        <section className="card-surface overflow-hidden" aria-label="Arquivos">
-          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2.5">
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setFiltro(null)}
-                className={cn("rounded-full border px-2.5 py-0.5 text-xs", !filtro ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground")}
-              >
-                Todos ({todos.length})
-              </button>
-              {cats.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setFiltro(filtro === c ? null : c)}
-                  className={cn("rounded-full border px-2.5 py-0.5 text-xs", filtro === c ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground")}
-                >
-                  {c} ({todos.filter((a) => a.categoria === c).length})
-                </button>
-              ))}
-            </div>
-            <div className="ml-auto">
-              <Segmented
-                value={modo}
-                onChange={setModo}
-                opcoes={[
-                  { value: "lista", label: "Lista" },
-                  { value: "grade", label: "Grade" },
-                ]}
-              />
-            </div>
-          </div>
-          {modo === "lista" ? (
-            <ul className="divide-y">
-              {lista.map((a) => {
-                const I = iconeDo(a.nome);
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-1 flex-wrap gap-2" role="group" aria-label="Pastas">
+              {pastas.map((p) => {
+                const qtd = todos.filter((a) => pastaDe(a) === p).length;
+                const on = aberta === p;
                 return (
-                  <li key={a.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-accent/30">
-                    <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", I.cor)}>
-                      <I.i className="size-4" />
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setAberta(on ? null : p)}
+                    aria-pressed={on}
+                    className={cn(
+                      "group flex min-w-36 items-center gap-2.5 rounded-xl border bg-card px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-md",
+                      on && "border-brand ring-2 ring-brand/25",
+                    )}
+                  >
+                    {on ? <FolderOpen className="size-5 text-info-ink" /> : <Folder className={cn("size-5", p === SEM_PASTA ? "text-muted-foreground" : p === "Despesas" ? "text-success-ink" : "text-warning-ink")} />}
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{p}</span>
+                      <span className="block text-[11px] text-muted-foreground">{qtd} arquivo(s)</span>
                     </span>
-                    <button type="button" onClick={() => abrir(a)} className="min-w-0 flex-1 text-left">
-                      <p className="truncate text-sm font-medium hover:underline">{a.nome}</p>
-                      <p className="truncate text-[11px] text-muted-foreground">
-                        {[a.descricao, tamanhoArquivo(a.tamanho), a.enviado_por && `por ${a.enviado_por}`, relativo(a.criado_em)].filter(Boolean).join(" · ")}
-                      </p>
-                    </button>
-                    {a.categoria && <span className="hidden rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-info-ink sm:inline">{a.categoria}</span>}
-                    <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} />
-                  </li>
+                  </button>
                 );
               })}
-            </ul>
-          ) : (
-            <ul className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 lg:grid-cols-4">
-              {lista.map((a) => {
-                const I = iconeDo(a.nome);
-                return (
-                  <li key={a.id} className="group relative rounded-xl border bg-card p-3 transition hover:-translate-y-0.5 hover:shadow-md">
-                    <button type="button" onClick={() => abrir(a)} className="block w-full text-left">
-                      <span className={cn("mb-3 grid h-20 w-full place-items-center rounded-lg", I.cor)}>
-                        <I.i className="size-8" />
-                      </span>
-                      <p className="truncate text-sm font-medium">{a.nome}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {tamanhoArquivo(a.tamanho)} · {relativo(a.criado_em)}
-                      </p>
-                    </button>
-                    {a.categoria && <span className="mt-1.5 inline-block rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-info-ink">{a.categoria}</span>}
-                    <div className="absolute top-2 right-2 rounded-md bg-card/80 backdrop-blur">
-                      <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+            </div>
+            <Segmented
+              value={modo}
+              onChange={setModo}
+              opcoes={[
+                { value: "lista", label: "Lista" },
+                { value: "grade", label: "Grade" },
+              ]}
+            />
+          </div>
+          <div className="space-y-4">
+            {visiveis.map((p) => {
+              const itens = todos.filter((a) => pastaDe(a) === p);
+              return (
+                <section key={p} className="card-surface overflow-hidden" aria-label={`Pasta ${p}`}>
+                  <header className="flex items-center gap-2 border-b bg-muted/30 px-3 py-2">
+                    <FolderOpen className={cn("size-4", p === SEM_PASTA ? "text-muted-foreground" : p === "Despesas" ? "text-success-ink" : "text-warning-ink")} />
+                    <h3 className="text-sm font-semibold">{p}</h3>
+                    <span className="text-xs text-muted-foreground">{itens.length}</span>
+                    {p === "Despesas" && onVerDespesa && (
+                      <button type="button" onClick={onVerDespesa} className="ml-auto text-xs text-info-ink hover:underline">
+                        ver despesas
+                      </button>
+                    )}
+                  </header>
+                  {modo === "lista" ? (
+                    <ul className="divide-y">
+                      {itens.map((a) => (
+                        <ItemLista key={a.id} a={a} onAbrir={() => abrir(a)} acoes={acoes(a)} />
+                      ))}
+                    </ul>
+                  ) : (
+                    <ul className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {itens.map((a) => (
+                        <ItemGrade key={a.id} a={a} onAbrir={() => abrir(a)} acoes={acoes(a)} />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </>
       )}
       <Previa anexo={ver} onClose={() => setVer(null)} />
       <EditarAnexo anexo={editar} onClose={() => setEditar(null)} />

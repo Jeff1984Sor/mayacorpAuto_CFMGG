@@ -139,7 +139,7 @@ export default function CasosPage() {
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Nº</th>
                   <th className="px-3 py-2.5 font-medium">Caso</th>
-                  <th className="px-3 py-2.5 font-medium">Área · Tipo</th>
+                  <th className="px-3 py-2.5 font-medium">Área · Tipo · Instância</th>
                   <th className="px-3 py-2.5 font-medium">Cliente · Contrato</th>
                   <th className="px-3 py-2.5 font-medium">Responsável</th>
                   <th className="px-3 py-2.5 text-right font-medium">Horas a faturar</th>
@@ -173,6 +173,7 @@ export default function CasosPage() {
                       <div className="flex flex-col items-start gap-1">
                         {c.area_nome ? <AreaBadge nome={c.area_nome} cor={c.area_cor} /> : <span className="text-xs text-muted-foreground">—</span>}
                         {c.tipo_nome && <span className="text-[11px] text-muted-foreground">{c.tipo_nome}</span>}
+                        {c.instancia_nome && <span className="text-[11px] text-muted-foreground">{c.instancia_nome}{c.tribunal ? ` · ${c.tribunal}` : ""}</span>}
                       </div>
                     </td>
                     <td className="max-w-64 px-3 py-3">

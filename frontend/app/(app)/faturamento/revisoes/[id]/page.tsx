@@ -33,6 +33,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useProfissionais } from "@/components/faturamento/dialogos";
+import { EnriquecerIA, erroHoras, HorasInput, minutosDe } from "@/components/faturamento/horas-input";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { IaBadge, IaGauge } from "@/components/faturamento/ia-score";
 import { Diferenca, diasDesde, STATUS_REVISAO } from "@/components/faturamento/revisao-util";
@@ -55,7 +56,6 @@ import {
   horasDecimal,
   type IaAnalise,
   type ItemPendente,
-  paraMinutos,
   ROTULO_DESPESA,
   type RevisaoItem,
   type RevisaoOut,
@@ -183,16 +183,18 @@ function AdicionarHorasDialog({ open, onOpenChange, rev, onFeito }: { open: bool
   const profs = useProfissionais(open);
   const [f, setF] = useState({ caso_id: "", profissional_id: "", data: hoje(), horas: "", descricao: "", valor_hora: "" });
   const [erro, setErro] = useState<string | null>(null);
+  const [tentou, setTentou] = useState(false);
   /* eslint-disable react-hooks/set-state-in-effect -- reinicia ao abrir */
   useEffect(() => {
     if (open) {
+      setTentou(false);
       setF({ caso_id: rev.casos.length === 1 ? String(rev.casos[0].id) : "", profissional_id: usuario ? String(usuario.id) : "", data: hoje(), horas: "", descricao: "", valor_hora: "" });
       setErro(null);
     }
   }, [open, rev.casos, usuario]);
   /* eslint-enable react-hooks/set-state-in-effect */
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
-  const minutos = paraMinutos(f.horas);
+  const minutos = minutosDe(f.horas);
   const salvar = useMutation({
     mutationFn: () =>
       api.post<RevisaoOut>(`/faturamento/revisoes/${rev.id}/horas`, {
@@ -225,8 +227,9 @@ function AdicionarHorasDialog({ open, onOpenChange, rev, onFeito }: { open: bool
       onSubmit={(e) => {
         e.preventDefault();
         setErro(null);
+        setTentou(true);
         if (!f.caso_id) return setErro("Escolha o caso.");
-        if (!minutos || minutos > 1440) return setErro("Informe as horas no formato 1:30 (até 24h).");
+        if (erroHoras(f.horas)) return;
         if (f.descricao.trim().length < 2) return setErro("Descreva o que foi feito.");
         if (f.valor_hora.trim() && !valorOk(f.valor_hora)) return setErro("Valor/hora inválido. Use 450,00.");
         salvar.mutate();
@@ -257,8 +260,8 @@ function AdicionarHorasDialog({ open, onOpenChange, rev, onFeito }: { open: bool
         <Field label="Data" htmlFor="rh-data" className="sm:col-span-2">
           <Input id="rh-data" type="date" value={f.data} onChange={(e) => set("data", e.target.value)} />
         </Field>
-        <Field label="Horas" obrigatorio htmlFor="rh-horas" className="sm:col-span-2" dica={minutos ? `${horasDecimal(minutos / 60)} h` : "ex.: 1:30"}>
-          <Input id="rh-horas" value={f.horas} onChange={(e) => set("horas", e.target.value)} placeholder="1:30" className="font-mono" inputMode="numeric" />
+        <Field label="Horas" obrigatorio htmlFor="rh-horas" className="sm:col-span-2">
+          <HorasInput id="rh-horas" value={f.horas} onChange={(v) => set("horas", v)} mostrarErro={tentou} />
         </Field>
         <Field label="Valor/hora" htmlFor="rh-valor" className="sm:col-span-4" dica="Opcional. Vazio = o da tabela de preço do cargo.">
           <div className="relative">
@@ -268,6 +271,12 @@ function AdicionarHorasDialog({ open, onOpenChange, rev, onFeito }: { open: bool
         </Field>
         <Field label="Descrição" obrigatorio htmlFor="rh-desc" className="sm:col-span-6">
           <Textarea id="rh-desc" rows={3} value={f.descricao} onChange={(e) => set("descricao", e.target.value)} placeholder="ex.: Elaboração de contestação" />
+          <EnriquecerIA
+            className="mt-1.5"
+            valor={{ descricao: f.descricao }}
+            onChange={(v) => set("descricao", v.descricao)}
+            corpo={() => ({ tipo: "timesheet", texto: f.descricao, caso_id: f.caso_id ? Number(f.caso_id) : null, minutos })}
+          />
         </Field>
         {erro && (
           <p role="alert" className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-sm sm:col-span-6", semValorHora ? "bg-warning/12 text-warning-ink" : "bg-danger/10 text-danger-ink")}>
@@ -1019,11 +1028,8 @@ export default function RevisaoPage() {
                                   desabilitado={!editavel}
                                   className="font-mono tabular-nums"
                                   inputClassName="w-20 text-right font-mono"
-                                  validar={(v) => {
-                                    const m = paraMinutos(v);
-                                    return !m || m > 1440 ? "Use o formato 1:30 (até 24h)." : null;
-                                  }}
-                                  onSalvar={(v) => patchItem(i.id, { quantidade: (paraMinutos(v)! / 60).toFixed(4) })}
+                                  validar={(v) => erroHoras(/^\d{1,2}$/.test(v) ? `${v}:00` : v)}
+                                  onSalvar={(v) => patchItem(i.id, { quantidade: (minutosDe(/^\d{1,2}$/.test(v) ? `${v}:00` : v)! / 60).toFixed(4) })}
                                 />
                                 {i.valor_unitario != null && <p className="text-[11px] text-muted-foreground">× {moeda(i.valor_unitario)}</p>}
                               </>

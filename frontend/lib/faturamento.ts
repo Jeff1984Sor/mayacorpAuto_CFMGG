@@ -102,6 +102,7 @@ export interface CasoIn {
   numero_processo: string | null;
   parte_contraria: string | null;
   tipo: TipoCaso | null;
+  instancia: string | null;
   area_id: number | null;
   polo: Polo | null;
   tribunal: string | null;
@@ -128,6 +129,7 @@ export interface CasoOut extends CasoIn {
   tomador_nome: string;
   responsavel_nome: string | null;
   tipo_nome: string | null;
+  instancia_nome: string | null;
   area_nome: string | null;
   area_cor: string | null;
   qtd_anexos: number;
@@ -194,6 +196,8 @@ export interface AndamentoOut extends AndamentoIn {
 export interface AnexoOut {
   id: number;
   caso_id: number;
+  /** recibo de uma despesa do caso (fica na pasta "Despesas" e não pode ser apagado daqui) */
+  despesa_id: number | null;
   nome: string;
   descricao: string | null;
   categoria: string | null;

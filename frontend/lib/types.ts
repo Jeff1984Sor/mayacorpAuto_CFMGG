@@ -108,6 +108,8 @@ export interface NotificacoesOut {
   aviso_fim_lote: boolean;
   aviso_rejeicoes: boolean;
   aviso_certificado: boolean;
+  /** versão HTML do e-mail com o logo do escritório no topo */
+  email_logo: boolean;
   email_cc_padrao: string[];
   email_cco_padrao: string[];
 }

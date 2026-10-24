@@ -20,12 +20,14 @@ import { data, dataHora, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { exibirCampo } from "./campos-adicionais";
+import { ROTULO_INSTANCIA } from "./judiciario";
 
 const ROTULOS: Record<string, string> = {
   titulo: "Título",
   numero_processo: "Nº do processo",
   parte_contraria: "Parte contrária",
   tipo: "Tipo do caso",
+  instancia: "Instância",
   area_id: "Área de atuação",
   polo: "Polo",
   tribunal: "Tribunal",
@@ -50,6 +52,7 @@ function linhasDaSugestao(s: SugestaoCaso, atual: CasoIn, areas: AreaOut[], camp
     if (k === "area_id") return areas.find((a) => a.id === Number(v))?.nome ?? String(v);
     if (k === "polo") return ROTULO_POLO[v as Polo] ?? String(v);
     if (k === "tipo") return ROTULO_TIPO_CASO[v as TipoCaso] ?? String(v);
+    if (k === "instancia") return ROTULO_INSTANCIA[String(v)] ?? String(v);
     if (k === "valor_causa") return moeda(toNum(String(v)));
     if (k === "data_distribuicao") return data(String(v));
     return String(v);
