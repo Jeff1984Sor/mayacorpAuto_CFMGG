@@ -18,7 +18,7 @@ Homologação roda com o modo **Teste** (Configurações › Prefeitura): tudo v
 ## Publicar
 
 ```bash
-ssh mayacorp@<servidor> 'cd /opt/mayacorp-automacoes/hml && ./deploy/deploy.sh hml'
+ssh deploy@<servidor> 'cd ~/mayacorp-automacoes/hml && ./deploy/deploy.sh hml'
 ```
 
 O script para sozinho se os testes falharem, antes de reiniciar qualquer serviço.

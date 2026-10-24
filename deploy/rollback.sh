@@ -4,7 +4,8 @@
 set -euo pipefail
 AMB="${1:?ambiente (hml|prod)}"
 VERSAO="${2:?versão (ex.: v7)}"
-APP_DIR="${APP_DIR:-/opt/mayacorp-automacoes/$AMB}"
+APP_DIR="${APP_DIR:-$HOME/mayacorp-automacoes/$AMB}"
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 cd "$APP_DIR"
 if ! git rev-parse -q --verify "refs/tags/$VERSAO" >/dev/null; then
   echo "Tag $VERSAO não existe. Últimas:"
@@ -12,8 +13,8 @@ if ! git rev-parse -q --verify "refs/tags/$VERSAO" >/dev/null; then
   exit 1
 fi
 git checkout -q "$VERSAO"
-(cd backend && uv sync --frozen -q)
+(cd backend && "$UV" sync --frozen -q)
 (cd frontend && npm ci --silent && npm run build >/dev/null)
 echo "$VERSAO" > backend/VERSION
-sudo systemctl restart "mayacorp-api@$AMB" "mayacorp-worker@$AMB" "mayacorp-web@$AMB"
+sudo systemctl restart "automacoes-api@$AMB" "automacoes-worker@$AMB" "automacoes-web@$AMB"
 echo "Ambiente $AMB de volta em $VERSAO. Para retomar a branch: git checkout main"

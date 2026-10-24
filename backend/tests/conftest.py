@@ -6,6 +6,10 @@ from pathlib import Path
 _tmp = Path(tempfile.mkdtemp(prefix="mayacorp-test-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(_tmp / 'test.db').as_posix()}"
 os.environ["STORAGE_DIR"] = str(_tmp / "storage")
+# No servidor o .env diz AMBIENTE=prod; os testes rodam sempre como dev, em banco temporário próprio
+os.environ["AMBIENTE"] = "dev"
+os.environ["WORKER_EMBUTIDO"] = "true"
+os.environ["MIGRAR_NA_SUBIDA"] = "true"
 
 import pytest  # noqa: E402
 from cryptography import x509  # noqa: E402

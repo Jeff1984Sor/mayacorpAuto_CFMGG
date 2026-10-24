@@ -1,81 +1,90 @@
 #!/usr/bin/env bash
 #
-# Primeira instalação de um ambiente no servidor (Ubuntu/Debian, Google Cloud).
-# Depois disso, as atualizações são só:  ./deploy/deploy.sh hml   (ou prod)
+# Primeira instalação de um ambiente num servidor que JÁ RODA outros sistemas.
+# Regra: não atualizar, reiniciar nem reconfigurar nada que já exista. Só acrescentar.
 #
-# Uso (no servidor, com sudo):
 #   curl -fsSL https://raw.githubusercontent.com/Jeff1984Sor/mayacorpAuto_CFMGG/main/deploy/instalar.sh -o instalar.sh
-#   sudo bash instalar.sh hml        # homologação  → hml-automacoes.mayacorp.com.br
-#   sudo bash instalar.sh prod       # produção     → automacoes.mayacorp.com.br
+#   sudo bash instalar.sh prod      # automacoes.mayacorp.com.br     (API 8060, web 3060)
+#   sudo bash instalar.sh hml       # hml-automacoes.mayacorp.com.br (API 8160, web 3160)
 #
-# O banco começa VAZIO (só o cliente CFME, a identidade e as configurações). No fim, o script pede
-# o login e a senha do primeiro administrador; a senha não fica gravada em arquivo nenhum.
+# Segue o padrão do servidor: código em /home/deploy/<app>, serviços rodando como o usuário deploy.
+# O banco começa VAZIO (só o cliente CFME, a identidade e as configurações).
 #
 set -euo pipefail
 
-AMB="${1:?informe o ambiente: hml ou prod}"
+AMB="${1:?informe o ambiente: prod ou hml}"
 case "$AMB" in
-  hml)  BRANCH=develop; API_PORTA=8100; WEB_PORTA=3100; DOMINIO=hml-automacoes.mayacorp.com.br ;;
-  prod) BRANCH=main;    API_PORTA=8000; WEB_PORTA=3000; DOMINIO=automacoes.mayacorp.com.br ;;
-  *) echo "Ambiente inválido: $AMB (use hml ou prod)"; exit 1 ;;
+  prod) BRANCH=main;    API_PORTA=8060; WEB_PORTA=3060; DOMINIO=automacoes.mayacorp.com.br ;;
+  hml)  BRANCH=develop; API_PORTA=8160; WEB_PORTA=3160; DOMINIO=hml-automacoes.mayacorp.com.br ;;
+  *) echo "Ambiente inválido: $AMB (use prod ou hml)"; exit 1 ;;
 esac
 REPO="${REPO:-https://github.com/Jeff1984Sor/mayacorpAuto_CFMGG.git}"
-BASE=/opt/mayacorp-automacoes
+USUARIO=deploy
+BASE=/home/$USUARIO/mayacorp-automacoes
 DIR="$BASE/$AMB"
 BANCO="automacoes_$AMB"
-USUARIO_SO=mayacorp
+ROLE="automacoes_$AMB"
+NGINX_SITE="/etc/nginx/sites-available/automacoes-$AMB"
 
-[ "$(id -u)" = "0" ] || { echo "Rode com sudo."; exit 1; }
-echo "=== Instalando MayaCorp Automações ($AMB) em $DIR ==="
+[ "$(id -u)" = "0" ] || { echo "Rode com sudo: sudo bash instalar.sh $AMB"; exit 1; }
+id "$USUARIO" >/dev/null 2>&1 || { echo "Usuário $USUARIO não existe."; exit 1; }
+como() { sudo -u "$USUARIO" -H bash -lc "$1"; }
 
-echo "--- 1/8 Pacotes do sistema"
-apt-get update -qq
-apt-get install -y -qq git curl openssl python3 nginx postgresql-client libpq5 >/dev/null
-# Servidor sem PostgreSQL (VPS nova): instala o servidor local também
-if ! id postgres >/dev/null 2>&1; then
-  echo "    PostgreSQL não encontrado: instalando"
-  apt-get install -y -qq postgresql >/dev/null
-fi
-systemctl enable --now postgresql >/dev/null 2>&1 || true
-command -v certbot >/dev/null || apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
-if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
-  apt-get install -y -qq nodejs >/dev/null
-fi
-id "$USUARIO_SO" >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash "$USUARIO_SO"
-if ! sudo -u "$USUARIO_SO" bash -lc 'command -v uv' >/dev/null; then
-  sudo -u "$USUARIO_SO" bash -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh' >/dev/null
-fi
-UV="/home/$USUARIO_SO/.local/bin/uv"
+echo "=== MayaCorp Automações ($AMB) → $DIR ==="
 
-echo "--- 2/8 Código ($BRANCH)"
-mkdir -p "$BASE"
-chown "$USUARIO_SO": "$BASE"
-if [ ! -d "$DIR/.git" ]; then
-  sudo -u "$USUARIO_SO" git clone -q -b "$BRANCH" "$REPO" "$DIR"
-else
-  echo "    (já existe: use ./deploy/deploy.sh $AMB para atualizar)"; exit 1
-fi
-
-echo "--- 3/8 Banco de dados $BANCO (PostgreSQL já existente no servidor)"
-SENHA_BANCO="$(openssl rand -hex 24)"
-if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='mayacorp_$AMB'" | grep -q 1; then
-  sudo -u postgres psql -q -c "ALTER ROLE mayacorp_$AMB WITH LOGIN PASSWORD '$SENHA_BANCO'"
-else
-  sudo -u postgres psql -q -c "CREATE ROLE mayacorp_$AMB WITH LOGIN PASSWORD '$SENHA_BANCO'"
-fi
+echo "--- 1/9 Conferindo o servidor (nada é alterado nesta etapa)"
+for p in "$API_PORTA" "$WEB_PORTA"; do
+  if ss -ltn "( sport = :$p )" | grep -q LISTEN; then echo "    Porta $p já está em uso. Abortado sem alterar nada."; exit 1; fi
+done
+[ -e "$DIR" ] && { echo "    $DIR já existe. Para atualizar use: ./deploy/deploy.sh $AMB"; exit 1; }
+[ -e "$NGINX_SITE" ] && { echo "    $NGINX_SITE já existe. Abortado."; exit 1; }
 if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$BANCO'" | grep -q 1; then
-  echo "    ATENÇÃO: o banco $BANCO já existe e NÃO foi apagado. Para começar vazio, apague-o antes."
-else
-  sudo -u postgres psql -q -c "CREATE DATABASE $BANCO OWNER mayacorp_$AMB ENCODING 'UTF8'"
+  echo "    O banco $BANCO já existe. Abortado (não apago bancos)."; exit 1
 fi
+for svc in api worker web; do
+  systemctl list-unit-files "automacoes-$svc@.service" --no-legend 2>/dev/null | grep -q . && \
+    echo "    (serviços automacoes-*@ já instalados: serão reaproveitados)" && break
+done
+echo "    Portas $API_PORTA/$WEB_PORTA livres, pasta e banco novos. OK."
 
-echo "--- 4/8 Configuração do servidor (.env só com o que é de servidor; o resto fica em Configurações)"
+echo "--- 2/9 Pacotes: instala só o que falta, sem atualizar o que existe"
+FALTAM=""
+for pkg in git curl openssl nginx postgresql-client certbot python3-certbot-nginx; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || FALTAM="$FALTAM $pkg"
+done
+if [ -n "$FALTAM" ]; then
+  echo "    instalando:$FALTAM"
+  apt-get install -y -qq --no-upgrade $FALTAM >/dev/null
+fi
+# Node/npm do PRÓPRIO usuário deploy (pode vir do nvm): é ele que vai rodar o frontend
+NPM_BIN="$(como 'command -v npm' || true)"
+NODE_VER="$(como 'node -v' 2>/dev/null || echo v0)"
+[ -n "$NPM_BIN" ] && [ "$(echo "$NODE_VER" | cut -d. -f1 | tr -d v)" -ge 20 ] || {
+  echo "    Node.js >= 20 necessário para o usuário $USUARIO (encontrado: $NODE_VER). Abortado."; exit 1; }
+NODE_DIR="$(dirname "$NPM_BIN")"
+echo "    Node $NODE_VER ($NODE_DIR)"
+como 'command -v uv >/dev/null || [ -x ~/.local/bin/uv ] || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null'
+UV="/home/$USUARIO/.local/bin/uv"
+[ -x "$UV" ] || UV="$(como 'command -v uv')"
+
+echo "--- 3/9 Código ($BRANCH)"
+como "mkdir -p '$BASE' && git clone -q -b '$BRANCH' '$REPO' '$DIR'"
+
+echo "--- 4/9 Banco de dados $BANCO (novo; os outros bancos não são tocados)"
+SENHA_BANCO="$(openssl rand -hex 24)"
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$ROLE'" | grep -q 1; then
+  sudo -u postgres psql -q -c "ALTER ROLE $ROLE WITH LOGIN PASSWORD '$SENHA_BANCO'"
+else
+  sudo -u postgres psql -q -c "CREATE ROLE $ROLE WITH LOGIN PASSWORD '$SENHA_BANCO'"
+fi
+sudo -u postgres psql -q -c "CREATE DATABASE $BANCO OWNER $ROLE ENCODING 'UTF8'"
+
+echo "--- 5/9 Configuração de servidor (.env só com o que é de servidor; o resto fica em Configurações)"
 MASTER_KEY="$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
-cat > "$DIR/backend/.env" <<ENV
+como "cat > '$DIR/backend/.env'" <<ENV
 AMBIENTE=$AMB
 API_PORTA=$API_PORTA
-DATABASE_URL=postgresql+psycopg://mayacorp_$AMB:$SENHA_BANCO@127.0.0.1:5432/$BANCO
+DATABASE_URL=postgresql+psycopg://$ROLE:$SENHA_BANCO@127.0.0.1:5432/$BANCO
 FRONTEND_URL=https://$DOMINIO
 CORS_ORIGINS=["https://$DOMINIO"]
 JWT_SECRET=$(openssl rand -hex 48)
@@ -83,46 +92,55 @@ MASTER_KEY=$MASTER_KEY
 WORKER_EMBUTIDO=false
 MIGRAR_NA_SUBIDA=false
 ENV
-chmod 600 "$DIR/backend/.env"
-cat > "$DIR/frontend/.env.production" <<ENV
+como "chmod 600 '$DIR/backend/.env'"
+como "cat > '$DIR/frontend/.env.production'" <<ENV
 NEXT_PUBLIC_API_URL=https://$DOMINIO/api
 NEXT_PUBLIC_AMBIENTE=$AMB
 NEXT_PUBLIC_VERSAO=$AMB
 WEB_PORTA=$WEB_PORTA
 ENV
-chown "$USUARIO_SO": "$DIR/backend/.env" "$DIR/frontend/.env.production"
-echo "    Guarde em local seguro a MASTER_KEY (está em $DIR/backend/.env): sem ela o certificado precisa ser reenviado."
 
-echo "--- 5/8 Backend: dependências, migrations e base vazia"
-sudo -u "$USUARIO_SO" bash -lc "cd $DIR/backend && $UV sync --frozen -q && $UV run python -m alembic upgrade head && $UV run python -m app.seed --somente-base"
+echo "--- 6/9 Backend: dependências, migrations e base vazia"
+como "cd '$DIR/backend' && '$UV' sync --frozen -q && '$UV' run python -m alembic upgrade head && '$UV' run python -m app.seed --somente-base"
 
-echo "--- 6/8 Frontend: build"
-sudo -u "$USUARIO_SO" bash -lc "cd $DIR/frontend && npm ci --silent && npm run build >/dev/null"
+echo "--- 7/9 Frontend: build"
+como "cd '$DIR/frontend' && npm ci --silent && npm run build >/dev/null"
 
-echo "--- 7/8 Serviços (systemd) e nginx"
-cp "$DIR"/deploy/systemd/mayacorp-*@.service /etc/systemd/system/
-sed -i "s|/home/mayacorp/.local/bin/uv|$UV|g" /etc/systemd/system/mayacorp-*@.service
+echo "--- 8/9 Serviços (systemd) e nginx — só acrescenta, não mexe nos existentes"
+for svc in api worker web; do
+  sed "s|__BASE__|$BASE|g; s|__USUARIO__|$USUARIO|g; s|__NODE_DIR__|$NODE_DIR|g" "$DIR/deploy/systemd/automacoes-$svc@.service" \
+    > "/etc/systemd/system/automacoes-$svc@.service"
+done
 systemctl daemon-reload
-systemctl enable --now "mayacorp-api@$AMB" "mayacorp-worker@$AMB" "mayacorp-web@$AMB"
-cp "$DIR/deploy/nginx/automacoes.conf" /etc/nginx/sites-available/automacoes
-ln -sf /etc/nginx/sites-available/automacoes /etc/nginx/sites-enabled/automacoes
-nginx -t -q && systemctl reload nginx
-# backup diário às 02:00 (só produção)
-if [ "$AMB" = "prod" ]; then
-  echo "0 2 * * * $USUARIO_SO $DIR/deploy/backup.sh prod >> /var/log/mayacorp-backup.log 2>&1" > /etc/cron.d/mayacorp-backup
-fi
-echo "    SSL: certbot --nginx -d $DOMINIO   (rode depois que o DNS apontar para este servidor)"
+systemctl enable --now "automacoes-api@$AMB" "automacoes-worker@$AMB" "automacoes-web@$AMB"
 
-echo "--- 8/8 Primeiro administrador"
-read -r -p "    Login: " LOGIN
-read -r -p "    Nome: " NOME
-read -r -p "    E-mail: " EMAIL
-sudo -u "$USUARIO_SO" bash -lc "cd $DIR/backend && $UV run python -m app.criar_usuario --login '$LOGIN' --nome '$NOME' --email '$EMAIL' --perfil admin" </dev/tty
+sed "s|__DOMINIO__|$DOMINIO|g; s|__API__|$API_PORTA|g; s|__WEB__|$WEB_PORTA|g" \
+  "$DIR/deploy/nginx/automacoes.conf.template" > "$NGINX_SITE"
+ln -s "$NGINX_SITE" "/etc/nginx/sites-enabled/automacoes-$AMB"
+if nginx -t 2>/tmp/automacoes-nginx.txt; then
+  systemctl reload nginx   # reload: os sites existentes continuam no ar
+else
+  rm -f "/etc/nginx/sites-enabled/automacoes-$AMB"
+  echo "    O nginx recusou a configuração nova; ela foi DESFEITA (os outros sites seguem intactos):"
+  cat /tmp/automacoes-nginx.txt
+  exit 1
+fi
+if [ "$AMB" = "prod" ]; then
+  echo "0 2 * * * $USUARIO $DIR/deploy/backup.sh prod >> /home/$USUARIO/mayacorp-automacoes/backup.log 2>&1" \
+    > /etc/cron.d/automacoes-backup
+fi
+
+echo "--- 9/9 Primeiro administrador"
+read -r -p "    Login: " LOGIN </dev/tty
+read -r -p "    Nome: " NOME </dev/tty
+read -r -p "    E-mail: " EMAIL </dev/tty
+como "cd '$DIR/backend' && '$UV' run python -m app.criar_usuario --login '$LOGIN' --nome '$NOME' --email '$EMAIL' --perfil admin" </dev/tty
 
 sleep 3
 CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$API_PORTA/api/health" || echo 000)"
 echo
-echo "=== Pronto: $AMB instalado (API: HTTP $CODIGO) ==="
-echo "    Acesse https://$DOMINIO e entre com o login '$LOGIN'."
-echo "    Próximos passos em Configurações: Identidade (logo), Certificado digital, Empresa emissora,"
-echo "    Parâmetros fiscais (com o contador), Usuários da CFME e Prefeitura (modo Teste em hml)."
+echo "=== Pronto: $AMB instalado (API local: HTTP $CODIGO) ==="
+echo "    1) DNS: registro A '$DOMINIO' → IP deste servidor"
+echo "    2) HTTPS: sudo certbot --nginx -d $DOMINIO"
+echo "    3) Acesse https://$DOMINIO com o login '$LOGIN'"
+echo "    GUARDE a MASTER_KEY (em $DIR/backend/.env) num lugar seguro: sem ela o certificado A1 precisa ser reenviado."

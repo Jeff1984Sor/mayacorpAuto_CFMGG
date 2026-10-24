@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy da MayaCorp Automações no servidor (Google Cloud).
+# Deploy da MayaCorp Automações no servidor (VPS compartilhada com os outros sistemas MayaCorp).
 #
 # Mesmo ritual do RCA: passos sempre na mesma ordem e, em produção, uma tag vN como
 # ponto de retorno. Nada vai para produção sem ter passado pela homologação.
@@ -8,23 +8,26 @@
 # Uso (no servidor):
 #     ./deploy/deploy.sh hml            # branch develop -> hml-automacoes.mayacorp.com.br
 #     ./deploy/deploy.sh prod           # branch main    -> automacoes.mayacorp.com.br  (cria tag vN)
+# Rode como o usuário deploy, dentro de /home/deploy/mayacorp-automacoes/<amb>.
 #     ./deploy/deploy.sh prod --sem-tag
 #
 set -euo pipefail
 
 AMB="${1:?informe o ambiente: hml ou prod}"
 case "$AMB" in
-  hml)  BRANCH="${BRANCH:-develop}"; API_PORTA=8100 ;;
-  prod) BRANCH="${BRANCH:-main}";    API_PORTA=8000 ;;
+  hml)  BRANCH="${BRANCH:-develop}" ;;
+  prod) BRANCH="${BRANCH:-main}" ;;
   *) echo "Ambiente inválido: $AMB"; exit 1 ;;
 esac
 CRIAR_TAG=0
 [ "$AMB" = "prod" ] && CRIAR_TAG=1
 [ "${2:-}" = "--sem-tag" ] && CRIAR_TAG=0
 
-APP_DIR="${APP_DIR:-/opt/mayacorp-automacoes/$AMB}"
-SERVICOS="mayacorp-api@$AMB mayacorp-worker@$AMB mayacorp-web@$AMB"
+APP_DIR="${APP_DIR:-$HOME/mayacorp-automacoes/$AMB}"
+SERVICOS="automacoes-api@$AMB automacoes-worker@$AMB automacoes-web@$AMB"
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 cd "$APP_DIR"
+API_PORTA="$(grep -E '^API_PORTA=' backend/.env | cut -d= -f2)"
 
 echo "=== 1/7  Situação atual ($AMB) ==="
 VERSAO_ANTERIOR="$(cat backend/VERSION 2>/dev/null || echo dev)"
@@ -47,16 +50,16 @@ git log --oneline "$COMMIT_ANTERIOR..$COMMIT_NOVO" | sed 's/^/      /'
 
 echo "=== 3/7  Backend: dependências e testes ==="
 cd backend
-uv sync --frozen -q
-if ! uv run python -m pytest -q; then
+"$UV" sync --frozen -q
+if ! "$UV" run python -m pytest -q; then
   echo "    Testes falharam. Deploy abortado (nada foi reiniciado)."
   exit 1
 fi
 
 echo "=== 4/7  Migrations ==="
 set -a; . ./.env; set +a
-uv run python -m alembic check >/dev/null 2>&1 || echo "    (aviso: há modelo sem migration gerada, confira)"
-uv run python -m alembic upgrade head
+"$UV" run python -m alembic check >/dev/null 2>&1 || echo "    (aviso: há modelo sem migration gerada, confira)"
+"$UV" run python -m alembic upgrade head
 cd ..
 
 echo "=== 5/7  Frontend: build ==="

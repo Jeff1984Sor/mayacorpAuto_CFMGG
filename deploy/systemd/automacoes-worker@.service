@@ -3,10 +3,10 @@ Description=MayaCorp Automações - Robôs / fila de lotes (%i)
 After=network.target postgresql.service
 
 [Service]
-User=mayacorp
-WorkingDirectory=/opt/mayacorp-automacoes/%i/backend
-EnvironmentFile=/opt/mayacorp-automacoes/%i/backend/.env
-ExecStart=/opt/mayacorp-automacoes/%i/backend/.venv/bin/python -m app.worker
+User=__USUARIO__
+WorkingDirectory=__BASE__/%i/backend
+EnvironmentFile=__BASE__/%i/backend/.env
+ExecStart=__BASE__/%i/backend/.venv/bin/python -m app.worker
 Restart=always
 RestartSec=5
 # deixa o sublote em andamento terminar antes de parar

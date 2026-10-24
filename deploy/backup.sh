@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Backup diário (cron 02:00):  0 2 * * * /opt/mayacorp-automacoes/prod/deploy/backup.sh prod
+# Backup diário (cron 02:00, instalado pelo instalar.sh em /etc/cron.d/automacoes-backup)
 # Banco (pg_dump) + PDFs/XMLs. Envia para fora do servidor (bucket GCS) e mantém 30 dias local.
 # XMLs fiscais: configure no bucket uma regra de retenção que cubra o prazo legal de guarda.
 set -euo pipefail
 AMB="${1:-prod}"
-APP_DIR="/opt/mayacorp-automacoes/$AMB"
-DESTINO="${BACKUP_DIR:-/var/backups/mayacorp-automacoes/$AMB}"
+APP_DIR="/home/deploy/mayacorp-automacoes/$AMB"
+DESTINO="${BACKUP_DIR:-/home/deploy/backups/automacoes/$AMB}"
 BUCKET="${BACKUP_BUCKET:-gs://mayacorp-backups/automacoes/$AMB}"
 set -a; . "$APP_DIR/backend/.env"; set +a
 mkdir -p "$DESTINO"

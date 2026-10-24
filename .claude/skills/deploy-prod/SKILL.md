@@ -15,7 +15,7 @@ description: Promove para produção (automacoes.mayacorp.com.br) o que já foi 
 ## Publicar
 
 ```bash
-ssh mayacorp@<servidor> 'cd /opt/mayacorp-automacoes/prod && ./deploy/deploy.sh prod'
+ssh deploy@<servidor> 'cd ~/mayacorp-automacoes/prod && ./deploy/deploy.sh prod'
 ```
 
 O script cria a próxima tag `vN`, grava em `backend/VERSION` (aparece no rodapé) e confere o `/api/health`.
@@ -23,7 +23,7 @@ O script cria a próxima tag `vN`, grava em `backend/VERSION` (aparece no rodap�
 ## Se der errado
 
 ```bash
-ssh mayacorp@<servidor> 'cd /opt/mayacorp-automacoes/prod && ./deploy/rollback.sh prod v<anterior>'
+ssh deploy@<servidor> 'cd ~/mayacorp-automacoes/prod && ./deploy/rollback.sh prod v<anterior>'
 ```
 
 Antes do rollback, verifique se há lote **transmitindo**. O worker termina o sublote em andamento (até 180 s) antes de parar.

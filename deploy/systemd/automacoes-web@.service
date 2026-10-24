@@ -1,0 +1,15 @@
+[Unit]
+Description=MayaCorp Automações - Frontend Next.js (%i)
+After=network.target
+
+[Service]
+User=__USUARIO__
+WorkingDirectory=__BASE__/%i/frontend
+EnvironmentFile=__BASE__/%i/frontend/.env.production
+Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+ExecStart=__NODE_DIR__/npm run start -- --port ${WEB_PORTA} --hostname 127.0.0.1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

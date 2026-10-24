@@ -4,10 +4,17 @@
 > (o nome, o logo e a cor vêm de Configurações › Identidade; nunca deixe "CFME" fixo no código de produto).
 > Especificação: `MayaCorp_Automacoes_RPA01_NFSe.md`.
 
-| Ambiente | Endereço | Pasta no servidor | Banco | Branch |
-|---|---|---|---|---|
-| Homologação | `hml-automacoes.mayacorp.com.br` | `/opt/mayacorp-automacoes/hml` | `automacoes_hml` | `develop` |
-| Produção | `automacoes.mayacorp.com.br` | `/opt/mayacorp-automacoes/prod` | `automacoes_prod` | `main` |
+| Ambiente | Endereço | Pasta no servidor | Portas (API/web) | Banco | Branch |
+|---|---|---|---|---|---|
+| Homologação | `hml-automacoes.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/hml` | 8160 / 3160 | `automacoes_hml` | `develop` |
+| Produção | `automacoes.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/prod` | 8060 / 3060 | `automacoes_prod` | `main` |
+
+**O servidor é compartilhado** (VPS `srv1703721`, Ubuntu 24.04) com Flicsales, MayaSec, MayaPost, MayaAssinador,
+Pilates, App Beach, Print3D (Docker), Evolution e o site da MayaCorp. Regras: só **acrescentar** (nunca atualizar
+pacotes, reiniciar serviços alheios ou editar sites do nginx de outros sistemas); serviços `automacoes-{api,worker,web}@<amb>`
+rodando como `deploy`; site nginx próprio `automacoes-<amb>` sem `map` global; `nginx -t` antes de todo reload.
+Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 8000, 8001, 8010, 8011, 8020, 8030,
+8077, 8080, 9000, 10001, 10002, 38000-38002, 39000-39002, 5432 (Postgres 16 compartilhado), 6379.
 
 **Tudo entra primeiro em homologação**, com o modo **Teste** em Configurações › Prefeitura. Produção só quando o Jefferson mandar, e o deploy de prod cria a tag `vN`.
 
