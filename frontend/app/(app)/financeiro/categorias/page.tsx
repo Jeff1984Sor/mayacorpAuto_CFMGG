@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, FolderTree, ListChecks, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, FolderTree, ListChecks, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -105,8 +105,6 @@ function Bloco({
   titulo,
   tipo,
   cats,
-  fechados,
-  alternar,
   selecao,
   sel,
   marcar,
@@ -116,8 +114,6 @@ function Bloco({
   titulo: string;
   tipo?: TipoCategoria;
   cats: CategoriaOut[];
-  fechados: Set<number>;
-  alternar: (id: number) => void;
   selecao: boolean;
   sel: { cats: Set<number>; subs: Set<number> };
   marcar: (k: "cats" | "subs", id: number, v: boolean) => void;
@@ -190,46 +186,26 @@ function Bloco({
       {recolhido ? null : cats.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma categoria{tipo ? "" : " para revisar"}.</p>
       ) : (
-        <ul className="divide-y">
+        <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
           {cats.map((c) => {
-            const aberto = !fechados.has(c.id);
             const emUso = c.uso_contas + c.uso_lancamentos > 0;
             const podeExcluir = !emUso && c.subcategorias.length === 0;
             return (
-              <li key={c.id} className={cn(!c.ativo && "opacity-60")}>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5 pr-4 pl-8 hover:bg-accent/30">
+              <li key={c.id} className={cn("flex flex-col rounded-xl border bg-card shadow-xs", !c.ativo && "opacity-60", sel.cats.has(c.id) && "ring-2 ring-brand")}>
+                {/* categoria */}
+                <div className="flex items-center gap-2 border-b px-3 pt-3 pb-2.5">
                   {selecao && <Checkbox checked={sel.cats.has(c.id)} onCheckedChange={(v) => marcar("cats", c.id, !!v)} aria-label={`Selecionar ${c.nome}`} />}
-                  <button type="button" onClick={() => alternar(c.id)} aria-expanded={aberto} aria-label={`${aberto ? "Recolher" : "Abrir"} ${c.nome}`} className="rounded p-0.5 hover:bg-muted">
-                    <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", aberto && "rotate-90")} />
-                  </button>
                   <CorPicker cor={c.cor} rotulo={c.nome} desabilitado={!podeEditar} onChange={(cor) => salvarCat.mutate({ ...c, cor })} />
-                  <NomeEditavel valor={c.nome} rotulo={c.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarCat.mutate({ ...c, nome })} className="min-w-40 flex-1 font-semibold" />
+                  <NomeEditavel valor={c.nome} rotulo={c.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarCat.mutate({ ...c, nome })} className="min-w-0 flex-1 text-[15px] font-semibold" />
                   {c.revisar && !destaque && <Pill tom="warning">revisar</Pill>}
-                  <span className="text-xs text-muted-foreground">
-                    {c.subcategorias.length} item(ns) · {c.uso_contas + c.uso_lancamentos} uso(s)
-                  </span>
-                  <NativeSelect
-                    aria-label={`Grupo da DRE de ${c.nome}`}
-                    value={c.grupo_dre ?? ""}
-                    disabled={!podeEditar}
-                    onChange={(e) => salvarCat.mutate({ ...c, grupo_dre: (e.target.value || null) as GrupoDre | null })}
-                    className={cn("h-7 w-52 text-xs", !c.grupo_dre && "border-warning/60 text-warning-ink")}
-                  >
-                    <option value="">DRE: não classificado</option>
-                    {Object.entries(ROTULO_GRUPO_DRE).map(([k, l]) => (
-                      <option key={k} value={k}>
-                        DRE: {l}
-                      </option>
-                    ))}
-                  </NativeSelect>
                   {podeEditar && (
                     <>
-                      <Switch checked={c.ativo} onCheckedChange={(v) => salvarCat.mutate({ ...c, ativo: v })} aria-label={`${c.nome} ativa`} />
+                      <Switch size="sm" checked={c.ativo} onCheckedChange={(v) => salvarCat.mutate({ ...c, ativo: v })} aria-label={`${c.nome} ativa`} />
                       <Button
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon-xs"
                         disabled={!podeExcluir || excluirCat.isPending}
-                        title={emUso ? "Em uso: desative em vez de excluir" : c.subcategorias.length ? "Exclua os itens antes" : "Excluir"}
+                        title={emUso ? "Em uso: desative em vez de excluir" : c.subcategorias.length ? "Exclua os itens antes" : "Excluir categoria"}
                         aria-label={`Excluir ${c.nome}`}
                         onClick={() => excluirCat.mutate(c.id)}
                       >
@@ -238,57 +214,77 @@ function Bloco({
                     </>
                   )}
                 </div>
-                {aberto && (
-                  <div className="pr-4 pb-2 pl-[4.25rem]">
-                    <ul className="border-l-2 border-border/70">
-                      {c.subcategorias.length === 0 && <li className="py-1.5 pl-4 text-xs text-muted-foreground">Nenhum item ainda.</li>}
-                      {c.subcategorias.map((s) => (
-                        <li key={s.id} className={cn("relative flex items-center gap-3 rounded-r-lg py-1.5 pr-1 pl-4 text-sm hover:bg-accent/30", !s.ativo && "opacity-60")}>
-                          <span className="absolute top-1/2 left-0 h-px w-3 bg-border" aria-hidden />
-                          {selecao && <Checkbox checked={sel.subs.has(s.id)} onCheckedChange={(v) => marcar("subs", s.id, !!v)} aria-label={`Selecionar ${s.nome}`} />}
-                          <NomeEditavel valor={s.nome} rotulo={s.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarSub.mutate({ ...s, nome })} className="min-w-0 flex-1" />
-                          <span className="text-xs text-muted-foreground">{s.uso} uso(s)</span>
-                          {podeEditar && (
-                            <>
-                              <Switch checked={s.ativo} onCheckedChange={(v) => salvarSub.mutate({ ...s, ativo: v })} aria-label={`${s.nome} ativa`} />
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                disabled={s.uso > 0 || excluirSub.isPending}
-                                title={s.uso > 0 ? "Em uso: desative em vez de excluir" : "Excluir"}
-                                aria-label={`Excluir ${s.nome}`}
-                                onClick={() => excluirSub.mutate(s.id)}
-                              >
-                                <Trash2 />
-                              </Button>
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                    {podeEditar && (
-                      <form
-                        className="mt-0.5 flex items-center gap-1.5 border-l-2 border-dashed border-border/70 py-1 pl-4"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const nome = (novaSub[c.id] ?? "").trim();
-                          if (nome) criarSub.mutate({ cid: c.id, nome });
-                        }}
-                      >
-                        <Input
-                          aria-label={`Novo item de ${c.nome}`}
-                          value={novaSub[c.id] ?? ""}
-                          onChange={(e) => setNovaSub((o) => ({ ...o, [c.id]: e.target.value }))}
-                          placeholder="Novo item"
-                          className="h-7 w-56 text-xs"
-                        />
-                        <Button type="submit" size="xs" variant="outline" disabled={!(novaSub[c.id] ?? "").trim() || criarSub.isPending}>
-                          <Plus /> Adicionar
-                        </Button>
-                      </form>
+                {/* itens logo abaixo */}
+                <ul className="flex-1 py-1.5">
+                  {c.subcategorias.length === 0 && <li className="px-3 py-1.5 text-xs text-muted-foreground">Nenhum item ainda.</li>}
+                  {c.subcategorias.map((s) => (
+                    <li key={s.id} className={cn("group/i flex items-center gap-2 px-3 py-1 text-sm hover:bg-accent/40", !s.ativo && "opacity-60")}>
+                      {selecao ? (
+                        <Checkbox checked={sel.subs.has(s.id)} onCheckedChange={(v) => marcar("subs", s.id, !!v)} aria-label={`Selecionar ${s.nome}`} />
+                      ) : (
+                        <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
+                      )}
+                      <NomeEditavel valor={s.nome} rotulo={s.nome} desabilitado={!podeEditar} onSalvar={(nome) => salvarSub.mutate({ ...s, nome })} className="min-w-0 flex-1" />
+                      {s.uso > 0 && <span className="text-[11px] text-muted-foreground num">{s.uso}×</span>}
+                      {podeEditar && (
+                        <span className="flex items-center gap-1 opacity-0 transition group-hover/i:opacity-100 focus-within:opacity-100">
+                          <Switch size="sm" checked={s.ativo} onCheckedChange={(v) => salvarSub.mutate({ ...s, ativo: v })} aria-label={`${s.nome} ativo`} />
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled={s.uso > 0 || excluirSub.isPending}
+                            title={s.uso > 0 ? "Em uso: desative em vez de excluir" : "Excluir item"}
+                            aria-label={`Excluir ${s.nome}`}
+                            onClick={() => excluirSub.mutate(s.id)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {podeEditar && (
+                  <form
+                    className="flex items-center gap-1.5 px-3 pb-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const nome = (novaSub[c.id] ?? "").trim();
+                      if (nome) criarSub.mutate({ cid: c.id, nome });
+                    }}
+                  >
+                    <Input
+                      aria-label={`Novo item de ${c.nome}`}
+                      value={novaSub[c.id] ?? ""}
+                      onChange={(e) => setNovaSub((o) => ({ ...o, [c.id]: e.target.value }))}
+                      placeholder="+ Novo item"
+                      className="h-7 flex-1 border-dashed text-xs"
+                    />
+                    {(novaSub[c.id] ?? "").trim() && (
+                      <Button type="submit" size="xs" disabled={criarSub.isPending}>
+                        <Plus /> Adicionar
+                      </Button>
                     )}
-                  </div>
+                  </form>
                 )}
+                {/* rodapé: linha da DRE e uso */}
+                <div className="flex items-center gap-2 border-t bg-muted/30 px-3 py-2">
+                  <NativeSelect
+                    aria-label={`Grupo da DRE de ${c.nome}`}
+                    value={c.grupo_dre ?? ""}
+                    disabled={!podeEditar}
+                    onChange={(e) => salvarCat.mutate({ ...c, grupo_dre: (e.target.value || null) as GrupoDre | null })}
+                    className={cn("h-7 min-w-0 flex-1 text-xs", !c.grupo_dre && "border-warning/60 text-warning-ink")}
+                  >
+                    <option value="">DRE: não classificado</option>
+                    {Object.entries(ROTULO_GRUPO_DRE).map(([k, l]) => (
+                      <option key={k} value={k}>
+                        DRE: {l}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{c.uso_contas + c.uso_lancamentos} uso(s)</span>
+                </div>
               </li>
             );
           })}
@@ -303,7 +299,6 @@ export default function CategoriasPage() {
   const { isOperador } = useAuth();
   const q = useCategoriasFin();
   const [busca, setBusca] = useState("");
-  const [fechados, setFechados] = useState<Set<number>>(new Set());
   const [selecao, setSelecao] = useState(false);
   const [sel, setSel] = useState({ cats: new Set<number>(), subs: new Set<number>() });
   const termo = busca.trim().toLowerCase();
@@ -314,15 +309,6 @@ export default function CategoriasPage() {
   const revisar = filtradas.filter((c) => c.revisar);
   const normais = filtradas.filter((c) => !c.revisar);
   const semDre = (q.data ?? []).filter((c) => c.ativo && !c.grupo_dre).length;
-  const todosIds = filtradas.map((c) => c.id);
-  const tudoAberto = !todosIds.some((id) => fechados.has(id));
-  const alternar = (id: number) =>
-    setFechados((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
   const marcar = (k: "cats" | "subs", id: number, v: boolean) =>
     setSel((o) => {
       const n = new Set(o[k]);
@@ -341,7 +327,7 @@ export default function CategoriasPage() {
     },
   });
   const nSel = sel.cats.size + sel.subs.size;
-  const props = { fechados, alternar, selecao, sel, marcar, podeEditar: isOperador };
+  const props = { selecao, sel, marcar, podeEditar: isOperador };
 
   return (
     <div>
@@ -352,9 +338,6 @@ export default function CategoriasPage() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SearchInput value={busca} onChange={setBusca} placeholder="Buscar categoria ou item" className="sm:w-80" />
-        <Button variant="ghost" size="sm" onClick={() => setFechados(tudoAberto ? new Set(todosIds) : new Set())}>
-          {tudoAberto ? <ChevronsDownUp /> : <ChevronsUpDown />} {tudoAberto ? "Recolher tudo" : "Abrir tudo"}
-        </Button>
         {isOperador && (
           <div className="ml-auto flex items-center gap-2">
             {selecao && (
