@@ -4,8 +4,9 @@
 # Regra: não atualizar, reiniciar nem reconfigurar nada que já exista. Só acrescentar.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Jeff1984Sor/mayacorpAuto_CFMGG/main/deploy/instalar.sh -o instalar.sh
-#   sudo bash instalar.sh prod      # automacoes.mayacorp.com.br     (API 8060, web 3060)
-#   sudo bash instalar.sh hml       # hml-automacoes.mayacorp.com.br (API 8160, web 3160)
+#   sudo bash instalar.sh prod      # automacoes.mayacorp.com.br     (API 10021, web 10022)
+#   sudo bash instalar.sh hml       # hml-automacoes.mayacorp.com.br (API 10031, web 10032)
+# Portas na faixa 10000+ (convenção do servidor, a mesma do Flicsales).
 #
 # Segue o padrão do servidor: código em /home/deploy/<app>, serviços rodando como o usuário deploy.
 # O banco começa VAZIO (só o cliente CFME, a identidade e as configurações).
@@ -14,8 +15,8 @@ set -euo pipefail
 
 AMB="${1:?informe o ambiente: prod ou hml}"
 case "$AMB" in
-  prod) BRANCH=main;    API_PORTA=8060; WEB_PORTA=3060; DOMINIO=automacoes.mayacorp.com.br ;;
-  hml)  BRANCH=develop; API_PORTA=8160; WEB_PORTA=3160; DOMINIO=hml-automacoes.mayacorp.com.br ;;
+  prod) BRANCH=main;    API_PORTA=10021; WEB_PORTA=10022; DOMINIO=automacoes.mayacorp.com.br ;;
+  hml)  BRANCH=develop; API_PORTA=10031; WEB_PORTA=10032; DOMINIO=hml-automacoes.mayacorp.com.br ;;
   *) echo "Ambiente inválido: $AMB (use prod ou hml)"; exit 1 ;;
 esac
 REPO="${REPO:-https://github.com/Jeff1984Sor/mayacorpAuto_CFMGG.git}"
@@ -131,10 +132,16 @@ if [ "$AMB" = "prod" ]; then
 fi
 
 echo "--- 9/9 Primeiro administrador"
-read -r -p "    Login: " LOGIN </dev/tty
-read -r -p "    Nome: " NOME </dev/tty
-read -r -p "    E-mail: " EMAIL </dev/tty
-como "cd '$DIR/backend' && '$UV' run python -m app.criar_usuario --login '$LOGIN' --nome '$NOME' --email '$EMAIL' --perfil admin" </dev/tty
+LOGIN="(a criar)"
+if { : </dev/tty; } 2>/dev/null; then
+  read -r -p "    Login: " LOGIN </dev/tty
+  read -r -p "    Nome: " NOME </dev/tty
+  read -r -p "    E-mail: " EMAIL </dev/tty
+  como "cd '$DIR/backend' && '$UV' run python -m app.criar_usuario --login '$LOGIN' --nome '$NOME' --email '$EMAIL' --perfil admin" </dev/tty
+else
+  echo "    Sem terminal interativo: crie o administrador depois (a senha é lida da entrada):"
+  echo "    cd $DIR/backend && ~/.local/bin/uv run python -m app.criar_usuario --login admin --nome '...' --email ... --perfil admin"
+fi
 
 sleep 3
 CODIGO="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$API_PORTA/api/health" || echo 000)"
