@@ -9,13 +9,12 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { ClientLogo } from "@/components/mayacorp/brand";
+import { MayaJusLogo } from "@/components/mayacorp/brand";
 import { Field } from "@/components/mayacorp/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useBrand } from "@/lib/brand";
 
 const schema = z.object({
   email: z.string().trim().min(1, "Informe seu e-mail ou usuário"),
@@ -163,15 +162,14 @@ function Esqueci({ onVoltar }: { onVoltar: () => void }) {
 }
 
 export default function LoginPage() {
-  const { nome_exibicao } = useBrand();
   const [modo, setModo] = useState<"login" | "esqueci">("login");
   return (
     <div>
       <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
-        <ClientLogo className="mb-6 h-10 lg:hidden" />
+        <MayaJusLogo className="mb-8 lg:hidden" />
         <h1 className="text-2xl font-semibold tracking-tight">{modo === "login" ? "Entrar" : "Recuperar acesso"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {modo === "login" ? `Acesse as automações da ${nome_exibicao}.` : "Vamos te ajudar a voltar."}
+          {modo === "login" ? "Acesse o Maya Jus com seu e-mail ou usuário." : "Vamos te ajudar a voltar."}
         </p>
       </div>
       <AnimatePresence mode="wait">

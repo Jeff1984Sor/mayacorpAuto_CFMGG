@@ -32,6 +32,25 @@ export function ClientLogo({ className, compacto }: { className?: string; compac
   );
 }
 
+/** Marca do produto Maya Jus (telas públicas não mostram o nome do cliente). */
+export function MayaJusLogo({ className, claro }: { className?: string; claro?: boolean }) {
+  return (
+    <div className={cn("flex items-center gap-3", className)}>
+      <div className="grid size-11 shrink-0 place-items-center rounded-xl brand-gradient text-white shadow-lg shadow-brand/25 ring-1 ring-white/15">
+        <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3.5 3.5 0 0 0 6 0L5 7Zm14 0-3 7a3.5 3.5 0 0 0 6 0l-3-7Z" />
+        </svg>
+      </div>
+      <div>
+        <p className={cn("text-lg leading-tight font-semibold tracking-tight", claro ? "text-white" : "text-foreground")}>
+          Maya <span className="text-brand">Jus</span>
+        </p>
+        <p className={cn("text-xs", claro ? "text-white/60" : "text-muted-foreground")}>Gestão para escritórios de advocacia</p>
+      </div>
+    </div>
+  );
+}
+
 /** Versão que está no ar (v2, v3...), lida da API; o valor do build é só o fallback. */
 function useVersao() {
   const { data } = useQuery({
