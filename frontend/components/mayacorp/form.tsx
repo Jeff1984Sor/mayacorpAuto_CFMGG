@@ -3,7 +3,7 @@
 import { ChevronDown } from "lucide-react";
 import { forwardRef, useId } from "react";
 
-import { FieldIdContext } from "@/components/ui/field-id";
+import { FieldIdContext, useFieldId } from "@/components/ui/field-id";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -44,13 +44,15 @@ export function Field({
 
 /** Select nativo estilizado — leve e perfeito com react-hook-form. */
 export const NativeSelect = forwardRef<HTMLSelectElement, React.ComponentProps<"select">>(function NativeSelect(
-  { className, children, ...props },
+  { className, children, id, ...props },
   ref,
 ) {
+  const fieldId = useFieldId();
   return (
     <div className="relative">
       <select
         ref={ref}
+        id={id ?? fieldId}
         className={cn(
           "h-9 w-full appearance-none rounded-lg border border-input bg-transparent pr-8 pl-2.5 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive dark:bg-input/30 [&>option]:bg-popover",
           className,

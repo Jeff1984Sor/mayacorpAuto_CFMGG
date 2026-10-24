@@ -129,6 +129,19 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       },
       (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
     );
+    // A Receita às vezes não informa a rua (comum em MEI): completa pelo CEP, só no que estiver vazio
+    if (d.cep && !f.getValues("logradouro")) {
+      const end = await cep.buscar(d.cep);
+      if (end) {
+        mudou.push(
+          ...preencherVazios(
+            f.getValues() as Record<string, unknown>,
+            { logradouro: end.logradouro, bairro: end.bairro, cidade: end.localidade, uf: end.uf },
+            (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
+          ),
+        );
+      }
+    }
     if (mudou.length) {
       requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
       toast.success(`Dados da Receita preenchidos: ${d.razao_social}`);

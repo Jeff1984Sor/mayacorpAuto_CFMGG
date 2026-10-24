@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -7,11 +9,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.comunicador import routes as comunicador
 from app.core import cnpj
 from app.core.config import BASE_DIR, settings
 from app.core.routes import auditoria, auth, config, hub, ia, public
 from app.modules.rpa_nfse import routes as nfse_routes
-from app.modules.rpa_nfse import routes_faturas, routes_financeiro, tasks
+from app.modules.rpa_nfse import routes_dashboard, routes_faturas, routes_financeiro, tasks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -38,7 +41,13 @@ async def lifespan(_: FastAPI):
         migrar()
     if settings.worker_embutido:
         tasks.retomar_pendentes()
+    # carteiro do Comunicador: entrega ao vivo as mensagens gravadas (inclusive as do robô, que vêm do worker)
+    parar = asyncio.Event()
+    carteiro = asyncio.create_task(comunicador.carteiro(parar))
     yield
+    parar.set()
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+        await asyncio.wait_for(carteiro, timeout=3)
 
 
 app = FastAPI(
@@ -91,7 +100,8 @@ async def _validacao(_: Request, exc: RequestValidationError):
 
 
 for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
-          nfse_routes.router, routes_financeiro.router, routes_faturas.router, ia.router, cnpj.router, auditoria.router):
+          nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
+          auditoria.router):
     app.include_router(r, prefix="/api")
 
 

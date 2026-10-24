@@ -101,6 +101,15 @@ async def enviar_extrato(ctx: Operador, arquivo: UploadFile = File(...)):
                 descricao=f"{nome}: {ext.qtd_creditos} créditos, {ext.qtd_conciliados} conciliados "
                           f"({ext.notas_baixadas} notas baixadas), {ext.qtd_sugeridos} sugestões")
     ctx.db.commit()
+    if ext.qtd_conciliados or ext.qtd_sugeridos:
+        from app.comunicador.service import robo_postar
+        from app.modules.rpa_nfse.pdf import brl
+
+        texto = f"💰 Extrato {nome} conciliado: {ext.notas_baixadas} nota(s) baixada(s), {brl(ext.valor_conciliado)} recebidos."
+        if ext.qtd_sugeridos:
+            texto += f" {ext.qtd_sugeridos} crédito(s) aguardam confirmação."
+        robo_postar(ctx.db, ctx.tenant_id, texto, link=f"/nfse/recebimentos/{ext.id}")
+        ctx.db.commit()
     if cfg.relatorio_baixas_ativo and cfg.relatorio_destinatarios and ext.qtd_conciliados:
         service.enviar_relatorio_baixas(ctx.db, ext, cfg)
     return _detalhe(ctx, ext)

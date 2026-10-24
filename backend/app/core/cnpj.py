@@ -4,6 +4,7 @@ Mesmo caminho do Flicsales: BrasilAPI v1 (gratuita, sem chave). Se ela falhar, t
 que devolve os mesmos campos. Resultado em cache por 24h para não repetir consultas.
 """
 
+import re
 import time
 from typing import Any
 
@@ -55,7 +56,8 @@ def normalizar(d: dict[str, Any]) -> dict[str, Any]:
     logradouro = " ".join(x for x in [d.get("descricao_tipo_de_logradouro"), d.get("logradouro")] if x)
     return {
         "cnpj": so_digitos(d.get("cnpj")),
-        "razao_social": d.get("razao_social"),
+        # MEI: a Receita põe a raiz do CNPJ na frente do nome ("37.552.605 FULANO DE TAL")
+        "razao_social": re.sub(r"^\d{2}\.?\d{3}\.?\d{3}\s+", "", d.get("razao_social") or "") or None,
         "nome_fantasia": d.get("nome_fantasia") or None,
         "situacao": situacao,
         "ativa": situacao == "ATIVA",

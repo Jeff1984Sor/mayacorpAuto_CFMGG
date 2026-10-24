@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 
 import app.core.models  # noqa: F401  (registra os modelos)
+import app.comunicador.models  # noqa: F401
 import app.modules.rpa_nfse.models  # noqa: F401
 from app.core.config import settings
 from app.core.db import Base, engine

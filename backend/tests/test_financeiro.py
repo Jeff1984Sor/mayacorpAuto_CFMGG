@@ -165,3 +165,11 @@ def test_consulta_cnpj_normaliza_e_avisa_situacao(cliente, monkeypatch):  # noqa
     assert d["logradouro"] == "Rua das Flores" and d["cidade"] == "Sao Paulo" and d["uf"] == "SP"
     assert d["telefone"] == "(11) 3000-0000" and d["email"] == "x@y.com" and d["ativa"] is False
     assert cliente.get("/api/cadastros/cnpj/11111111111111", headers=h).status_code == 400
+
+
+def test_dashboard_faturamento(cliente):  # noqa: F811
+    h = _login(cliente)
+    d = cliente.get("/api/dashboard/faturamento", headers=h).json()
+    assert d["notas"] and {"cliente", "emissao", "valor", "situacao", "fatura", "pagamento"} <= set(d["notas"][0])
+    assert d["lotes"] and d["inicial"]["ate"] == d["hoje"]
+    assert {n["situacao"] for n in d["notas"]} <= {"aberta", "vencida", "paga", "cancelada"}

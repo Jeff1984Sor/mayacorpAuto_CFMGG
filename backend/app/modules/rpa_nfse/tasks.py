@@ -321,6 +321,23 @@ def processar_lote(lote_id: int) -> None:
 
 def _pos_lote(db, lote: Lote) -> None:
     from app.core import email as mail
+    from app.modules.rpa_nfse.pdf import brl
+
+    try:  # 🤖 o robô conta para a equipe no Comunicador
+        from app.comunicador.service import robo_postar
+
+        valor = sum((r.valor for r in lote.rps if r.nfse), 0)
+        if lote.qtd_rejeitadas and lote.qtd_emitidas:
+            texto = (f"⚠️ Lote #{lote.numero:04d} concluído com pendências: {lote.qtd_emitidas} nota(s) emitida(s) "
+                     f"({brl(valor)}) e {lote.qtd_rejeitadas} rejeitada(s). Vale olhar as rejeitadas.")
+        elif lote.qtd_rejeitadas:
+            texto = f"❌ Lote #{lote.numero:04d}: nenhuma nota emitida, {lote.qtd_rejeitadas} rejeitada(s). Precisa de atenção."
+        else:
+            texto = f"✅ Lote #{lote.numero:04d} concluído: {lote.qtd_emitidas} nota(s) emitida(s), {brl(valor)}. Tudo certo!"
+        robo_postar(db, lote.tenant_id, texto, link=f"/nfse/lotes/{lote.id}")
+        db.commit()
+    except Exception:  # noqa: BLE001 — aviso no chat nunca derruba a emissão
+        log.warning("Não consegui postar o aviso do lote %s no Comunicador", lote.id, exc_info=True)
 
     cfg_nfse = service.config_nfse(db, lote.tenant_id)
     db.commit()

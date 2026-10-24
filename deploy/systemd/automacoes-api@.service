@@ -3,10 +3,11 @@ Description=MayaCorp Automações - API (%i)
 After=network.target postgresql.service
 
 [Service]
+# 1 processo: o Comunicador (WebSocket) mantém as conexões em memória. O trabalho pesado fica no worker.
 User=__USUARIO__
 WorkingDirectory=__BASE__/%i/backend
 EnvironmentFile=__BASE__/%i/backend/.env
-ExecStart=__BASE__/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${API_PORTA} --workers 2 --proxy-headers
+ExecStart=__BASE__/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${API_PORTA} --workers 1 --proxy-headers
 Restart=always
 RestartSec=3
 
