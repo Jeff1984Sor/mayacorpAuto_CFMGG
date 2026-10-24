@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, FormSection, NativeSelect } from "@/components/mayacorp/form";
 import { PreencherIA } from "@/components/ia/preencher-ia";
+import { LerNotaFiscal, type NotaLida, type Secao } from "@/components/nfse/ler-nota";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
@@ -115,6 +116,37 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
   });
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
   const cnpj = useCnpj();
+  // Parâmetros IBS/CBS lidos de uma nota fiscal: gravados como padrão da emissora quando ela for salva
+  const [paramsPendentes, setParamsPendentes] = useState<Record<string, string> | null>(null);
+
+  const aplicarNota = (nota: NotaLida, secoes: Set<Secao>) => {
+    const mudou: string[] = [];
+    const definir = (campo: keyof Form, valor: unknown) => {
+      if (valor === undefined || valor === null || valor === "") return;
+      f.setValue(campo, valor as never, { shouldDirty: true, shouldValidate: true });
+      mudou.push(campo);
+    };
+    if (secoes.has("empresa")) {
+      for (const [k, v] of Object.entries(nota.empresa)) {
+        if (!(k in vazio)) continue;
+        definir(k as keyof Form, k === "cnpj" ? documento(v) : k === "cep" ? fmtCep(v) : v);
+      }
+    }
+    if (secoes.has("fiscal")) {
+      const fi = nota.fiscal;
+      definir("cod_servico_padrao", fi.cod_servico_padrao);
+      if (fi.aliquota_iss) definir("aliquota_pct", (Number(fi.aliquota_iss) * 100).toFixed(2).replace(".", ","));
+      definir("serie_rps", fi.serie_rps);
+      definir("prox_rps", fi.prox_rps);
+      definir("regime", fi.regime);
+    }
+    const temParametros = secoes.has("parametros") && Object.keys(nota.parametros).length > 0;
+    setParamsPendentes(temParametros ? nota.parametros : null);
+    requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+    toast.success(
+      `${mudou.length} campo(s) preenchido(s) a partir da nota` + (temParametros ? " · parâmetros IBS/CBS prontos para salvar" : ""),
+    );
+  };
 
   // CNPJ digitado → busca na Receita e preenche só o que está vazio
   const preencherPorCnpj = async (valor: string) => {
@@ -186,11 +218,22 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
         chave_pix: v.chave_pix?.trim() || null,
       };
       delete (body as Partial<typeof body>).aliquota_pct;
-      return emissora ? api.put(`/nfse/emissoras/${emissora.id}`, body) : api.post("/nfse/emissoras", body);
+      return emissora
+        ? api.put<EmissoraOut>(`/nfse/emissoras/${emissora.id}`, body)
+        : api.post<EmissoraOut>("/nfse/emissoras", body);
     },
-    onSuccess: () => {
+    onSuccess: async (salva) => {
       toast.success(emissora ? "Emissora atualizada" : "Emissora cadastrada");
-      qc.invalidateQueries({ queryKey: ["emissoras"] });
+      if (paramsPendentes) {
+        try {
+          await api.post(`/nfse/emissoras/${salva.id}/parametros-padrao`, paramsPendentes);
+          toast.success("Parâmetros IBS/CBS da nota configurados como padrão da emissora");
+        } catch {
+          toast.warning("A emissora foi salva, mas os parâmetros IBS/CBS não. Configure em Parâmetros fiscais.");
+        }
+        setParamsPendentes(null);
+      }
+      qc.invalidateQueries();
       onClose();
     },
   });
@@ -209,16 +252,24 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
   return (
     <FormDialog
       open={open}
-      onOpenChange={(o) => !o && onClose()}
+      onOpenChange={(o) => {
+        if (!o) {
+          setParamsPendentes(null);
+          onClose();
+        }
+      }}
       titulo={emissora ? `Editar ${nomeEmissora(emissora)}` : "Nova empresa emissora"}
       formId="form-emissora"
       acaoCabecalho={
-        <PreencherIA
-          endpoint="/ia/preencher/emissora"
-          aplicar={aplicarIA}
-          descricao="Cole o cartão CNPJ ou outro documento da empresa. Você revisa antes de salvar."
-          placeholder="Cole aqui o cartão CNPJ, a ficha cadastral, uma assinatura de e-mail…"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <LerNotaFiscal aplicar={aplicarNota} />
+          <PreencherIA
+            endpoint="/ia/preencher/emissora"
+            aplicar={aplicarIA}
+            descricao="Cole o cartão CNPJ ou outro documento da empresa. Você revisa antes de salvar."
+            placeholder="Cole aqui o cartão CNPJ, a ficha cadastral, uma assinatura de e-mail…"
+          />
+        </div>
       }
       descricao="Quem presta o serviço e emite a nota."
       largura="xl"
@@ -231,6 +282,21 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       }
     >
       <div className="divide-y">
+        {paramsPendentes && (
+          <div className="mb-4 rounded-xl border border-brand/30 bg-brand/[0.06] p-3 text-sm">
+            <p className="font-medium">Parâmetros IBS/CBS lidos da nota</p>
+            <p className="mt-0.5 text-muted-foreground">
+              Ao salvar, viram o padrão desta emissora:{" "}
+              <span className="num">
+                {Object.entries(paramsPendentes)
+                  .filter(([k]) => ["nbs", "class_trib", "ind_operacao", "cst_ibscbs"].includes(k))
+                  .map(([k, v]) => `${{ nbs: "NBS", class_trib: "cClassTrib", ind_operacao: "cIndOp", cst_ibscbs: "CST" }[k]} ${v}`)
+                  .join(" · ")}
+              </span>
+              . Confira com o contador.
+            </p>
+          </div>
+        )}
         <FormSection titulo="Identificação" descricao="CNPJ e inscrição municipal (CCM) são obrigatórios em SP.">
           <Field label="Razão social" obrigatorio erro={er.razao_social?.message} className="sm:col-span-2">
             <Input {...f.register("razao_social")} />

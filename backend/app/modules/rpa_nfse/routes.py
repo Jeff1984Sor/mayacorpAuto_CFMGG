@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook, load_workbook
+from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sse_starlette.sse import EventSourceResponse
@@ -147,6 +148,76 @@ def excluir_emissora(eid: int, ctx: Admin):
     ctx.db.delete(e)
     ctx.db.commit()
     return Mensagem(mensagem="Emissora excluída.")
+
+
+@router.post("/emissoras/ler-nota")
+async def ler_nota_emissora(ctx: Admin, arquivo: UploadFile = File(...)):
+    """Lê uma NFS-e já emitida pela empresa e devolve cadastro + configuração fiscal (nada é salvo aqui)."""
+    from app.core import ia
+    from app.modules.rpa_nfse import leitura_nota
+
+    nome = (arquivo.filename or "").lower()
+    conteudo = await arquivo.read()
+    if len(conteudo) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Arquivo maior que 10 MB.")
+    mime = arquivo.content_type or ""
+    try:
+        if nome.endswith(".xml") or conteudo.lstrip()[:5] == b"<?xml" or conteudo.lstrip()[:1] == b"<":
+            resultado = leitura_nota.validar(leitura_nota.ler_xml(conteudo), "xml")
+        else:
+            provedor = ia.provedor_ativo(ctx.db, ctx.tenant_id)
+            if nome.endswith(".pdf") or conteudo[:5] == b"%PDF-":
+                texto = leitura_nota.texto_do_pdf(conteudo)
+                if len(texto) >= 80:
+                    bruto, fonte = leitura_nota.ler_com_ia(provedor, texto, None), "pdf"
+                elif provedor.nome == "gemini":  # PDF escaneado: o Gemini lê o PDF como imagem
+                    bruto, fonte = leitura_nota.ler_com_ia(provedor, None, ("application/pdf", conteudo)), "pdf"
+                else:
+                    raise leitura_nota.NotaIlegivel("Este PDF é uma imagem escaneada. Envie o XML da nota ou uma foto.")
+            elif mime.startswith("image/") or nome.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                bruto, fonte = leitura_nota.ler_com_ia(provedor, None, (mime or "image/jpeg", conteudo)), "imagem"
+            else:
+                raise leitura_nota.NotaIlegivel("Envie a nota em XML (recomendado), PDF ou foto.")
+            resultado = leitura_nota.validar(bruto, fonte)
+    except leitura_nota.NotaIlegivel as e:
+        raise HTTPException(400, str(e)) from e
+    except ia.IAIndisponivel as e:
+        raise HTTPException(400, f"{e} (O XML da nota é lido sem IA.)") from e
+    ctx.auditar("emissora.ler_nota", "emissora", descricao=f"Nota lida ({resultado['fonte']}): {arquivo.filename}")
+    ctx.db.commit()
+    return resultado
+
+
+class ParametrosPadraoIn(BaseModel):
+    nbs: str | None = None
+    class_trib: str | None = None
+    cst_ibscbs: str | None = None
+    ind_operacao: str | None = None
+    finalidade: str | None = None
+    ind_final: str | None = None
+
+
+@router.post("/emissoras/{eid}/parametros-padrao", response_model=ParametroFiscalOut)
+def aplicar_parametros_padrao(eid: int, dados: ParametrosPadraoIn, ctx: Admin):
+    """Cria ou atualiza o parâmetro fiscal "padrão" da emissora (usado quando o arquivo da Lello não traz IBS/CBS)."""
+    e = _do_tenant(ctx, Emissora, eid)
+    p = ctx.db.scalar(select(ParametroFiscal).where(ParametroFiscal.emissora_id == e.id, ParametroFiscal.escopo == "padrao")
+                      .order_by(ParametroFiscal.id))
+    novo = p is None
+    if novo:
+        p = ParametroFiscal(tenant_id=ctx.tenant_id, emissora_id=e.id, escopo="padrao",
+                            descricao="Padrão lido da nota fiscal (confira com o contador)")
+        ctx.db.add(p)
+    antes = audit.snapshot(p) if not novo else None
+    for k, v in dados.model_dump(exclude_none=True).items():
+        setattr(p, k, so_digitos(v) or None)
+    p.ativo = True
+    ctx.db.flush()
+    ctx.auditar("parametro_fiscal.da_nota", "parametro_fiscal", p.id, descricao=e.razao_social, antes=antes,
+                depois=audit.snapshot(p))
+    _reavaliar_abertos(ctx)
+    ctx.db.commit()
+    return p
 
 
 # ======================================================================== tomadores

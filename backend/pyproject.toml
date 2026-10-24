@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2.16.1",
     "pyjwt>=2.15.1",
+    "pypdf>=6.21.2",
     "python-multipart>=0.0.32",
     "reportlab>=5.1.0",
     "signxml>=5.2.0",

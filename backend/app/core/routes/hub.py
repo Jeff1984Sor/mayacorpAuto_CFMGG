@@ -28,12 +28,4 @@ def automacoes(ctx: Ctx):
         AutomacaoCard(slug="porto", nome="Upload Porto Seguro",
                       descricao="Robô de envio de arquivos ao portal da Porto Seguro.",
                       icone="upload", status="planejado", href=None, metrica="Em breve"),
-        AutomacaoCard(slug="envio-boletos", nome="Notas e boletos aos tomadores",
-                      descricao="Envio automático de notas e boletos por e-mail.", icone="mail", status="ideia",
-                      href=None),
-        AutomacaoCard(slug="conciliacao", nome="Conciliação de recebimentos",
-                      descricao="Notas emitidas × recebimentos no banco.", icone="scale", status="ideia", href=None),
-        AutomacaoCard(slug="relatorio-contabil", nome="Relatório para a contabilidade",
-                      descricao="Fechamento mensal automático enviado ao contador.", icone="file-chart",
-                      status="ideia", href=None),
     ]

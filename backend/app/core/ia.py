@@ -82,15 +82,27 @@ def listar_modelos(provedor: str, chave: str) -> list[str]:
         raise IAIndisponivel(f"Não foi possível falar com a {PROVEDORES.get(provedor, provedor)}: {e}") from e
 
 
-def gerar_json(p: Provedor, sistema: str, usuario: str) -> dict:
-    """Chama o provedor pedindo JSON e devolve o objeto. Erros viram IAIndisponivel com texto claro."""
+def gerar_json(p: Provedor, sistema: str, usuario: str, anexo: tuple[str, bytes] | None = None) -> dict:
+    """Chama o provedor pedindo JSON e devolve o objeto. Erros viram IAIndisponivel com texto claro.
+
+    `anexo` = (mime, bytes) de uma imagem (os dois provedores) ou PDF (só Gemini lê PDF direto).
+    """
+    import base64
+
+    b64 = base64.b64encode(anexo[1]).decode() if anexo else None
+    if anexo and p.nome == "openai" and not anexo[0].startswith("image/"):
+        raise IAIndisponivel("Com a OpenAI, envie a nota como XML, PDF com texto ou foto.")
     try:
         if p.nome == "openai":
+            conteudo_usuario = usuario if not anexo else [
+                {"type": "text", "text": usuario},
+                {"type": "image_url", "image_url": {"url": f"data:{anexo[0]};base64,{b64}"}},
+            ]
             r = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {p.chave}"},
                 json={"model": p.modelo, "response_format": {"type": "json_object"},
-                      "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": usuario}]},
+                      "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": conteudo_usuario}]},
                 timeout=TIMEOUT,
             )
             if r.status_code != 200:
@@ -101,7 +113,8 @@ def gerar_json(p: Provedor, sistema: str, usuario: str) -> dict:
                 f"https://generativelanguage.googleapis.com/v1beta/models/{p.modelo}:generateContent",
                 params={"key": p.chave},
                 json={"systemInstruction": {"parts": [{"text": sistema}]},
-                      "contents": [{"role": "user", "parts": [{"text": usuario}]}],
+                      "contents": [{"role": "user", "parts": [{"text": usuario}]
+                                + ([{"inline_data": {"mime_type": anexo[0], "data": b64}}] if anexo else [])}],
                       "generationConfig": {"responseMimeType": "application/json"}},
                 timeout=TIMEOUT,
             )
