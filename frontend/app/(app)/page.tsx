@@ -138,7 +138,7 @@ export default function InicioPage() {
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-white/80">
-              <Sparkles className="size-3.5 text-brand" /> {nome_exibicao} · Automações
+              <Sparkles className="size-3.5 text-brand" /> {nome_exibicao} · Maya Jus
             </p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
               {saudacao()}, {usuario?.nome.split(" ")[0]}.

@@ -199,7 +199,7 @@ def _enviar_convite(u: Usuario, novo: bool) -> None:
     token = criar_token(str(u.id), "reset", {"h": (u.senha_hash or "")[-12:]})
     link = f"{settings.frontend_url}/redefinir-senha?token={token}"
     if novo:
-        assunto, texto = "Seu acesso às Automações", f"Olá, {u.nome}!\n\nVocê foi convidado(a) para a plataforma. Defina sua senha:\n{link}"
+        assunto, texto = "Seu acesso ao Maya Jus", f"Olá, {u.nome}!\n\nVocê foi convidado(a) para a plataforma. Defina sua senha:\n{link}"
     else:
         assunto, texto = "Redefinição de senha", f"Olá, {u.nome}.\n\nUm administrador pediu a redefinição da sua senha:\n{link}"
     mail.enviar([u.email], assunto, texto + "\n\nO link vale por 2 horas.")

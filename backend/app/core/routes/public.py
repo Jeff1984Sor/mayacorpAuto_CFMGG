@@ -32,7 +32,7 @@ def logo_url(ident: Identidade | None) -> str | None:
 def identidade(request: Request, db: DB):
     ident = _identidade(request, db)
     if not ident:
-        return IdentidadePublica(nome_exibicao="MayaCorp Automações")
+        return IdentidadePublica(nome_exibicao="Maya Jus")
     return IdentidadePublica(nome_exibicao=ident.nome_exibicao, logo_url=logo_url(ident), cor_destaque=ident.cor_destaque)
 
 

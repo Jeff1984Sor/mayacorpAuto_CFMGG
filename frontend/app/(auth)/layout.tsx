@@ -27,7 +27,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             <ClientLogo compacto className="size-11" />
             <div>
               <p className="font-semibold">{nome_exibicao}</p>
-              <p className="text-xs text-white/60">Automações</p>
+              <p className="text-xs text-white/60">Maya Jus</p>
             </div>
           </div>
 

@@ -10,7 +10,7 @@ const dmSans = DM_Sans({ variable: "--font-dm-sans", subsets: ["latin"], display
 const jetbrains = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Automações · MayaCorp",
+  title: "Maya Jus · MayaCorp",
   description: "Hub de automações (RPAs) — Emissor inteligente de NFS-e em lote, layout 2.",
 };
 

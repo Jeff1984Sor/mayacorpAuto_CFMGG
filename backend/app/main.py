@@ -54,7 +54,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="MayaCorp Automações — API",
+    title="Maya Jus — API",
     version=VERSAO,
     description="Hub de automações MayaCorp. RPA 01: Emissor de NFS-e em lote, layout 2 (ISS + IBS + CBS).",
     lifespan=lifespan,

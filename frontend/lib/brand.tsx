@@ -56,7 +56,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   }, [cor]);
 
   useEffect(() => {
-    document.title = `${ident.nome_exibicao} · Automações`;
+    document.title = `${ident.nome_exibicao} · Maya Jus`;
   }, [ident.nome_exibicao]);
 
   return (
