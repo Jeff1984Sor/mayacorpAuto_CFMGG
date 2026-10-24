@@ -1,5 +1,8 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+
+import { API_URL } from "@/lib/api";
 import { useBrand } from "@/lib/brand";
 import { VERSAO } from "@/lib/env";
 import { iniciais } from "@/lib/format";
@@ -29,12 +32,27 @@ export function ClientLogo({ className, compacto }: { className?: string; compac
   );
 }
 
+/** Versão que está no ar (v2, v3...), lida da API; o valor do build é só o fallback. */
+function useVersao() {
+  const { data } = useQuery({
+    queryKey: ["versao-no-ar"],
+    queryFn: async () => {
+      const r = await fetch(`${API_URL}/health`);
+      return ((await r.json()) as { versao?: string }).versao;
+    },
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+  return data && data !== "dev" ? data : VERSAO;
+}
+
 export function MayaCorpAssinatura({ className, versao = true }: { className?: string; versao?: boolean }) {
+  const numero = useVersao();
   return (
     <p className={cn("flex items-center gap-1.5 text-xs", className)}>
       <span className="inline-block size-1.5 rounded-full bg-brand" />
       Uma solução <span className="font-semibold tracking-tight">MayaCorp</span>
-      {versao && <span className="rounded bg-current/10 px-1.5 py-px font-mono text-[10px] opacity-80">{VERSAO}</span>}
+      {versao && <span className="rounded bg-current/10 px-1.5 py-px font-mono text-[10px] opacity-80">{numero}</span>}
     </p>
   );
 }

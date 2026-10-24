@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, FileCheck2, ShieldCheck, Zap } from "lucide-react";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 
 import { ClientLogo, MayaCorpAssinatura } from "@/components/mayacorp/brand";
@@ -8,7 +8,6 @@ import { FaixaAmbiente } from "@/components/mayacorp/shell";
 import { useBrand } from "@/lib/brand";
 
 const DESTAQUES = [
-  { i: Zap, t: "Notas emitidas em minutos", d: "Suba o arquivo da Lello e o robô faz o resto." },
   { i: CheckCircle2, t: "Pré-validação linha a linha", d: "Erros aparecem antes de ir para a Prefeitura." },
   { i: ShieldCheck, t: "Seguro por padrão", d: "Certificado criptografado e auditoria completa." },
 ];
@@ -72,23 +71,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
 
-          {/* mini-card flutuante */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6, duration: 0.6 }}
-            className="flex w-fit items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3 pr-5 backdrop-blur-xl"
-          >
-            <div className="grid size-10 place-items-center rounded-xl bg-success/20">
-              <FileCheck2 className="size-5 text-success-ink" />
-            </div>
-            <div>
-              <p className="text-xs text-white/55">Lote #0042 concluído</p>
-              <p className="text-sm font-medium">
-                <span className="num">309</span> notas emitidas · <span className="num">100%</span>
-              </p>
-            </div>
-          </motion.div>
+          {/* espaçador: mantém o texto centralizado na coluna */}
+          <div />
         </div>
       </aside>
 
