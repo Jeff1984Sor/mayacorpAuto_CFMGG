@@ -74,7 +74,8 @@ if [ "$CRIAR_TAG" = "1" ]; then
   PROXIMA="v$(( ${ULTIMA:-0} + 1 ))"
   echo "$PROXIMA" > backend/VERSION
   # identidade só para a tag (o usuário deploy do servidor não tem git config global)
-  git -c user.name="Deploy MayaCorp" -c user.email="deploy@mayacorp.com.br" \n    tag -a "$PROXIMA" -m "Deploy $PROXIMA em $(date '+%d/%m/%Y %H:%M')"
+  GIT_ID=(-c user.name="Deploy MayaCorp" -c user.email="deploy@mayacorp.com.br")
+  git "${GIT_ID[@]}" tag -a "$PROXIMA" -m "Deploy $PROXIMA em $(date '+%d/%m/%Y %H:%M')"
   if git push -q origin "$PROXIMA" 2>/dev/null; then
     echo "    tag $PROXIMA publicada"
   else
