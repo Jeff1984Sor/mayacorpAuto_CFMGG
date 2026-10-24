@@ -10,10 +10,12 @@ import {
   Download,
   ExternalLink,
   FileCheck2,
+  FileSignature,
   Pencil,
   QrCode,
   ReceiptText,
   Undo2,
+  X,
 } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
@@ -21,18 +23,21 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { Mono } from "@/components/mayacorp/brand";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
-import { Field } from "@/components/mayacorp/form";
+import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api, baixar, baixarBlob } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, toNum } from "@/lib/format";
+import type { ContaOut } from "@/lib/financeiro";
 import type { FaturaOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -72,7 +77,11 @@ export default function FaturaDetalhePage() {
   const [desfazer, setDesfazer] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [form, setForm] = useState({ venc: "", desconto: "", juros: "" });
-  const [baixa, setBaixa] = useState({ data: hoje(), valor: "" });
+  const [baixa, setBaixa] = useState({ data: hoje(), valor: "", conta: "" });
+  const [cancelar, setCancelar] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const emitir = useEmitirNfse();
+  const contas = useQuery({ queryKey: ["fin", "contas"], queryFn: () => api.get<ContaOut[]>("/financeiro/contas"), enabled: pagar, meta: { silencioso: true } });
 
   const aplicar = (nova: FaturaOut, msg: string) => {
     qc.setQueryData(["fatura", fid], nova);
@@ -100,10 +109,22 @@ export default function FaturaDetalhePage() {
       api.post<FaturaOut>(`/nfse/faturas/${fid}/baixa`, {
         data: baixa.data,
         valor: baixa.valor ? toNum(baixa.valor.replace(",", ".")).toFixed(2) : null,
+        conta_bancaria_id: baixa.conta ? Number(baixa.conta) : null,
       }),
     onSuccess: (r) => {
       aplicar(r, "Pagamento registrado");
       setPagar(false);
+    },
+  });
+  const cancelarFatura = useMutation({
+    mutationFn: () => api.post<{ mensagem: string }>(`/faturamento/faturas/${fid}/cancelar`, { motivo: motivo.trim() }),
+    onSuccess: (r) => {
+      toast.success(r.mensagem);
+      q.refetch();
+      qc.invalidateQueries({ queryKey: ["faturas"] });
+      qc.invalidateQueries({ queryKey: ["faturas-resumo"] });
+      qc.invalidateQueries({ queryKey: ["fat"] });
+      setCancelar(false);
     },
   });
   const estornar = useMutation({
@@ -143,7 +164,7 @@ export default function FaturaDetalhePage() {
             {f.simulada && <Pill tom="warning">Simulação</Pill>}
           </span>
         }
-        descricao={`Nota de Honorários de ${f.tomador_nome} · NFS-e ${f.nfse_numero}`}
+        descricao={`${f.tipo === "despesas" ? "Nota de Despesas" : "Nota de Honorários"} de ${f.tomador_nome}${f.nfse_numero ? ` · NFS-e ${f.nfse_numero}` : f.tipo === "honorarios" ? " · sem NFS-e" : ""}${f.contrato_nome ? ` · ${f.contrato_nome}` : ""}`}
         icone={ReceiptText}
         migalhas={[
           { label: "NFS-e", href: "/nfse" },
@@ -162,11 +183,21 @@ export default function FaturaDetalhePage() {
             {isOperador && aberta && (
               <Button
                 onClick={() => {
-                  setBaixa({ data: hoje(), valor: "" });
+                  setBaixa({ data: hoje(), valor: "", conta: "" });
                   setPagar(true);
                 }}
               >
                 <Banknote /> Registrar pagamento
+              </Button>
+            )}
+            {isOperador && f.pode_emitir_nfse && (
+              <Button variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>
+                <FileCheck2 /> Emitir NFS-e
+              </Button>
+            )}
+            {isAdmin && f.origem === "faturamento" && !f.nfse_id && f.status === "aberta" && (
+              <Button variant="ghost" className="text-danger-ink" onClick={() => setCancelar(true)}>
+                <X /> Cancelar fatura
               </Button>
             )}
             {isAdmin && f.status === "paga" && (
@@ -251,12 +282,25 @@ export default function FaturaDetalhePage() {
             <p className="font-medium">{f.tomador_nome}</p>
             <p className="text-muted-foreground num">{documento(f.tomador_doc)}</p>
             <div className="mt-4 flex flex-col gap-1.5 border-t pt-4">
-              <Link href={`/nfse/notas/${f.nfse_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
-                <FileCheck2 className="size-4" /> NFS-e {f.nfse_numero}
-              </Link>
-              <Link href={`/nfse/lotes/${f.lote_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
-                <CalendarClock className="size-4" /> Lote de origem
-              </Link>
+              {f.nfse_id ? (
+                <Link href={`/nfse/notas/${f.nfse_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
+                  <FileCheck2 className="size-4" /> NFS-e {f.nfse_numero}
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-muted-foreground">
+                  <FileCheck2 className="size-4" /> {f.tipo === "despesas" ? "ND não tem NFS-e" : "Ainda sem NFS-e"}
+                </span>
+              )}
+              {f.lote_id && (
+                <Link href={`/nfse/lotes/${f.lote_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
+                  <CalendarClock className="size-4" /> Lote de origem
+                </Link>
+              )}
+              {f.contrato_id && (
+                <Link href={`/faturamento/contratos/${f.contrato_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
+                  <FileSignature className="size-4" /> Contrato {f.contrato_nome}
+                </Link>
+              )}
             </div>
             {f.descricao && <p className="mt-4 border-t pt-4 text-xs whitespace-pre-wrap text-muted-foreground">{f.descricao}</p>}
           </div>
@@ -312,9 +356,42 @@ export default function FaturaDetalhePage() {
           <Field label="Valor recebido" dica={`Vazio = total (${moeda(f.total)})`}>
             <Input inputMode="decimal" value={baixa.valor} onChange={(e) => setBaixa({ ...baixa, valor: e.target.value })} placeholder={toNum(f.total).toFixed(2).replace(".", ",")} className="num" />
           </Field>
+          {(contas.data?.length ?? 0) > 0 && (
+            <Field label="Conta bancária" htmlFor="baixa-conta" dica="Onde o dinheiro entrou. Vazio = conta padrão de recebimento." className="sm:col-span-2">
+              <NativeSelect id="baixa-conta" value={baixa.conta} onChange={(e) => setBaixa({ ...baixa, conta: e.target.value })}>
+                <option value="">Conta padrão</option>
+                {contas.data
+                  ?.filter((c) => c.ativo)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                      {c.banco ? ` · ${c.banco}` : ""}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </Field>
+          )}
         </div>
       </FormDialog>
 
+      <ConfirmDialog
+        open={cancelar}
+        onOpenChange={(o) => {
+          setCancelar(o);
+          if (!o) setMotivo("");
+        }}
+        titulo={`Cancelar a ${f.codigo}?`}
+        descricao="Os itens voltam para Itens a faturar e podem ser faturados de novo. Fica registrado na auditoria."
+        confirmar="Cancelar fatura"
+        destrutivo
+        carregando={cancelarFatura.isPending}
+        desabilitado={motivo.trim().length < 3}
+        onConfirm={() => cancelarFatura.mutate()}
+      >
+        <Field label="Motivo" obrigatorio htmlFor="cancelar-motivo" dica="Mínimo de 3 letras.">
+          <Textarea id="cancelar-motivo" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        </Field>
+      </ConfirmDialog>
       <ConfirmDialog
         open={desfazer}
         onOpenChange={setDesfazer}

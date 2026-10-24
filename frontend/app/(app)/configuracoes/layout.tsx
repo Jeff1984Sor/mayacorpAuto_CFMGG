@@ -21,7 +21,7 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
     <div>
       <PageHeader
         titulo="Configurações"
-        descricao="Identidade, certificado, usuários, parâmetros fiscais e notificações."
+        descricao="Identidade, certificado, profissionais, faturamento, parâmetros fiscais e notificações."
         icone={Settings}
         migalhas={[{ label: "Início", href: "/" }, { label: "Configurações" }]}
       />

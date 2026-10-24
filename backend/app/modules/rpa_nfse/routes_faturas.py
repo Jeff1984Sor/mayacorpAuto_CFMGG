@@ -1,4 +1,4 @@
-"""Faturas (Notas de Honorários): uma por NFS-e emitida."""
+"""Faturas: NH (honorários — da NFS-e da Lello ou de Itens a faturar) e ND (reembolso de despesas, sem NFS-e)."""
 
 from datetime import date
 from decimal import Decimal
@@ -14,21 +14,25 @@ from app.core.documentos import so_digitos
 from app.core.schemas import Mensagem, Pagina
 from app.modules.rpa_nfse import fatura as faturas
 from app.modules.rpa_nfse import service
-from app.modules.rpa_nfse.models import Fatura, Nfse, StatusFatura, StatusNfse, Tomador
+from app.modules.rpa_nfse.models import Fatura, Nfse, StatusFatura, StatusNfse, TipoFatura, Tomador
 from app.modules.rpa_nfse.schemas import BaixaManualIn, FaturaOut, ZipIn
 
 router = APIRouter(prefix="/nfse", tags=["Faturas"])
 
 
 def fatura_out(f: Fatura) -> FaturaOut:
-    tom = (f.nfse.rps.dados_json or {}).get("tomador", {})
+    tom = faturas.dados_cliente(f)
+    contrato = faturas._contrato(f) if f.contrato_id else None
     return FaturaOut(
-        id=f.id, codigo=f.codigo, numero=f.numero, ano=f.ano, nfse_id=f.nfse_id, nfse_numero=f.nfse.numero,
-        lote_id=f.nfse.rps.lote_id, emissora_id=f.emissora_id, tomador_id=f.tomador_id,
+        id=f.id, codigo=f.codigo, numero=f.numero, ano=f.ano, tipo=f.tipo.value, origem=f.origem,
+        contrato_id=f.contrato_id, contrato_nome=f"#{contrato.numero} {contrato.nome}" if contrato else None,
+        pode_emitir_nfse=f.tipo == TipoFatura.honorarios and not f.nfse_id and f.status != StatusFatura.cancelada,
+        nfse_id=f.nfse_id, nfse_numero=f.nfse.numero if f.nfse else None,
+        lote_id=f.nfse.rps.lote_id if f.nfse else None, emissora_id=f.emissora_id, tomador_id=f.tomador_id,
         tomador_nome=tom.get("nome") or "", tomador_doc=tom.get("cpf_cnpj"), data_emissao=f.data_emissao,
         data_vencimento=f.data_vencimento, valor=f.valor, desconto=f.desconto, juros=f.juros, total=f.total,
         status=f.status, situacao=faturas.situacao(f), pago_em=f.pago_em, descricao=f.descricao,
-        pix_copia_e_cola=faturas.pix_da_fatura(f), simulada=f.nfse.simulada,
+        pix_copia_e_cola=faturas.pix_da_fatura(f), simulada=bool(f.nfse and f.nfse.simulada),
     )
 
 
@@ -43,9 +47,10 @@ def _fatura(ctx, fid: int) -> Fatura:
 def listar(
     ctx: Ctx, q: str | None = None, situacao: str | None = Query(None, pattern="^(aberta|vencida|paga|cancelada)$"),
     lote_id: int | None = None, de: date | None = None, ate: date | None = None,
-    pagina: int = Query(1, ge=1), por_pagina: int = Query(25, ge=1, le=200),
+    tipo: str | None = Query(None, pattern="^(honorarios|despesas)$"), contrato_id: int | None = None,
+    sem_nfse: bool = False, pagina: int = Query(1, ge=1), por_pagina: int = Query(25, ge=1, le=200),
 ):
-    base = select(Fatura).join(Nfse, Fatura.nfse_id == Nfse.id).outerjoin(Tomador, Fatura.tomador_id == Tomador.id)
+    base = select(Fatura).outerjoin(Nfse, Fatura.nfse_id == Nfse.id).outerjoin(Tomador, Fatura.tomador_id == Tomador.id)
     f = [Fatura.tenant_id == ctx.tenant_id]
     if q:
         dig = so_digitos(q)
@@ -64,12 +69,18 @@ def listar(
         from app.modules.rpa_nfse.models import Rps
 
         f.append(Nfse.rps_id.in_(select(Rps.id).where(Rps.lote_id == lote_id)))
+    if tipo:
+        f.append(Fatura.tipo == TipoFatura(tipo))
+    if contrato_id:
+        f.append(Fatura.contrato_id == contrato_id)
+    if sem_nfse:
+        f += [Fatura.nfse_id.is_(None), Fatura.tipo == TipoFatura.honorarios, Fatura.status != StatusFatura.cancelada]
     if de:
         f.append(Fatura.data_emissao >= de)
     if ate:
         f.append(Fatura.data_emissao <= ate)
     total = ctx.db.scalar(select(func.count()).select_from(base.where(*f).subquery())) or 0
-    itens = ctx.db.scalars(base.where(*f).order_by(Fatura.ano.desc(), Fatura.numero.desc())
+    itens = ctx.db.scalars(base.where(*f).order_by(Fatura.data_emissao.desc(), Fatura.id.desc())
                            .offset((pagina - 1) * por_pagina).limit(por_pagina))
     return Pagina[FaturaOut](itens=[fatura_out(x) for x in itens], total=total, pagina=pagina, por_pagina=por_pagina)
 
@@ -135,8 +146,17 @@ def baixa(fid: int, dados: BaixaManualIn, ctx: Operador):
     if f.status != StatusFatura.aberta:
         raise HTTPException(400, "Esta fatura não está em aberto.")
     n = f.nfse
+    if not n:  # ND ou NH ainda sem nota
+        f.status, f.pago_em = StatusFatura.paga, dados.data
+        faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
+        faturas.espelhar_no_financeiro(ctx.db, f, dados.conta_bancaria_id)
+        ctx.auditar("fatura.baixa", "fatura", f.id, descricao=f"{f.codigo} paga em {dados.data:%d/%m/%Y}")
+        ctx.db.commit()
+        return fatura_out(f)
     n.pago_em, n.valor_pago, n.baixa_origem = dados.data, dados.valor or f.total, "manual"
     faturas.sincronizar(ctx.db, n)
+    if dados.conta_bancaria_id:
+        faturas.espelhar_no_financeiro(ctx.db, f, dados.conta_bancaria_id)
     ctx.auditar("fatura.baixa", "fatura", f.id, descricao=f"{f.codigo} paga em {dados.data:%d/%m/%Y}")
     ctx.db.commit()
     return fatura_out(f)
@@ -148,6 +168,13 @@ def desfazer_baixa(fid: int, ctx: Admin):
     n = f.nfse
     if f.status != StatusFatura.paga:
         raise HTTPException(400, "Esta fatura não está paga.")
+    if not n:
+        f.status, f.pago_em = StatusFatura.aberta, None
+        faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
+        faturas.espelhar_no_financeiro(ctx.db, f)
+        ctx.auditar("fatura.desfazer_baixa", "fatura", f.id, descricao=f.codigo)
+        ctx.db.commit()
+        return fatura_out(f)
     if n.lancamento_id:
         raise HTTPException(400, "Esta baixa veio do extrato: desfaça pela tela de Recebimentos.")
     n.pago_em = n.valor_pago = n.baixa_origem = None
@@ -187,7 +214,7 @@ def gerar_pendentes(ctx: Admin):
     """Cria a fatura das notas emitidas que ainda não têm (ex.: notas anteriores à ativação)."""
     cfg = service.config_nfse(ctx.db, ctx.tenant_id)
     sem = ctx.db.scalars(select(Nfse).where(Nfse.tenant_id == ctx.tenant_id, Nfse.status == StatusNfse.emitida,
-                                            ~Nfse.id.in_(select(Fatura.nfse_id))))
+                                            ~Nfse.id.in_(select(Fatura.nfse_id).where(Fatura.nfse_id.is_not(None)))))
     n = 0
     for nota in sem:
         f = faturas.criar(ctx.db, nota, cfg)

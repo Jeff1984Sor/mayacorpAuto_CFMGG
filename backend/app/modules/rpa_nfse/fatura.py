@@ -19,13 +19,15 @@ from sqlalchemy.orm import Session
 from app.core.documentos import formatar_documento
 from app.core.models import Identidade
 from app.modules.rpa_nfse import service
-from app.modules.rpa_nfse.models import ConfigNfse, Fatura, Nfse, StatusFatura, StatusNfse
+from app.modules.rpa_nfse.models import ConfigNfse, Fatura, Nfse, StatusFatura, StatusNfse, TipoFatura
 from app.modules.rpa_nfse.pix import br_code
 from app.modules.rpa_nfse.qr import QrFlowable
 
 
-def proximo_numero(db: Session, emissora_id: int, ano: int) -> int:
-    return (db.scalar(select(func.max(Fatura.numero)).where(Fatura.emissora_id == emissora_id, Fatura.ano == ano)) or 0) + 1
+def proximo_numero(db: Session, emissora_id: int, ano: int, tipo: TipoFatura = TipoFatura.honorarios) -> int:
+    """Numeração própria por emissora, tipo (NH / ND) e ano."""
+    return (db.scalar(select(func.max(Fatura.numero)).where(
+        Fatura.emissora_id == emissora_id, Fatura.ano == ano, Fatura.tipo == tipo)) or 0) + 1
 
 
 def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:
@@ -33,6 +35,12 @@ def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:
     existente = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
     if existente:
         return existente
+    origem_id = (nota.rps.dados_json or {}).get("fatura_id")
+    if origem_id and (origem := db.get(Fatura, origem_id)) and origem.nfse_id is None:
+        origem.nfse_id = nota.id
+        origem.nfse = nota
+        salvar_pdf(db, origem, cfg)
+        return origem
     emissao = nota.data_emissao.date() if hasattr(nota.data_emissao, "date") else date.today()
     fat = Fatura(
         tenant_id=nota.tenant_id, emissora_id=nota.emissora_id, nfse_id=nota.id, tomador_id=nota.tomador_id,
@@ -54,13 +62,26 @@ def sincronizar(db: Session, nota: Nfse) -> None:
     fat = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
     if not fat:
         return
-    if nota.status == StatusNfse.cancelada:
+    if nota.status == StatusNfse.cancelada and fat.origem == "faturamento":
+        # a cobrança continua valendo: a fatura volta a aguardar uma nova NFS-e
+        fat.nfse_id, fat.nfse = None, None
+        fat.status, fat.pago_em = StatusFatura.aberta, None
+        fat.observacao = ((fat.observacao or "") + f"\nNFS-e {nota.numero} cancelada: emita uma nova nota.").strip()
+    elif nota.status == StatusNfse.cancelada:
         fat.status = StatusFatura.cancelada
     elif nota.pago_em:
         fat.status, fat.pago_em = StatusFatura.paga, nota.pago_em
     else:
         fat.status, fat.pago_em = StatusFatura.aberta, None
     salvar_pdf(db, fat, service.config_nfse(db, nota.tenant_id))
+    espelhar_no_financeiro(db, fat)
+
+
+def espelhar_no_financeiro(db: Session, fat: Fatura, conta_id: int | None = None) -> None:
+    """Recebimento da fatura vira crédito no extrato (Financeiro › Conta Bancária)."""
+    from app.modules.financas.service import espelhar_recebimento
+
+    espelhar_recebimento(db, fat, conta_id)
 
 
 def situacao(fat: Fatura) -> str:
@@ -73,13 +94,34 @@ def pix_da_fatura(fat: Fatura) -> str | None:
     e = fat.emissora
     if not e.chave_pix or fat.status != StatusFatura.aberta:
         return None
-    return br_code(e.chave_pix, e.razao_social, e.cidade or "SAO PAULO", fat.total, f"NH{fat.ano}{fat.numero:05d}")
+    return br_code(e.chave_pix, e.razao_social, e.cidade or "SAO PAULO", fat.total, fat.codigo.replace(" ", "").replace("/", ""))
 
 
 def salvar_pdf(db: Session, fat: Fatura, cfg: ConfigNfse) -> None:
-    destino = service.pasta(fat.emissora_id, fat.data_emissao) / f"Fatura_NH{fat.ano}_{fat.numero:05d}.pdf"
+    prefixo = "ND" if fat.tipo == TipoFatura.despesas else "NH"
+    destino = service.pasta(fat.emissora_id, fat.data_emissao) / f"Fatura_{prefixo}{fat.ano}_{fat.numero:05d}.pdf"
     destino.write_bytes(gerar_pdf(fat, db.get(Identidade, fat.tenant_id), cfg))
     fat.pdf_path = str(destino)
+
+
+def dados_cliente(fat: Fatura) -> dict:
+    """Cliente da fatura: o que foi para a nota (se já existe NFS-e) ou o cadastro do cliente."""
+    if fat.nfse:
+        return (fat.nfse.rps.dados_json or {}).get("tomador", {})
+    t = fat.tomador
+    if not t:
+        return {}
+    return {"nome": t.nome, "cpf_cnpj": t.cpf_cnpj, "logradouro": t.logradouro, "numero": t.numero,
+            "bairro": t.bairro, "cidade": t.cidade, "uf": t.uf, "cep": t.cep, "email": (t.emails or [None])[0]}
+
+
+def _contrato(fat: Fatura):
+    from sqlalchemy.orm import object_session
+
+    from app.modules.faturamento.models import Contrato
+
+    sess = object_session(fat)
+    return sess.get(Contrato, fat.contrato_id) if sess else None
 
 
 def _brl(v) -> str:
@@ -115,7 +157,8 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
         return x.strftime("%d/%m/%Y") if x else "----"
 
     e, nota = fat.emissora, fat.nfse
-    tom = (nota.rps.dados_json or {}).get("tomador", {})
+    despesas = fat.tipo == TipoFatura.despesas
+    tom = dados_cliente(fat)
     story = []
 
     # ---- cabeçalho: emitente + logo do escritório
@@ -148,12 +191,16 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
     # ---- título + meta
     meta = [[Paragraph("Emissão", p_sm), Paragraph(f"<b>{d(fat.data_emissao)}</b>", p_sm_r)],
             [Paragraph("Vencimento", p_sm), Paragraph(f"<b>{d(fat.data_vencimento)}</b>", p_sm_r)],
-            [Paragraph("Documento nº", p_sm), Paragraph(f"<b>{fat.codigo}</b>", p_sm_r)],
-            [Paragraph("Nota Fiscal", p_sm), Paragraph(f"<b>{nota.numero}</b>", p_sm_r)]]
+            [Paragraph("Documento nº", p_sm), Paragraph(f"<b>{fat.codigo}</b>", p_sm_r)]]
+    if nota:
+        meta.append([Paragraph("Nota Fiscal", p_sm), Paragraph(f"<b>{nota.numero}</b>", p_sm_r)])
     mt = Table(meta, colWidths=[28 * mm, 30 * mm])
     mt.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
                             ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    tit = Table([[Paragraph("Nota de Honorários", p_tit), mt]], colWidths=[LARG - 58 * mm, 58 * mm])
+    titulo = [Paragraph("Nota de Despesas" if despesas else "Nota de Honorários", p_tit)]
+    if despesas:
+        titulo.append(Paragraph("Reembolso de despesas · documento não fiscal", p_sm))
+    tit = Table([[titulo, mt]], colWidths=[LARG - 58 * mm, 58 * mm])
     tit.setStyle(TableStyle([("VALIGN", (0, 0), (0, 0), "MIDDLE"), ("VALIGN", (1, 0), (1, 0), "TOP"),
                              ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     story += [tit, linha(1.2, 8, 10)]
@@ -162,7 +209,7 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
     if selo:
         story += [Paragraph(f"<b>{selo[0]}</b>", ParagraphStyle("selo", parent=p, textColor=colors.HexColor(selo[1]))),
                   Spacer(1, 3 * mm)]
-    if nota.simulada:
+    if nota and nota.simulada:
         story += [Paragraph("<b>SIMULAÇÃO — documento de demonstração, sem valor de cobrança</b>",
                             ParagraphStyle("sim", parent=p_sm, textColor=colors.HexColor("#C94343"))), Spacer(1, 2 * mm)]
 
@@ -173,15 +220,32 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
                                  tom.get("bairro"), tom.get("cidade"), tom.get("uf")] if x)
     if end:
         story.append(Paragraph(end, p_sm))
-    story.append(Paragraph(f"<b>RPS:</b> {nota.rps.serie}-{nota.rps.numero} &nbsp;•&nbsp; <b>Lote:</b> #{nota.rps.lote.numero:04d} "
-                           f"&nbsp;•&nbsp; <b>Verificação NFS-e:</b> {nota.cod_verificacao}", p_sm))
+    if fat.contrato_id and (contrato := _contrato(fat)):
+        story.append(Paragraph(f"<b>Contrato:</b> #{contrato.numero} — {contrato.nome}", p_sm))
+    if nota:
+        story.append(Paragraph(f"<b>RPS:</b> {nota.rps.serie}-{nota.rps.numero} &nbsp;•&nbsp; <b>Lote:</b> #{nota.rps.lote.numero:04d} "
+                               f"&nbsp;•&nbsp; <b>Verificação NFS-e:</b> {nota.cod_verificacao}", p_sm))
     story.append(Spacer(1, 5 * mm))
 
     # ---- item
-    desc = (fat.descricao or "").replace("\n", "<br/>")
-    itens = [[Paragraph("Descrição", p_th), Paragraph("Valor (R$)", p_th_r)],
-             [Paragraph(desc, p), Paragraph(_brl(fat.valor).replace("R$ ", ""), p_r)]]
-    t = Table(itens, colWidths=[LARG - 35 * mm, 35 * mm])
+    linhas_itens = list(getattr(fat, "itens", []) or [])
+    if linhas_itens:  # fatura gerada em Itens a faturar: uma linha por parcela, hora ou despesa
+        itens = [[Paragraph("Data", p_th), Paragraph("Descrição", p_th), Paragraph("Qtd.", p_th_r), Paragraph("Valor (R$)", p_th_r)]]
+        for it in linhas_itens:
+            texto = it.descricao.replace("\n", "<br/>")
+            if it.caso_id and it.caso:
+                texto += f"<br/><font size=6 color='#666666'>Caso #{it.caso.numero} — {it.caso.titulo}</font>"
+            if it.profissional:
+                texto += f"<br/><font size=6 color='#666666'>{it.profissional}</font>"
+            qtd = f"{it.quantidade:.2f}h".replace(".", ",") if it.quantidade else ""
+            itens.append([Paragraph(d(it.data or it.competencia) if (it.data or it.competencia) else "", p_sm),
+                          Paragraph(texto, p), Paragraph(qtd, p_r), Paragraph(_brl(it.valor).replace("R$ ", ""), p_r)])
+        t = Table(itens, colWidths=[20 * mm, LARG - 20 * mm - 18 * mm - 30 * mm, 18 * mm, 30 * mm], repeatRows=1)
+    else:
+        desc = (fat.descricao or "").replace("\n", "<br/>")
+        itens = [[Paragraph("Descrição", p_th), Paragraph("Valor (R$)", p_th_r)],
+                 [Paragraph(desc, p), Paragraph(_brl(fat.valor).replace("R$ ", ""), p_r)]]
+        t = Table(itens, colWidths=[LARG - 35 * mm, 35 * mm])
     t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, 0), 1.0, DARK), ("LINEBELOW", (0, 0), (-1, 0), 1.0, DARK),
                            ("LINEBELOW", (0, 1), (-1, -1), 0.5, DARK), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
@@ -226,7 +290,7 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
         c.saveState()
         c.setFont("Helvetica", 6.5)
         c.setFillColor(CINZA)
-        c.drawString(18 * mm, 10 * mm, f"{e.razao_social} • {fat.codigo} • NFS-e {nota.numero}")
+        c.drawString(18 * mm, 10 * mm, f"{e.razao_social} • {fat.codigo}" + (f" • NFS-e {nota.numero}" if nota else ""))
         c.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Página {docu.page}  •  Uma solução MayaCorp")
         c.restoreState()
 

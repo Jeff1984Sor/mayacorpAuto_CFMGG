@@ -13,7 +13,7 @@ import {
   UserRound,
   ChevronDown,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -85,7 +85,14 @@ export function FaixaAmbiente() {
 function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   const { resumo } = useComunicador();
-  const contador = item.badge === "comunicador" ? resumo.nao_lidas : 0;
+  const revisoes = useQuery({
+    queryKey: ["fat", "revisoes", "em_revisao"],
+    queryFn: () => api.get<unknown[]>("/faturamento/revisoes", { status: "em_revisao" }),
+    enabled: item.badge === "revisoes",
+    staleTime: 60_000,
+    meta: { silencioso: true },
+  });
+  const contador = item.badge === "comunicador" ? resumo.nao_lidas : item.badge === "revisoes" ? (revisoes.data?.length ?? 0) : 0;
   const on = ativo(pathname, item);
   const Icone = item.icone;
   const conteudo = (

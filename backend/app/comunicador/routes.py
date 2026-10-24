@@ -89,7 +89,7 @@ def usuarios(ctx: Ctx):
     from app.core.routes.auth import foto_url
 
     online = hub.online_do_tenant(ctx.tenant_id)
-    lista = ctx.db.scalars(select(Usuario).where(Usuario.tenant_id == ctx.tenant_id, Usuario.ativo).order_by(Usuario.nome))
+    lista = ctx.db.scalars(select(Usuario).where(Usuario.tenant_id == ctx.tenant_id, Usuario.ativo, Usuario.acesso_sistema).order_by(Usuario.nome))
     return [{"id": u.id, "nome": u.nome, "login": u.login, "perfil": u.perfil.value, "foto_url": foto_url(u),
              "status": online.get(u.id, "offline")} for u in lista if u.id != ctx.usuario.id]
 

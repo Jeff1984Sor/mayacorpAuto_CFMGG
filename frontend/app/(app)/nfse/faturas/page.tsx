@@ -10,8 +10,10 @@ import { AnimatedNumber } from "@/components/mayacorp/animated-number";
 import { Mono } from "@/components/mayacorp/brand";
 import { Pagination, SearchInput, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
+import { NativeSelect } from "@/components/mayacorp/form";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
+import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { useZipFaturas } from "@/components/nfse/acoes-fatura";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, numero } from "@/lib/format";
 import type { FaturaOut, ResumoFaturas, SituacaoFatura } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -35,6 +38,9 @@ export default function FaturasPage() {
   const lista = usePaginado<FaturaOut>("faturas", "/nfse/faturas", {}, 25);
   const resumo = useQuery({ queryKey: ["faturas-resumo"], queryFn: () => api.get<ResumoFaturas>("/nfse/faturas/resumo") });
   const zip = useZipFaturas();
+  const emitir = useEmitirNfse();
+  const { isOperador } = useAuth();
+  const tipo = (lista.filtros.tipo as string | undefined) ?? "";
   const [sel, setSel] = useState<Set<number>>(new Set());
   const situacao = (lista.filtros.situacao as SituacaoFatura | undefined) ?? null;
   const { setFiltro } = lista;
@@ -58,13 +64,14 @@ export default function FaturasPage() {
     });
   const todos = lista.itens.length > 0 && lista.itens.every((f) => sel.has(f.id));
   const alguns = lista.itens.some((f) => sel.has(f.id));
-  const filtrando = !!(lista.q || situacao || lista.filtros.de || lista.filtros.ate || lista.filtros.lote_id);
+  const filtrando = !!(lista.q || situacao || lista.filtros.de || lista.filtros.ate || lista.filtros.lote_id || tipo || lista.filtros.sem_nfse);
+  const emitiveis = lista.itens.filter((f) => sel.has(f.id) && f.pode_emitir_nfse).map((f) => f.id);
 
   return (
     <div>
       <PageHeader
         titulo="Faturas"
-        descricao="Notas de Honorários — uma por NFS-e, criada sozinha na emissão, com PIX para pagamento."
+        descricao="Notas de Honorários (NH) e de Despesas (ND), com PIX para pagamento. As do Faturamento podem gerar a NFS-e depois."
         icone={ReceiptText}
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Faturas" }]}
       />
@@ -120,6 +127,14 @@ export default function FaturasPage() {
                 Lote #{String(lista.filtros.lote_id).padStart(4, "0")} <X className="size-3" />
               </button>
             ) : null}
+            <NativeSelect aria-label="Tipo de fatura" value={tipo} onChange={(e) => lista.setFiltro("tipo", e.target.value || undefined)} className="h-9 w-40">
+              <option value="">NH e ND</option>
+              <option value="honorarios">Só NH (honorários)</option>
+              <option value="despesas">Só ND (despesas)</option>
+            </NativeSelect>
+            <label className="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs">
+              <Checkbox checked={!!lista.filtros.sem_nfse} onCheckedChange={(v) => lista.setFiltro("sem_nfse", v ? true : undefined)} aria-label="Só sem NFS-e" /> Sem NFS-e
+            </label>
             <Input type="date" value={String(lista.filtros.de ?? "")} onChange={(e) => lista.setFiltro("de", e.target.value)} className="h-9 w-38" aria-label="De" />
             <span className="text-xs text-muted-foreground">até</span>
             <Input type="date" value={String(lista.filtros.ate ?? "")} onChange={(e) => lista.setFiltro("ate", e.target.value)} className="h-9 w-38" aria-label="Até" />
@@ -162,6 +177,9 @@ export default function FaturasPage() {
                       <Checkbox checked={sel.has(f.id)} onCheckedChange={(v) => marcar(f.id, !!v)} aria-label={`Selecionar ${f.codigo}`} />
                     </td>
                     <td className="px-3 py-3 font-semibold whitespace-nowrap">
+                      <Pill tom={f.tipo === "despesas" ? "info" : "brand"} className="mr-1.5">
+                        {f.tipo === "despesas" ? "ND" : "NH"}
+                      </Pill>
                       <Mono>{f.codigo}</Mono>
                       {f.simulada && (
                         <Pill tom="warning" className="ml-1.5">
@@ -169,12 +187,23 @@ export default function FaturasPage() {
                         </Pill>
                       )}
                     </td>
-                    <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">
-                      <Mono>{f.nfse_numero}</Mono>
+                    <td className="hidden px-3 py-3 text-muted-foreground md:table-cell" onClick={(e) => f.pode_emitir_nfse && e.stopPropagation()}>
+                      {f.nfse_numero ? (
+                        <Mono>{f.nfse_numero}</Mono>
+                      ) : f.pode_emitir_nfse && isOperador ? (
+                        <Button size="xs" variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>
+                          <ReceiptText /> Emitir NFS-e
+                        </Button>
+                      ) : (
+                        <span className="text-xs">{f.tipo === "despesas" ? "—" : "Sem NFS-e"}</span>
+                      )}
                     </td>
                     <td className="max-w-60 px-3 py-3">
                       <p className="truncate">{f.tomador_nome}</p>
-                      <p className="text-[11px] text-muted-foreground num">{documento(f.tomador_doc)}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        <span className="num">{documento(f.tomador_doc)}</span>
+                        {f.contrato_nome && ` · ${f.contrato_nome}`}
+                      </p>
                     </td>
                     <td className="hidden px-3 py-3 text-muted-foreground lg:table-cell">
                       <Mono>{data(f.data_emissao)}</Mono>
@@ -213,6 +242,11 @@ export default function FaturasPage() {
               <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => zip.mutate({ ids: [...sel] })} disabled={zip.isPending}>
                 {zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar PDFs (ZIP)
               </Button>
+              {isOperador && emitiveis.length > 0 && (
+                <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => emitir.mutate(emitiveis)} disabled={emitir.isPending}>
+                  {emitir.isPending ? <Loader2 className="animate-spin" /> : <ReceiptText />} Emitir NFS-e ({emitiveis.length})
+                </Button>
+              )}
               <Button size="icon-sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setSel(new Set())} aria-label="Limpar seleção">
                 <X />
               </Button>

@@ -27,6 +27,16 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     `extrato.py` + `conciliacao.py` (extrato OFX/CSV/XLSX → baixa automática), `raio_x.py` (análise do arquivo antes de emitir).
     Nota e fatura andam juntas: toda mudança de pagamento/cancelamento da nota chama `fatura.sincronizar(db, nota)`.
   - `app/modules/rpa_nfse/prefeitura_sp/` concentra **toda** a conversa com a Prefeitura. Quando o layout mudar, só esse pacote muda.
+  - `app/modules/faturamento/`: Cliente → Contrato → Caso, com regras de cobrança (fixo, recorrente no estilo Outlook, por hora).
+    - Itens a faturar → Revisão (pré-fatura "Em Revisão", com IA) → fatura NH (honorários) ou ND (despesas; nunca vira NFS-e).
+    - A NFS-e da NH sai depois (`emitir_nfse` monta um lote com `dados_json.fatura_id`).
+    - Nada é cobrado duas vezes: `FaturaItem.chave_cobranca` é UNIQUE e horas/despesas guardam `fatura_item_id`.
+    - O valor/hora vem da tabela de preço (regra → caso → contrato) × o **cargo** do funcionário.
+  - Usuário = funcionário (`core.models.Usuario`, com cargo, OAB, endereço). `acesso_sistema=False` = só lança horas, sem login.
+  - `app/modules/financas/` (Financeiro): contas bancárias e extrato, transferências, contas a pagar (rateio, recorrência, baixa),
+    fluxo de caixa, DRE gerencial (pela `grupo_dre` da categoria), projeção de despesas, previsão de caixa e projeção de impostos (Simples ou Presumido).
+    - O saldo nunca é gravado: é sempre calculado a partir dos lançamentos.
+    - Pagar uma conta lança um débito no extrato. Fatura paga vira crédito na conta de recebimento (`fatura.espelhar_no_financeiro`).
 - Menu **Cadastros** (`/cadastros/clientes`, `/cadastros/emissoras`): cadastros do escritório, compartilhados por todos os robôs.
 - `frontend/` é Next.js (App Router) + Tailwind + shadcn/ui. Os tipos em `lib/types.ts` espelham os schemas Pydantic.
 - `deploy/` tem `deploy.sh hml|prod`, `rollback.sh`, `backup.sh`, systemd templated (`@hml`/`@prod`) e nginx.

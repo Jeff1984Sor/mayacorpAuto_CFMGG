@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Mono } from "@/components/mayacorp/brand";
+import { ContratosDoCliente } from "@/components/faturamento/contratos-cliente";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { Pagination, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
 import { EmailChips } from "@/components/mayacorp/email-chips";
@@ -324,7 +325,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       titulo={cliente ? cliente.nome : "Novo cliente"}
       formId="form-cliente"
       acaoCabecalho={isOperador && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
-      descricao={cliente ? "Dados do tomador e histórico de notas." : "Quem recebe a nota."}
+      descricao={cliente ? "Dados do tomador, contratos e histórico de notas." : "Quem recebe a nota."}
       largura="lg"
       salvando={salvar.isPending}
       rotuloSalvar={isOperador ? "Salvar" : "Fechar"}
@@ -334,9 +335,13 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
         <Tabs defaultValue="dados">
           <TabsList className="mb-4">
             <TabsTrigger value="dados">Dados</TabsTrigger>
+            <TabsTrigger value="contratos">Contratos</TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
           <TabsContent value="dados">{dados}</TabsContent>
+          <TabsContent value="contratos">
+            <ContratosDoCliente tomadorId={cliente.id} />
+          </TabsContent>
           <TabsContent value="historico">
             <Historico id={cliente.id} />
           </TabsContent>

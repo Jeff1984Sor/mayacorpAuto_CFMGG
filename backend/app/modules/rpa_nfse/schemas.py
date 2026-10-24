@@ -416,12 +416,17 @@ class ConfigAutomacoesOut(Schema):
 # ---------- Faturas (Notas de Honorários) ----------
 class FaturaOut(Schema):
     id: int
-    codigo: str  # "NH 2026/00012"
+    codigo: str  # "NH 2026/00012" · "ND 2026/00003"
     numero: int
     ano: int
-    nfse_id: int
-    nfse_numero: int
-    lote_id: int
+    tipo: str = "honorarios"  # honorarios (NH) | despesas (ND)
+    origem: str = "nota"  # nota (Lello) | faturamento (Itens a faturar)
+    contrato_id: int | None = None
+    contrato_nome: str | None = None
+    pode_emitir_nfse: bool = False
+    nfse_id: int | None
+    nfse_numero: int | None
+    lote_id: int | None
     emissora_id: int
     tomador_id: int | None
     tomador_nome: str
@@ -490,6 +495,7 @@ class ConfirmarLancamentoIn(BaseModel):
 class BaixaManualIn(BaseModel):
     data: date
     valor: Decimal | None = None
+    conta_bancaria_id: int | None = None  # onde o dinheiro entrou (vazio = conta padrão de recebimento)
 
 
 # ---------- Configurações › Prefeitura ----------

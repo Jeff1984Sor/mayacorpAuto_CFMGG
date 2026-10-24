@@ -352,17 +352,29 @@ class StatusFatura(enum.StrEnum):
     cancelada = "cancelada"
 
 
+class TipoFatura(enum.StrEnum):
+    honorarios = "honorarios"  # NH — Nota de Honorários (pode virar NFS-e)
+    despesas = "despesas"  # ND — Nota de Despesas (reembolso; nunca vira NFS-e)
+
+
 class Fatura(Base, Timestamped):
-    """Nota de Honorários: o documento de cobrança que acompanha cada NFS-e (modelo do sistema RCA)."""
+    """Documento de cobrança (modelo do RCA).
+
+    NH nasce de duas formas: junto da NFS-e emitida pelo arquivo da Lello, ou em Itens a faturar (e a NFS-e vem
+    depois, pelo botão "Emitir NFS-e"). ND reembolsa despesas dos casos e nunca gera nota fiscal.
+    """
 
     __tablename__ = "fatura"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
     emissora_id: Mapped[int] = mapped_column(ForeignKey("emissora.id"))
-    nfse_id: Mapped[int] = mapped_column(ForeignKey("nfse.id"), unique=True)
+    nfse_id: Mapped[int | None] = mapped_column(ForeignKey("nfse.id"), unique=True)
+    tipo: Mapped[TipoFatura] = mapped_column(_enum(TipoFatura), default=TipoFatura.honorarios, index=True)
+    origem: Mapped[str] = mapped_column(String(15), default="nota")  # nota | faturamento
+    contrato_id: Mapped[int | None] = mapped_column(ForeignKey("fat_contrato.id"), index=True)
     tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id"))
-    numero: Mapped[int] = mapped_column(Integer)  # sequencial por emissora e ano
+    numero: Mapped[int] = mapped_column(Integer)  # sequencial por emissora, tipo e ano
     ano: Mapped[int] = mapped_column(Integer)
     data_emissao: Mapped[date] = mapped_column(Date)
     data_vencimento: Mapped[date] = mapped_column(Date, index=True)
@@ -375,15 +387,15 @@ class Fatura(Base, Timestamped):
     pdf_path: Mapped[str | None] = mapped_column(String(500))
     observacao: Mapped[str | None] = mapped_column(Text)
 
-    nfse: Mapped[Nfse] = relationship()
+    nfse: Mapped["Nfse | None"] = relationship()
     emissora: Mapped[Emissora] = relationship()
     tomador: Mapped["Tomador | None"] = relationship()
 
-    __table_args__ = (UniqueConstraint("emissora_id", "ano", "numero", name="uq_fatura_emissora_ano_numero"),)
+    __table_args__ = (UniqueConstraint("emissora_id", "tipo", "ano", "numero", name="uq_fatura_emissora_tipo_ano_numero"),)
 
     @property
     def codigo(self) -> str:
-        return f"NH {self.ano}/{self.numero:05d}"
+        return f"{'ND' if self.tipo == TipoFatura.despesas else 'NH'} {self.ano}/{self.numero:05d}"
 
     @property
     def total(self) -> Decimal:

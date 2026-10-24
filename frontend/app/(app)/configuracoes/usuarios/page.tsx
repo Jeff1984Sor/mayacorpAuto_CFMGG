@@ -1,18 +1,16 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, UserX, Users } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { BriefcaseBusiness, KeyRound, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, Users, UserX } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
 import { toast } from "sonner";
-import { z } from "zod";
 
-import { Mono } from "@/components/mayacorp/brand";
+import { FuncionarioDialog, mascaraTelefone, PERFIS } from "@/components/funcionarios/funcionario-dialog";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
-import { SearchInput, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
+import { SearchInput, Segmented, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
-import { Field, NativeSelect, SwitchRow } from "@/components/mayacorp/form";
+import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
@@ -27,168 +25,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import type { CargoOut } from "@/lib/faturamento";
 import { relativo } from "@/lib/format";
-import type { Perfil, UsuarioOut } from "@/lib/types";
+import type { UsuarioOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const PERFIS: Record<Perfil, { l: string; d: string }> = {
-  admin: { l: "Administrador", d: "Tudo: configurações, certificado, usuários, emissão e cancelamento" },
-  operador: { l: "Operador", d: "Importar, validar, emitir, baixar notas e cadastrar clientes" },
-  visualizador: { l: "Visualizador", d: "Consultar painel, lotes e notas; baixar PDF/XML" },
-};
-
-const LOGIN_RE = /^[a-z0-9._-]{3,60}$/;
-const login = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .refine((v) => !v || LOGIN_RE.test(v), "3 a 60 caracteres: letras minúsculas, números, . _ -");
-
-const conviteSchema = z
-  .object({
-    nome: z.string().min(2, "Obrigatório"),
-    email: z.email("E-mail inválido"),
-    login,
-    perfil: z.enum(["admin", "operador", "visualizador"]),
-    definirSenha: z.boolean(),
-    senha: z.string(),
-  })
-  .refine((v) => !v.definirSenha || v.senha.length >= 8, { path: ["senha"], message: "Mínimo de 8 caracteres" });
-type Convite = z.infer<typeof conviteSchema>;
-
-const editarSchema = z.object({ nome: z.string().min(2, "Obrigatório"), email: z.email("E-mail inválido"), login });
-type Editar = z.infer<typeof editarSchema>;
-
-const sugerirLogin = (email: string) =>
-  email
-    .split("@")[0]
-    ?.toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9._-]/g, "") ?? "";
-
-function ConviteDialog({ open, onOpenChange, onSalvo }: { open: boolean; onOpenChange: (o: boolean) => void; onSalvo: () => void }) {
-  const f = useForm<Convite>({
-    resolver: zodResolver(conviteSchema),
-    defaultValues: { nome: "", email: "", login: "", perfil: "operador", definirSenha: false, senha: "" },
-  });
-  const definir = f.watch("definirSenha");
-  const convite = useMutation({
-    mutationFn: (v: Convite) =>
-      api.post("/config/usuarios", {
-        nome: v.nome,
-        email: v.email,
-        login: v.login || null,
-        perfil: v.perfil,
-        senha: v.definirSenha ? v.senha : null,
-      }),
-    onSuccess: (_r, v) => {
-      toast.success(v.definirSenha ? `${v.nome} já pode entrar` : `Convite enviado para ${v.email}`);
-      f.reset();
-      onOpenChange(false);
-      onSalvo();
-    },
-  });
-  const er = f.formState.errors;
-  return (
-    <FormDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      titulo="Novo usuário"
-      descricao={definir ? "A pessoa entra direto com a senha que você definir." : "A pessoa recebe um e-mail e define a própria senha."}
-      rotuloSalvar={definir ? "Criar usuário" : "Enviar convite"}
-      salvando={convite.isPending}
-      largura="lg"
-      onSubmit={f.handleSubmit((v) => convite.mutate(v))}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Nome" obrigatorio erro={er.nome?.message} className="sm:col-span-2">
-          <Input {...f.register("nome")} autoFocus />
-        </Field>
-        <Field label="E-mail" obrigatorio erro={er.email?.message}>
-          <Input
-            type="email"
-            {...f.register("email", {
-              onBlur: (e) => {
-                if (!f.getValues("login")) f.setValue("login", sugerirLogin(e.target.value));
-              },
-            })}
-          />
-        </Field>
-        <Field label="Usuário (login)" erro={er.login?.message} dica="Opcional — permite entrar sem digitar o e-mail.">
-          <Input {...f.register("login")} className="font-mono" autoCapitalize="none" spellCheck={false} placeholder="ex.: cristina" />
-        </Field>
-        <div className="sm:col-span-2">
-          <SwitchRow titulo="Definir senha agora" descricao="Sem depender do e-mail de convite.">
-            <Switch checked={definir} onCheckedChange={(v) => f.setValue("definirSenha", v, { shouldValidate: true })} />
-          </SwitchRow>
-        </div>
-        {definir && (
-          <Field label="Senha inicial" erro={er.senha?.message} className="sm:col-span-2">
-            <SenhaInput value={f.watch("senha")} onChange={(v) => f.setValue("senha", v)} autoComplete="new-password" forca />
-          </Field>
-        )}
-        <Field label="Perfil" className="sm:col-span-2">
-          <div className="grid gap-2 sm:grid-cols-3">
-            {Object.entries(PERFIS).map(([k, p]) => (
-              <label
-                key={k}
-                className="flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors has-checked:border-brand has-checked:bg-brand/6"
-              >
-                <input type="radio" value={k} {...f.register("perfil")} className="mt-1 accent-[var(--brand)]" />
-                <span>
-                  <span className="block text-sm font-medium">{p.l}</span>
-                  <span className="block text-xs text-muted-foreground">{p.d}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </Field>
-      </div>
-    </FormDialog>
-  );
-}
-
-function EditarDialog({ usuario, onClose, onSalvo }: { usuario: UsuarioOut | null; onClose: () => void; onSalvo: () => void }) {
-  const f = useForm<Editar>({ resolver: zodResolver(editarSchema), defaultValues: { nome: "", email: "", login: "" } });
-  useEffect(() => {
-    if (usuario) f.reset({ nome: usuario.nome, email: usuario.email, login: usuario.login ?? "" });
-  }, [usuario, f]);
-  const salvar = useMutation({
-    mutationFn: (v: Editar) => api.patch(`/config/usuarios/${usuario!.id}`, { nome: v.nome, email: v.email, login: v.login || null }),
-    onSuccess: () => {
-      toast.success("Usuário atualizado");
-      onClose();
-      onSalvo();
-    },
-  });
-  const er = f.formState.errors;
-  return (
-    <FormDialog
-      open={!!usuario}
-      onOpenChange={(o) => !o && onClose()}
-      titulo={`Editar ${usuario?.nome ?? ""}`}
-      salvando={salvar.isPending}
-      onSubmit={f.handleSubmit((v) => salvar.mutate(v))}
-    >
-      <div className="space-y-4">
-        <Field label="Nome" erro={er.nome?.message}>
-          <Input {...f.register("nome")} />
-        </Field>
-        <Field label="E-mail" erro={er.email?.message}>
-          <Input type="email" {...f.register("email")} />
-        </Field>
-        <Field label="Usuário (login)" erro={er.login?.message}>
-          <Input {...f.register("login")} className="font-mono" autoCapitalize="none" spellCheck={false} />
-        </Field>
-      </div>
-    </FormDialog>
-  );
-}
+type FiltroAcesso = "todos" | "com" | "sem";
 
 function DefinirSenhaDialog({ usuario, onClose }: { usuario: UsuarioOut | null; onClose: () => void }) {
   const [senha, setSenha] = useState("");
@@ -210,7 +54,7 @@ function DefinirSenhaDialog({ usuario, onClose }: { usuario: UsuarioOut | null; 
         }
       }}
       titulo={`Definir senha de ${usuario?.nome ?? ""}`}
-      descricao="Combine a senha com a pessoa por um canal seguro. Ela pode trocá-la depois em “Trocar senha”."
+      descricao="Combine a senha com a pessoa por um canal seguro. Ela pode trocá-la depois em Minha conta."
       rotuloSalvar="Definir senha"
       salvando={definir.isPending}
       onSubmit={(e) => {
@@ -219,30 +63,42 @@ function DefinirSenhaDialog({ usuario, onClose }: { usuario: UsuarioOut | null; 
         else toast.error("Mínimo de 8 caracteres.");
       }}
     >
-      <Field label="Nova senha">
-        <SenhaInput value={senha} onChange={setSenha} autoComplete="new-password" forca autoFocus />
+      <Field label="Nova senha" htmlFor="nova-senha-func">
+        <SenhaInput id="nova-senha-func" value={senha} onChange={setSenha} autoComplete="new-password" forca autoFocus />
       </Field>
     </FormDialog>
   );
 }
 
-export default function UsuariosPage() {
+function Kpi({ rotulo, valor, tom }: { rotulo: string; valor: number; tom?: string }) {
+  return (
+    <div className="card-surface px-4 py-3">
+      <p className="text-xs text-muted-foreground">{rotulo}</p>
+      <p className={cn("mt-0.5 text-2xl font-semibold tabular-nums", tom)}>{valor}</p>
+    </div>
+  );
+}
+
+export default function ProfissionaisPage() {
   const qc = useQueryClient();
   const { usuario: eu } = useAuth();
   const [q, setQ] = useState("");
-  const [novo, setNovo] = useState(false);
-  const [editar, setEditar] = useState<UsuarioOut | null>(null);
+  const [cargoId, setCargoId] = useState<string>("");
+  const [acesso, setAcesso] = useState<FiltroAcesso>("todos");
+  const [inativos, setInativos] = useState(false);
+  const [dialogo, setDialogo] = useState<{ u: UsuarioOut | null } | null>(null);
   const [senhaDe, setSenhaDe] = useState<UsuarioOut | null>(null);
   const [desativar, setDesativar] = useState<UsuarioOut | null>(null);
   const lista = useQuery({ queryKey: ["usuarios"], queryFn: () => api.get<UsuarioOut[]>("/config/usuarios"), refetchInterval: 60_000 });
+  const cargos = useQuery({ queryKey: ["cargos"], queryFn: () => api.get<CargoOut[]>("/config/cargos") });
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ["usuarios"] });
   const patch = useMutation({
-    mutationFn: ({ id, ...body }: { id: number; perfil?: Perfil; ativo?: boolean }) => api.patch(`/config/usuarios/${id}`, body),
+    mutationFn: ({ id, ...body }: { id: number; ativo?: boolean }) => api.patch(`/config/usuarios/${id}`, body),
     onSuccess: () => {
-      toast.success("Usuário atualizado");
+      toast.success("Cadastro atualizado");
       setDesativar(null);
-      invalidar();
+      qc.invalidateQueries({ queryKey: ["usuarios"] });
+      qc.invalidateQueries({ queryKey: ["fat", "profissionais"] });
     },
   });
   const reset = useMutation({
@@ -250,51 +106,126 @@ export default function UsuariosPage() {
     onSuccess: (_r, u) => toast.success(`Link enviado para ${u.email}`),
   });
 
-  const termo = q.toLowerCase();
-  const usuarios = (lista.data ?? []).filter(
-    (u) => !termo || u.nome.toLowerCase().includes(termo) || u.email.toLowerCase().includes(termo) || (u.login ?? "").includes(termo),
+  const todos = lista.data ?? [];
+  const termo = q.trim().toLowerCase();
+  const usuarios = todos.filter(
+    (u) =>
+      (inativos || u.ativo) &&
+      (!cargoId || (cargoId === "sem" ? !u.cargo_id : String(u.cargo_id) === cargoId)) &&
+      (acesso === "todos" || (acesso === "com" ? u.acesso_sistema : !u.acesso_sistema)) &&
+      (!termo ||
+        u.nome.toLowerCase().includes(termo) ||
+        u.email.toLowerCase().includes(termo) ||
+        (u.login ?? "").includes(termo) ||
+        (u.oab ?? "").toLowerCase().includes(termo) ||
+        (u.cpf ?? "").includes(termo.replace(/\D/g, "") || "§")),
   );
-  const online = (lista.data ?? []).filter((u) => u.online);
+  const ativos = todos.filter((u) => u.ativo);
+  const online = ativos.filter((u) => u.online);
+  const filtrando = !!(termo || cargoId || acesso !== "todos");
 
   return (
     <div className="space-y-4">
-      {online.length > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl border bg-card p-3 pl-4">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-success" />
-          </span>
-          <span className="text-sm font-medium">Online agora</span>
-          <div className="flex -space-x-2">
-            {online.slice(0, 8).map((u) => (
-              <span key={u.id} title={u.nome}>
-                <UserAvatar nome={u.nome} fotoUrl={u.foto_url} className="size-7 ring-2 ring-card" textoClassName="text-[10px]" />
-              </span>
-            ))}
-          </div>
-          <span className="truncate text-sm text-muted-foreground">{online.map((u) => u.nome.split(" ")[0]).join(", ")}</span>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Profissionais</h2>
+          <p className="text-sm text-muted-foreground">Equipe do escritório num cadastro só: quem acessa o sistema e quem só aparece no timesheet.</p>
         </div>
-      )}
+        <Button variant="outline" size="sm" render={<Link href="/configuracoes/faturamento" />}>
+          <BriefcaseBusiness /> Cargos e tabelas de preço
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi rotulo="Profissionais ativos" valor={ativos.length} />
+        <Kpi rotulo="Com acesso ao sistema" valor={ativos.filter((u) => u.acesso_sistema).length} tom="text-info-ink" />
+        <Kpi rotulo="Sem acesso (só timesheet)" valor={ativos.filter((u) => !u.acesso_sistema).length} />
+        <div className="card-surface px-4 py-3">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="relative flex size-2">
+              {online.length > 0 && <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />}
+              <span className={cn("relative inline-flex size-2 rounded-full", online.length ? "bg-success" : "bg-muted-foreground/40")} />
+            </span>
+            Online agora
+          </p>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className="text-2xl font-semibold tabular-nums">{online.length}</span>
+            <div className="flex -space-x-2">
+              {online.slice(0, 5).map((u) => (
+                <span key={u.id} title={u.nome}>
+                  <UserAvatar nome={u.nome} fotoUrl={u.foto_url} className="size-6 ring-2 ring-card" textoClassName="text-[9px]" />
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <TableCard>
         <Toolbar>
-          <SearchInput value={q} onChange={setQ} placeholder="Nome, e-mail ou login" />
-          <Button onClick={() => setNovo(true)}>
-            <UserPlus /> Novo usuário
+          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <SearchInput value={q} onChange={setQ} placeholder="Nome, e-mail, login, OAB ou CPF" />
+            <NativeSelect aria-label="Filtrar por cargo" value={cargoId} onChange={(e) => setCargoId(e.target.value)} className="h-9 sm:w-48">
+              <option value="">Todos os cargos</option>
+              <option value="sem">Sem cargo</option>
+              {cargos.data?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </NativeSelect>
+            <Segmented<FiltroAcesso>
+              value={acesso}
+              onChange={setAcesso}
+              opcoes={[
+                { value: "todos", label: "Todos" },
+                { value: "com", label: "Com acesso" },
+                { value: "sem", label: "Sem acesso" },
+              ]}
+            />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input type="checkbox" checked={inativos} onChange={(e) => setInativos(e.target.checked)} className="accent-[var(--brand)]" /> Mostrar inativos
+            </label>
+          </div>
+          <Button onClick={() => setDialogo({ u: null })}>
+            <UserPlus /> Novo profissional
           </Button>
         </Toolbar>
         {lista.isPending ? (
-          <TableSkeleton colunas={5} />
+          <TableSkeleton colunas={6} />
         ) : usuarios.length === 0 ? (
-          <EmptyState icone={Users} titulo="Nenhum usuário encontrado" />
+          <EmptyState
+            icone={Users}
+            titulo={filtrando ? "Ninguém com esses filtros" : "Nenhum profissional cadastrado"}
+            descricao={filtrando ? "Limpe a busca ou troque o cargo e o acesso." : "Cadastre a equipe: quem acessa o sistema e quem só lança horas."}
+            acao={
+              filtrando ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setQ("");
+                    setCargoId("");
+                    setAcesso("todos");
+                  }}
+                >
+                  Limpar filtros
+                </Button>
+              ) : (
+                <Button onClick={() => setDialogo({ u: null })}>
+                  <UserPlus /> Novo profissional
+                </Button>
+              )
+            }
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Usuário</th>
-                  <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Login</th>
-                  <th className="px-3 py-2.5 font-medium">Perfil</th>
+                  <th className="px-4 py-2.5 font-medium">Nome</th>
+                  <th className="px-3 py-2.5 font-medium">Cargo</th>
+                  <th className="hidden px-3 py-2.5 font-medium lg:table-cell">E-mail</th>
+                  <th className="px-3 py-2.5 font-medium">Acesso</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">Último acesso</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="w-12 px-3 py-2.5" />
@@ -302,66 +233,72 @@ export default function UsuariosPage() {
               </thead>
               <tbody className="divide-y">
                 {usuarios.map((u) => (
-                  <tr key={u.id} className={cn("transition-colors hover:bg-accent/40", !u.ativo && "opacity-60")}>
+                  <tr
+                    key={u.id}
+                    tabIndex={0}
+                    onClick={() => setDialogo({ u })}
+                    onKeyDown={(e) => e.key === "Enter" && setDialogo({ u })}
+                    className={cn("cursor-pointer transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none", !u.ativo && "opacity-60")}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <UserAvatar nome={u.nome} fotoUrl={u.foto_url} className="size-9" textoClassName="text-xs" online={u.online} inativo={!u.ativo} />
                         <div className="min-w-0">
                           <p className="flex items-center gap-1.5 font-medium">
-                            {u.nome}
+                            <span className="truncate">{u.nome}</span>
                             {u.id === eu?.id && <Pill tom="brand">você</Pill>}
                           </p>
-                          <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {[u.oab && `OAB ${u.oab}`, u.telefone && mascaraTelefone(u.telefone)].filter(Boolean).join(" · ") || <span className="lg:hidden">{u.email}</span>}
+                          </p>
                         </div>
                       </div>
                     </td>
-                    <td className="hidden px-3 py-3 sm:table-cell">
-                      {u.login ? <Mono className="rounded bg-muted px-1.5 py-0.5">{u.login}</Mono> : <span className="text-muted-foreground">—</span>}
-                    </td>
+                    <td className="px-3 py-3">{u.cargo_nome ?? <span className="text-xs text-warning-ink">Sem cargo</span>}</td>
+                    <td className="hidden max-w-56 truncate px-3 py-3 text-muted-foreground lg:table-cell">{u.email}</td>
                     <td className="px-3 py-3">
-                      <NativeSelect
-                        value={u.perfil}
-                        disabled={u.id === eu?.id || patch.isPending}
-                        onChange={(e) => patch.mutate({ id: u.id, perfil: e.target.value as Perfil })}
-                        className="h-8 w-40"
-                      >
-                        {Object.entries(PERFIS).map(([k, p]) => (
-                          <option key={k} value={k}>
-                            {p.l}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </td>
-                    <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">
-                      {u.online ? <span className="text-success-ink">agora</span> : relativo(u.ultimo_acesso)}
-                    </td>
-                    <td className="px-3 py-3">
-                      {u.convite_pendente ? (
-                        <StatusBadge tom="warning" label="Convite pendente" />
+                      {!u.acesso_sistema ? (
+                        <Pill tom="neutral">Sem acesso</Pill>
                       ) : (
-                        <StatusBadge status={u.ativo ? "ativo" : "descartado"} label={u.ativo ? "Ativo" : "Inativo"} />
+                        <Pill tom={u.perfil === "admin" ? "brand" : u.perfil === "operador" ? "info" : "neutral"}>{PERFIS[u.perfil].l}</Pill>
                       )}
                     </td>
+                    <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">
+                      {!u.acesso_sistema ? "—" : u.online ? <span className="text-success-ink">agora</span> : relativo(u.ultimo_acesso)}
+                    </td>
                     <td className="px-3 py-3">
+                      {!u.ativo ? (
+                        <StatusBadge status="descartado" label="Inativo" />
+                      ) : u.acesso_sistema && u.convite_pendente ? (
+                        <StatusBadge tom="warning" label="Convite pendente" />
+                      ) : (
+                        <StatusBadge status="ativo" label="Ativo" />
+                      )}
+                    </td>
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ações" />}>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${u.nome}`} />}>
                           <MoreHorizontal />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
                           <DropdownMenuGroup>
                             <DropdownMenuLabel>{u.nome}</DropdownMenuLabel>
                           </DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setEditar(u)}>
-                            <Pencil /> Editar dados
+                          <DropdownMenuItem onClick={() => setDialogo({ u })}>
+                            <Pencil /> Editar cadastro
                           </DropdownMenuItem>
                           {u.id !== eu?.id && (
                             <>
-                              <DropdownMenuItem onClick={() => setSenhaDe(u)}>
-                                <KeyRound /> Definir senha
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => reset.mutate(u)}>
-                                <Mail /> {u.convite_pendente ? "Reenviar convite" : "Enviar link de redefinição"}
-                              </DropdownMenuItem>
+                              {u.acesso_sistema && (
+                                <>
+                                  <DropdownMenuItem onClick={() => setSenhaDe(u)}>
+                                    <KeyRound /> Definir senha
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => reset.mutate(u)}>
+                                    <Mail /> {u.convite_pendente ? "Reenviar convite" : "Enviar link de redefinição"}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                               <DropdownMenuSeparator />
                               {u.ativo ? (
                                 <DropdownMenuItem variant="destructive" onClick={() => setDesativar(u)}>
@@ -385,23 +322,26 @@ export default function UsuariosPage() {
         )}
       </TableCard>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         {Object.entries(PERFIS).map(([k, p]) => (
           <div key={k} className="rounded-2xl border bg-card p-4">
             <p className="text-sm font-semibold">{p.l}</p>
             <p className="mt-1 text-xs text-muted-foreground">{p.d}</p>
           </div>
         ))}
+        <div className="rounded-2xl border border-dashed bg-card p-4">
+          <p className="text-sm font-semibold">Sem acesso</p>
+          <p className="mt-1 text-xs text-muted-foreground">Não entra no sistema. Aparece como profissional no timesheet e nas revisões.</p>
+        </div>
       </div>
 
-      <ConviteDialog open={novo} onOpenChange={setNovo} onSalvo={invalidar} />
-      <EditarDialog usuario={editar} onClose={() => setEditar(null)} onSalvo={invalidar} />
+      <FuncionarioDialog open={!!dialogo} onOpenChange={(o) => !o && setDialogo(null)} usuario={dialogo?.u ?? null} />
       <DefinirSenhaDialog usuario={senhaDe} onClose={() => setSenhaDe(null)} />
       <ConfirmDialog
         open={!!desativar}
         onOpenChange={(o) => !o && setDesativar(null)}
         titulo={`Desativar ${desativar?.nome ?? ""}?`}
-        descricao="O acesso é bloqueado na hora. O histórico e a auditoria são mantidos."
+        descricao="O acesso é bloqueado na hora e a pessoa sai das listas de timesheet. O histórico e a auditoria são mantidos."
         confirmar="Desativar"
         destrutivo
         carregando={patch.isPending}

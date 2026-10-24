@@ -1,4 +1,22 @@
 import {
+  ArrowLeftRight,
+  BadgeDollarSign,
+  BarChart3,
+  Calculator,
+  CalendarClock,
+  ChartLine,
+  Download,
+  FilePlus2,
+  FolderTree,
+  ListOrdered,
+  PiggyBank,
+  Plus,
+  TrendingDown,
+  Wallet,
+  FileSearch,
+  FileSignature,
+  KanbanSquare,
+  ListChecks,
   Building2,
   FileCheck2,
   FileUp,
@@ -33,7 +51,7 @@ export interface NavItem {
   perfis?: Perfil[];
   emBreve?: boolean;
   /** Contador ao vivo exibido no item (ex.: mensagens não lidas). */
-  badge?: "comunicador";
+  badge?: "comunicador" | "revisoes";
   atalho?: string;
   exato?: boolean;
 }
@@ -52,7 +70,6 @@ export const NAV: NavGrupo[] = [
     titulo: "Geral",
     itens: [
       { label: "Início", href: "/", icone: Home, perfis: TODOS, exato: true },
-      { label: "Dashboard", href: "/dashboard", icone: LayoutDashboard, perfis: TODOS, atalho: "G D" },
       { label: "Comunicador", href: "/comunicador", icone: MessagesSquare, perfis: TODOS, atalho: "G M", badge: "comunicador" },
     ],
   },
@@ -64,13 +81,46 @@ export const NAV: NavGrupo[] = [
     ],
   },
   {
+    titulo: "Faturamento",
+    itens: [
+      { label: "Dashboard", href: "/dashboard", icone: LayoutDashboard, perfis: TODOS, atalho: "G D" },
+      { label: "Itens a faturar", href: "/faturamento/itens", icone: ListChecks, perfis: TODOS, atalho: "G I" },
+      { label: "Revisões", href: "/faturamento/revisoes", icone: FileSearch, perfis: TODOS, badge: "revisoes" },
+      { label: "Fluxo de Faturamento", href: "/faturamento/fluxo", icone: KanbanSquare, perfis: TODOS },
+      { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, perfis: TODOS },
+      { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText, perfis: TODOS, atalho: "G F" },
+      { label: "Relatório de Faturamento", href: "/faturamento/relatorio", icone: BarChart3, perfis: TODOS },
+      { label: "Projeção de Impostos", href: "/faturamento/impostos", icone: Calculator, perfis: TODOS },
+    ],
+  },
+  {
+    titulo: "Conta Bancária",
+    itens: [
+      { label: "Contas", href: "/financeiro/contas", icone: Wallet, perfis: TODOS },
+      { label: "Nova conta", href: "/financeiro/nova-conta", icone: Plus, perfis: ADMIN },
+      { label: "Previsão de Caixa", href: "/financeiro/previsao-caixa", icone: ChartLine, perfis: TODOS },
+      { label: "Fluxo de Caixa", href: "/financeiro/fluxo-caixa", icone: ArrowLeftRight, perfis: TODOS },
+      { label: "DRE", href: "/financeiro/dre", icone: ListOrdered, perfis: TODOS },
+      { label: "Projeção de Despesas", href: "/financeiro/projecao-despesas", icone: TrendingDown, perfis: TODOS },
+    ],
+  },
+  {
+    titulo: "Contas a Pagar",
+    itens: [
+      { label: "Lançamentos", href: "/financeiro/pagar", icone: CalendarClock, perfis: TODOS, exato: true },
+      { label: "Nova conta", href: "/financeiro/pagar/nova", icone: FilePlus2, perfis: OPERA },
+      { label: "Categorias e Subcategorias", href: "/financeiro/categorias", icone: FolderTree, perfis: TODOS },
+      { label: "Fornecedores", href: "/financeiro/fornecedores", icone: Truck, perfis: TODOS },
+      { label: "Baixar modelo (.xlsx)", href: "/financeiro/pagar/modelo", icone: Download, perfis: TODOS },
+    ],
+  },
+  {
     titulo: "NFS-e · RPA 01",
     itens: [
       { label: "Painel", href: "/nfse", icone: Gauge, perfis: TODOS, exato: true, atalho: "G P" },
       { label: "Nova emissão", href: "/nfse/nova-emissao", icone: FileUp, perfis: OPERA, atalho: "N" },
       { label: "Lotes", href: "/nfse/lotes", icone: Layers, perfis: TODOS, atalho: "G L" },
       { label: "Notas emitidas", href: "/nfse/notas", icone: FileCheck2, perfis: TODOS, atalho: "G N" },
-      { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText, perfis: TODOS, atalho: "G F" },
       { label: "Recebimentos", href: "/nfse/recebimentos", icone: HandCoins, perfis: TODOS, atalho: "G R" },
     ],
   },
@@ -83,10 +133,12 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Identidade", href: "/configuracoes/identidade", icone: Palette, perfis: ADMIN },
       { label: "Certificado digital", href: "/configuracoes/certificado", icone: KeyRound, perfis: ADMIN },
-      { label: "Usuários", href: "/configuracoes/usuarios", icone: Users, perfis: ADMIN },
+      { label: "Profissionais", href: "/configuracoes/usuarios", icone: Users, perfis: ADMIN },
       { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, perfis: ADMIN },
       { label: "Automações", href: "/configuracoes/automacoes", icone: Workflow, perfis: ADMIN },
       { label: "Prefeitura", href: "/configuracoes/prefeitura", icone: Landmark, perfis: ADMIN },
+      { label: "Faturamento", href: "/configuracoes/faturamento", icone: BadgeDollarSign, perfis: ADMIN },
+      { label: "Financeiro", href: "/configuracoes/financeiro", icone: PiggyBank, perfis: ADMIN },
       { label: "Parâmetros fiscais", href: "/configuracoes/parametros-fiscais", icone: Percent, perfis: ADMIN },
       { label: "Notificações e e-mail", href: "/configuracoes/notificacoes", icone: Mail, perfis: ADMIN },
       { label: "Auditoria", href: "/auditoria", icone: ScrollText, perfis: ADMIN },

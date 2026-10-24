@@ -379,7 +379,7 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
           </Field>
         </FormSection>
         <FormSection titulo="Fiscal e RPS" descricao="Padrões usados quando o arquivo não traz a informação.">
-          <Field label="Regime tributário">
+          <Field label="Regime tributário" dica="Também define o cálculo da Projeção de Impostos.">
             <NativeSelect {...f.register("regime")}>
               {Object.entries(REGIMES).map(([k, l]) => (
                 <option key={k} value={k}>

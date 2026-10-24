@@ -76,6 +76,20 @@ export interface UsuarioOut {
   convite_pendente: boolean;
   ultimo_acesso: string | null;
   online: boolean;
+  acesso_sistema: boolean;
+  cargo_id: number | null;
+  cargo_nome: string | null;
+  cpf: string | null;
+  oab: string | null;
+  telefone: string | null;
+  data_admissao: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero_endereco: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
 }
 
 export interface NotificacoesOut {
@@ -454,13 +468,21 @@ export interface FaturaOut {
   codigo: string;
   numero: number;
   ano: number;
-  nfse_id: number;
-  nfse_numero: number;
-  lote_id: number;
+  /** null em faturas do Faturamento ainda sem NFS-e (e sempre em ND) */
+  nfse_id: number | null;
+  nfse_numero: number | null;
+  lote_id: number | null;
   emissora_id: number;
   tomador_id: number | null;
   tomador_nome: string;
   tomador_doc: string | null;
+  /** honorarios = NH · despesas = ND */
+  tipo: "honorarios" | "despesas";
+  /** nota (Lello) | faturamento (Itens a faturar) */
+  origem: "nota" | "faturamento";
+  contrato_id: number | null;
+  contrato_nome: string | null;
+  pode_emitir_nfse: boolean;
   data_emissao: string;
   data_vencimento: string;
   valor: Decimal;

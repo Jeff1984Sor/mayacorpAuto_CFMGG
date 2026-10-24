@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.core.models import Perfil
 
@@ -117,6 +117,41 @@ class UsuarioOut(Schema):
     convite_pendente: bool
     ultimo_acesso: datetime | None
     online: bool = False
+    acesso_sistema: bool = True
+    cargo_id: int | None = None
+    cargo_nome: str | None = None
+    cpf: str | None = None
+    oab: str | None = None
+    telefone: str | None = None
+    data_admissao: date | None = None
+    cep: str | None = None
+    logradouro: str | None = None
+    numero_endereco: str | None = None
+    complemento: str | None = None
+    bairro: str | None = None
+    cidade: str | None = None
+    uf: str | None = None
+
+
+def _so_cpf(v):
+    d = "".join(c for c in v or "" if c.isdigit())
+    if v and len(d) != 11:
+        raise ValueError("CPF deve ter 11 dígitos.")
+    return d or None
+
+
+class CargoIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=100)
+    ordem: int = 0
+    ativo: bool = True
+
+
+class CargoOut(Schema):
+    id: int
+    nome: str
+    ordem: int
+    ativo: bool
+    qtd_funcionarios: int = 0
 
 
 class UsuarioConviteIn(BaseModel):
@@ -125,6 +160,22 @@ class UsuarioConviteIn(BaseModel):
     login: str | None = Field(default=None, pattern=LOGIN_RE)
     perfil: Perfil = Perfil.operador
     senha: str | None = None  # opcional: já define a senha (sem depender do e-mail de convite)
+    acesso_sistema: bool = True  # False = funcionário sem login (só lança horas); não recebe convite
+    cargo_id: int | None = None
+    cpf: str | None = None
+    oab: str | None = Field(default=None, max_length=20)
+    telefone: str | None = Field(default=None, max_length=20)
+    data_admissao: date | None = None
+    cep: str | None = None
+    logradouro: str | None = Field(default=None, max_length=150)
+    numero_endereco: str | None = Field(default=None, max_length=10)
+    complemento: str | None = Field(default=None, max_length=60)
+    bairro: str | None = Field(default=None, max_length=80)
+    cidade: str | None = Field(default=None, max_length=80)
+    uf: str | None = Field(default=None, max_length=2)
+
+    _cpf = field_validator("cpf")(_so_cpf)
+    _cep = field_validator("cep")(lambda v: "".join(c for c in v or "" if c.isdigit()) or None)
 
 
 class UsuarioPatch(BaseModel):
@@ -133,6 +184,22 @@ class UsuarioPatch(BaseModel):
     login: str | None = Field(default=None, pattern=LOGIN_RE)
     perfil: Perfil | None = None
     ativo: bool | None = None
+    acesso_sistema: bool | None = None
+    cargo_id: int | None = None
+    cpf: str | None = None
+    oab: str | None = Field(default=None, max_length=20)
+    telefone: str | None = Field(default=None, max_length=20)
+    data_admissao: date | None = None
+    cep: str | None = None
+    logradouro: str | None = Field(default=None, max_length=150)
+    numero_endereco: str | None = Field(default=None, max_length=10)
+    complemento: str | None = Field(default=None, max_length=60)
+    bairro: str | None = Field(default=None, max_length=80)
+    cidade: str | None = Field(default=None, max_length=80)
+    uf: str | None = Field(default=None, max_length=2)
+
+    _cpf = field_validator("cpf")(_so_cpf)
+    _cep = field_validator("cep")(lambda v: "".join(c for c in v or "" if c.isdigit()) or None)
 
 
 class DefinirSenhaIn(BaseModel):

@@ -52,7 +52,7 @@ def login(dados: LoginIn, request: Request, db: DB):
     if u and u.bloqueado_ate and u.bloqueado_ate.replace(tzinfo=now.tzinfo) > now:
         minutos = int((u.bloqueado_ate.replace(tzinfo=now.tzinfo) - now).total_seconds() // 60) + 1
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, f"Muitas tentativas. Tente de novo em {minutos} min.")
-    if not u or not u.ativo or not u.senha_hash or not verificar_senha(dados.senha, u.senha_hash):
+    if not u or not u.ativo or not u.acesso_sistema or not u.senha_hash or not verificar_senha(dados.senha, u.senha_hash):
         if u:
             u.tentativas_falhas += 1
             if u.tentativas_falhas >= settings.login_max_tentativas:
@@ -79,14 +79,14 @@ def refresh(dados: RefreshIn, db: DB):
     except jwt.PyJWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sessão expirada. Entre novamente.") from None
     u = db.get(Usuario, int(payload["sub"]))
-    if not u or not u.ativo:
+    if not u or not u.ativo or not u.acesso_sistema:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário inativo.")
     return _tokens(u)
 
 
 @router.post("/forgot", response_model=Mensagem)
 def forgot(dados: ForgotIn, db: DB):
-    u = db.scalar(select(Usuario).where(Usuario.email == dados.email.lower(), Usuario.ativo))
+    u = db.scalar(select(Usuario).where(Usuario.email == dados.email.lower(), Usuario.ativo, Usuario.acesso_sistema))
     if u:
         token = criar_token(str(u.id), "reset", {"h": (u.senha_hash or "")[-12:]})
         link = f"{settings.frontend_url}/redefinir-senha?token={token}"

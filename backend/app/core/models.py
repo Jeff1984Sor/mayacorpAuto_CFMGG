@@ -27,7 +27,21 @@ class Tenant(Base, Timestamped):
     identidade: Mapped["Identidade"] = relationship(back_populates="tenant", uselist=False)
 
 
+class Cargo(Base, Timestamped):
+    """Cargo do funcionário (Sócio, Advogado Sênior, Estagiário...). É a categoria usada nas tabelas de preço."""
+
+    __tablename__ = "cargo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    nome: Mapped[str] = mapped_column(String(100))
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class Usuario(Base, Timestamped):
+    """Usuário = funcionário. Quem não acessa o sistema (acesso_sistema=False) existe só para lançar horas."""
+
     __tablename__ = "usuario"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -43,6 +57,20 @@ class Usuario(Base, Timestamped):
     senha_hash: Mapped[str | None] = mapped_column(String(255))
     perfil: Mapped[Perfil] = mapped_column(Enum(Perfil, native_enum=False, length=20), default=Perfil.operador)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    acesso_sistema: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # dados de funcionário
+    cargo_id: Mapped[int | None] = mapped_column(ForeignKey("cargo.id"))
+    cpf: Mapped[str | None] = mapped_column(String(11))
+    oab: Mapped[str | None] = mapped_column(String(20))
+    telefone: Mapped[str | None] = mapped_column(String(20))
+    data_admissao: Mapped[date | None] = mapped_column(Date)
+    cep: Mapped[str | None] = mapped_column(String(8))
+    logradouro: Mapped[str | None] = mapped_column(String(150))
+    numero_endereco: Mapped[str | None] = mapped_column(String(10))
+    complemento: Mapped[str | None] = mapped_column(String(60))
+    bairro: Mapped[str | None] = mapped_column(String(80))
+    cidade: Mapped[str | None] = mapped_column(String(80))
+    uf: Mapped[str | None] = mapped_column(String(2))
     convite_pendente: Mapped[bool] = mapped_column(Boolean, default=False)
     ultimo_acesso: Mapped[datetime | None] = mapped_column(UtcDateTime())
     ultima_atividade: Mapped[datetime | None] = mapped_column(UtcDateTime())
@@ -50,6 +78,7 @@ class Usuario(Base, Timestamped):
     bloqueado_ate: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
     tenant: Mapped[Tenant] = relationship()
+    cargo: Mapped["Cargo | None"] = relationship()
 
 
 class Identidade(Base, Timestamped):

@@ -11,9 +11,11 @@ from app.core import email as mail
 from app.core.config import settings
 from app.core.db import agora
 from app.core.deps import Admin, Ctx
-from app.core.models import Certificado, ConfigNotificacao, Identidade, Perfil, Usuario
+from app.core.models import Cargo, Certificado, ConfigNotificacao, Identidade, Perfil, Usuario
 from app.core.routes.public import logo_url
 from app.core.schemas import (
+    CargoIn,
+    CargoOut,
     CertificadoOut,
     DefinirSenhaIn,
     IdentidadeIn,
@@ -181,7 +183,11 @@ def _usuario_out(u: Usuario) -> UsuarioOut:
     from app.core.routes.auth import foto_url
 
     return UsuarioOut(id=u.id, nome=u.nome, email=u.email, login=u.login, foto_url=foto_url(u), perfil=u.perfil, ativo=u.ativo,
-                      convite_pendente=u.convite_pendente, ultimo_acesso=u.ultimo_acesso, online=online)
+                      convite_pendente=u.convite_pendente and u.acesso_sistema, ultimo_acesso=u.ultimo_acesso, online=online,
+                      acesso_sistema=u.acesso_sistema, cargo_id=u.cargo_id, cargo_nome=u.cargo.nome if u.cargo else None,
+                      cpf=u.cpf, oab=u.oab, telefone=u.telefone, data_admissao=u.data_admissao, cep=u.cep,
+                      logradouro=u.logradouro, numero_endereco=u.numero_endereco, complemento=u.complemento, bairro=u.bairro,
+                      cidade=u.cidade, uf=u.uf)
 
 
 @router.get("/usuarios", response_model=list[UsuarioOut])
@@ -206,17 +212,30 @@ def _checar_unicos(ctx, email: str | None, login: str | None, exceto: int | None
         raise HTTPException(409, "Este login já está em uso.")
 
 
+def _checar_cargo(ctx, cargo_id: int | None) -> None:
+    if cargo_id:
+        c = ctx.db.get(Cargo, cargo_id)
+        if not c or c.tenant_id != ctx.tenant_id:
+            raise HTTPException(404, "Cargo não encontrado.")
+
+
 @router.post("/usuarios", response_model=UsuarioOut)
 def convidar_usuario(dados: UsuarioConviteIn, ctx: Admin):
+    """Cadastra o funcionário. Com acesso ao sistema, recebe convite (ou já sai com senha)."""
     _checar_unicos(ctx, dados.email, dados.login)
-    if dados.senha and (erro := validar_politica_senha(dados.senha)):
+    _checar_cargo(ctx, dados.cargo_id)
+    acesso = dados.acesso_sistema
+    if acesso and dados.senha and (erro := validar_politica_senha(dados.senha)):
         raise HTTPException(400, erro)
     u = Usuario(tenant_id=ctx.tenant_id, nome=dados.nome, email=dados.email.lower(),
-                login=dados.login.lower() if dados.login else None, perfil=dados.perfil,
-                senha_hash=hash_senha(dados.senha) if dados.senha else None, convite_pendente=not dados.senha)
+                login=dados.login.lower() if dados.login and acesso else None, perfil=dados.perfil,
+                senha_hash=hash_senha(dados.senha) if dados.senha and acesso else None,
+                convite_pendente=acesso and not dados.senha, acesso_sistema=acesso, cargo_id=dados.cargo_id,
+                **dados.model_dump(include={"cpf", "oab", "telefone", "data_admissao", "cep", "logradouro", "numero_endereco",
+                                            "complemento", "bairro", "cidade", "uf"}))
     ctx.db.add(u)
     ctx.db.flush()
-    if not dados.senha:
+    if acesso and not dados.senha:
         _enviar_convite(u, novo=True)
     ctx.auditar("usuario.convidar", "usuario", u.id, descricao=f"{u.nome} ({u.perfil.value})", depois=audit.snapshot(u))
     ctx.db.commit()
@@ -241,6 +260,11 @@ def alterar_usuario(uid: int, dados: UsuarioPatch, ctx: Admin):
     u = _usuario(ctx, uid)
     mudancas = dados.model_dump(exclude_unset=True)
     _checar_unicos(ctx, mudancas.get("email"), mudancas.get("login"), exceto=u.id)
+    _checar_cargo(ctx, mudancas.get("cargo_id"))
+    if mudancas.get("acesso_sistema") is False and u.id == ctx.usuario.id:
+        raise HTTPException(400, "Você não pode tirar o seu próprio acesso.")
+    if mudancas.get("acesso_sistema") is False and u.perfil == Perfil.admin and not _sobra_admin(ctx, u):
+        raise HTTPException(400, "É preciso manter pelo menos um Administrador com acesso.")
     for k in ("email", "login"):
         if mudancas.get(k):
             mudancas[k] = mudancas[k].lower()
@@ -268,6 +292,57 @@ def desativar_usuario(uid: int, ctx: Admin):
     ctx.auditar("usuario.desativar", "usuario", u.id, descricao=u.nome)
     ctx.db.commit()
     return Mensagem(mensagem=f"{u.nome} foi desativado(a).")
+
+
+@router.get("/cargos", response_model=list[CargoOut])
+def listar_cargos(ctx: Ctx):
+    from sqlalchemy import func
+
+    qtd = dict(ctx.db.execute(select(Usuario.cargo_id, func.count()).where(Usuario.tenant_id == ctx.tenant_id, Usuario.ativo)
+                              .group_by(Usuario.cargo_id)).all())
+    return [CargoOut(id=c.id, nome=c.nome, ordem=c.ordem, ativo=c.ativo, qtd_funcionarios=qtd.get(c.id, 0))
+            for c in ctx.db.scalars(select(Cargo).where(Cargo.tenant_id == ctx.tenant_id).order_by(Cargo.ordem, Cargo.nome))]
+
+
+@router.post("/cargos", response_model=CargoOut, status_code=201)
+def criar_cargo(dados: CargoIn, ctx: Admin):
+    c = Cargo(tenant_id=ctx.tenant_id, **dados.model_dump())
+    ctx.db.add(c)
+    ctx.db.flush()
+    ctx.auditar("cargo.criar", "cargo", c.id, descricao=c.nome)
+    ctx.db.commit()
+    return CargoOut.model_validate(c)
+
+
+@router.put("/cargos/{cid}", response_model=CargoOut)
+def alterar_cargo(cid: int, dados: CargoIn, ctx: Admin):
+    _checar_cargo(ctx, cid)
+    c = ctx.db.get(Cargo, cid)
+    for k, v in dados.model_dump().items():
+        setattr(c, k, v)
+    ctx.auditar("cargo.alterar", "cargo", c.id, descricao=c.nome)
+    ctx.db.commit()
+    return CargoOut.model_validate(c)
+
+
+@router.delete("/cargos/{cid}", response_model=Mensagem)
+def excluir_cargo(cid: int, ctx: Admin):
+    from sqlalchemy import func
+
+    from app.modules.faturamento.models import TabelaPrecoItem
+
+    _checar_cargo(ctx, cid)
+    c = ctx.db.get(Cargo, cid)
+    em_uso = (ctx.db.scalar(select(func.count()).select_from(Usuario).where(Usuario.cargo_id == cid)) or 0) + \
+        (ctx.db.scalar(select(func.count()).select_from(TabelaPrecoItem).where(TabelaPrecoItem.cargo_id == cid)) or 0)
+    if em_uso:
+        c.ativo = False
+        ctx.db.commit()
+        return Mensagem(mensagem="Cargo em uso (funcionários ou tabelas de preço): foi desativado.")
+    ctx.auditar("cargo.excluir", "cargo", c.id, descricao=c.nome)
+    ctx.db.delete(c)
+    ctx.db.commit()
+    return Mensagem(mensagem="Cargo excluído.")
 
 
 @router.post("/usuarios/{uid}/redefinir-senha", response_model=Mensagem)

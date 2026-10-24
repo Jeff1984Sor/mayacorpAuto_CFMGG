@@ -22,7 +22,7 @@ def participa(db: Session, conversa_id: int, usuario_id: int) -> Participante | 
 
 
 def _usuarios_ativos(db: Session, tenant_id: int) -> list[Usuario]:
-    return list(db.scalars(select(Usuario).where(Usuario.tenant_id == tenant_id, Usuario.ativo)))
+    return list(db.scalars(select(Usuario).where(Usuario.tenant_id == tenant_id, Usuario.ativo, Usuario.acesso_sistema)))
 
 
 def abrir_direta(db: Session, eu: Usuario, outro_id: int) -> Conversa:

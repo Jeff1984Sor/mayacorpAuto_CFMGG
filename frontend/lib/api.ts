@@ -84,14 +84,16 @@ function irParaLogin() {
 
 export interface RequestOpts extends Omit<RequestInit, "body"> {
   body?: unknown;
-  query?: Record<string, string | number | boolean | null | undefined>;
+  /** arrays viram parâmetros repetidos (?a=1&a=2) */
+  query?: Record<string, string | number | boolean | null | undefined | (string | number)[]>;
   auth?: boolean;
 }
 
 function montarUrl(path: string, query?: RequestOpts["query"]) {
   const url = new URL(API_URL + path);
   Object.entries(query ?? {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+    if (Array.isArray(v)) v.forEach((x) => url.searchParams.append(k, String(x)));
+    else if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   });
   return url.toString();
 }
