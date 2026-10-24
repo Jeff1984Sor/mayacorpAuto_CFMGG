@@ -22,6 +22,8 @@ export interface UsuarioMe {
   foto_url: string | null;
   /** Equipe MayaCorp: gerencia configurações restritas (ex.: IA). */
   equipe_mayacorp: boolean;
+  /** Preferências de interface salvas no servidor (acompanham o usuário em qualquer computador). */
+  preferencias?: { menu_recolhido?: string[] } & Record<string, unknown>;
 }
 
 export interface TokenOut {

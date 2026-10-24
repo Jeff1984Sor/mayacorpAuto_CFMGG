@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core import cnpj
 from app.core.config import BASE_DIR, settings
 from app.core.routes import auditoria, auth, config, hub, ia, public
 from app.modules.rpa_nfse import routes as nfse_routes
@@ -90,7 +91,7 @@ async def _validacao(_: Request, exc: RequestValidationError):
 
 
 for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
-          nfse_routes.router, routes_financeiro.router, routes_faturas.router, ia.router, auditoria.router):
+          nfse_routes.router, routes_financeiro.router, routes_faturas.router, ia.router, cnpj.router, auditoria.router):
     app.include_router(r, prefix="/api")
 
 

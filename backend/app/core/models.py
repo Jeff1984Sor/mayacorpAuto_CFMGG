@@ -38,6 +38,8 @@ class Usuario(Base, Timestamped):
     foto_path: Mapped[str | None] = mapped_column(String(500))
     # Equipe MayaCorp: configurações da plataforma (ex.: chave da IA). Só se concede pelo terminal.
     equipe_mayacorp: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Preferências de interface que acompanham o usuário em qualquer computador (ex.: grupos do menu recolhidos)
+    preferencias: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     senha_hash: Mapped[str | None] = mapped_column(String(255))
     perfil: Mapped[Perfil] = mapped_column(Enum(Perfil, native_enum=False, length=20), default=Perfil.operador)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)

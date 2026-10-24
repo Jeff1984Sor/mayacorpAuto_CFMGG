@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useCep } from "@/hooks/use-cep";
+import { preencherVazios, useCnpj } from "@/hooks/use-cnpj";
 import { destacarCampos } from "@/hooks/use-ia";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api, baixar } from "@/lib/api";
@@ -137,7 +138,32 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   const qc = useQueryClient();
   const { isOperador } = useAuth();
   const cep = useCep();
+  const cnpj = useCnpj();
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+
+  // CNPJ digitado → busca na Receita e preenche só o que está vazio
+  const preencherPorCnpj = async (valor: string) => {
+    if (f.getValues("tipo") !== "PJ") return;
+    const d = await cnpj.buscar(valor);
+    if (!d) return;
+    const mudou = preencherVazios(
+      f.getValues() as Record<string, unknown>,
+      {
+        nome: d.razao_social, logradouro: d.logradouro, numero: d.numero, complemento: d.complemento,
+        bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep ? fmtCep(d.cep) : null, telefone: d.telefone,
+      },
+      (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
+    );
+    const emails = f.getValues("emails");
+    if (d.email && !emails.includes(d.email)) {
+      f.setValue("emails", [...emails, d.email], { shouldDirty: true, shouldValidate: true });
+      mudou.push("emails");
+    }
+    if (mudou.length) {
+      requestAnimationFrame(() => destacarCampos(document.getElementById("form-cliente"), mudou));
+      toast.success(`Dados da Receita preenchidos: ${d.razao_social}`);
+    }
+  };
 
   // ✨ Preencher com IA: aplica no formulário (sem salvar) e destaca o que mudou
   const aplicarIA = (c: Record<string, unknown>) => {
@@ -209,7 +235,20 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
         </NativeSelect>
       </Field>
       <Field label={tipo === "PF" ? "CPF" : tipo === "PJ" ? "CNPJ" : "Documento"} erro={er.cpf_cnpj?.message} className="sm:col-span-4">
-        <Input {...f.register("cpf_cnpj")} className="num" onBlur={(e) => f.setValue("cpf_cnpj", documento(e.target.value) === "—" ? "" : documento(e.target.value))} />
+        <div className="relative">
+          <Input
+            {...f.register("cpf_cnpj", { onChange: (e) => void preencherPorCnpj(e.target.value) })}
+            className="num pr-8"
+            placeholder={tipo === "PJ" ? "Digite o CNPJ e buscamos na Receita" : undefined}
+            onBlur={(e) => {
+              f.setValue("cpf_cnpj", documento(e.target.value) === "—" ? "" : documento(e.target.value));
+              void preencherPorCnpj(e.target.value);
+            }}
+          />
+          {cnpj.carregando && (
+            <Loader2 className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
+        </div>
       </Field>
       <Field label={tipo === "PF" ? "Nome" : "Razão social"} obrigatorio erro={er.nome?.message} className="sm:col-span-6">
         <Input {...f.register("nome")} />

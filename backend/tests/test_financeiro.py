@@ -140,3 +140,28 @@ def test_hub_automacoes(cliente):  # noqa: F811
     h = _login(cliente)
     r = cliente.get("/api/hub/automacoes", headers=h)
     assert r.status_code == 200 and r.json()[0]["slug"] == "nfse"
+
+
+def test_preferencias_do_usuario_persistem(cliente):  # noqa: F811
+    h = _login(cliente)
+    me = cliente.put("/api/auth/me/preferencias", headers=h, json={"menu_recolhido": ["Cadastros", "Configurações"]}).json()
+    assert me["preferencias"]["menu_recolhido"] == ["Cadastros", "Configurações"]
+    h2 = _login(cliente)  # novo login: a escolha continua lá
+    assert cliente.get("/api/auth/me", headers=h2).json()["preferencias"]["menu_recolhido"] == ["Cadastros", "Configurações"]
+    me = cliente.put("/api/auth/me/preferencias", headers=h, json={"menu_recolhido": None}).json()
+    assert "menu_recolhido" not in me["preferencias"]
+
+
+def test_consulta_cnpj_normaliza_e_avisa_situacao(cliente, monkeypatch):  # noqa: F811
+    from app.core import cnpj
+
+    monkeypatch.setattr(cnpj, "_consultar", lambda c: {
+        "cnpj": "11444777000161", "razao_social": "CONDOMINIO EDIFICIO SOLAR", "descricao_situacao_cadastral": "BAIXADA",
+        "descricao_tipo_de_logradouro": "RUA", "logradouro": "DAS FLORES", "numero": "100", "bairro": "CENTRO",
+        "municipio": "SAO PAULO", "uf": "sp", "cep": "01001000", "ddd_telefone_1": "1130000000", "email": "X@Y.COM"})
+    cnpj._cache.clear()
+    h = _login(cliente)
+    d = cliente.get("/api/cadastros/cnpj/11444777000161", headers=h).json()
+    assert d["logradouro"] == "Rua das Flores" and d["cidade"] == "Sao Paulo" and d["uf"] == "SP"
+    assert d["telefone"] == "(11) 3000-0000" and d["email"] == "x@y.com" and d["ativa"] is False
+    assert cliente.get("/api/cadastros/cnpj/11111111111111", headers=h).status_code == 400

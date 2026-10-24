@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useCep } from "@/hooks/use-cep";
+import { preencherVazios, useCnpj } from "@/hooks/use-cnpj";
 import { destacarCampos } from "@/hooks/use-ia";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api } from "@/lib/api";
@@ -113,6 +114,26 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
     meta: { silencioso: true },
   });
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+  const cnpj = useCnpj();
+
+  // CNPJ digitado → busca na Receita e preenche só o que está vazio
+  const preencherPorCnpj = async (valor: string) => {
+    const d = await cnpj.buscar(valor);
+    if (!d) return;
+    const mudou = preencherVazios(
+      f.getValues() as Record<string, unknown>,
+      {
+        razao_social: d.razao_social, nome_fantasia: d.nome_fantasia, logradouro: d.logradouro, numero: d.numero,
+        complemento: d.complemento, bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep ? fmtCep(d.cep) : null,
+        telefone: d.telefone, email: d.email,
+      },
+      (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
+    );
+    if (mudou.length) {
+      requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+      toast.success(`Dados da Receita preenchidos: ${d.razao_social}`);
+    }
+  };
 
   // ✨ Preencher com IA (ex.: cartão CNPJ): aplica sem salvar e destaca os campos
   const aplicarIA = (c: Record<string, unknown>) => {
@@ -211,7 +232,20 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
             <Input {...f.register("telefone")} inputMode="tel" placeholder="(11) 3000-0000" />
           </Field>
           <Field label="CNPJ" obrigatorio erro={er.cnpj?.message}>
-            <Input {...f.register("cnpj")} className="num" onBlur={(e) => f.setValue("cnpj", documento(e.target.value))} />
+            <div className="relative">
+              <Input
+                {...f.register("cnpj", { onChange: (e) => void preencherPorCnpj(e.target.value) })}
+                className="num pr-8"
+                placeholder="Digite e buscamos na Receita"
+                onBlur={(e) => {
+                  f.setValue("cnpj", documento(e.target.value));
+                  void preencherPorCnpj(e.target.value);
+                }}
+              />
+              {cnpj.carregando && (
+                <Loader2 className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              )}
+            </div>
           </Field>
           <Field label="Inscrição municipal (CCM)" obrigatorio erro={er.ccm?.message}>
             <Input {...f.register("ccm")} className="num" />

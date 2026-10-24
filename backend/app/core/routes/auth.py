@@ -1,5 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import jwt
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
@@ -132,6 +133,24 @@ def trocar_senha(dados: TrocarSenhaIn, ctx: Ctx):
 
 @router.get("/me", response_model=UsuarioMe)
 def me(ctx: Ctx):
+    return me_out(ctx.usuario)
+
+
+@router.put("/me/preferencias", response_model=UsuarioMe)
+def salvar_preferencias(dados: dict[str, Any], ctx: Ctx):
+    """Mescla as preferências enviadas (ex.: {"menu_recolhido": ["Cadastros"]}). Valor null remove a chave."""
+    import json
+
+    atual = dict(ctx.usuario.preferencias or {})
+    for k, v in dados.items():
+        if v is None:
+            atual.pop(k, None)
+        else:
+            atual[str(k)[:60]] = v
+    if len(json.dumps(atual)) > 20_000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Preferências grandes demais.")
+    ctx.usuario.preferencias = atual
+    ctx.db.commit()
     return me_out(ctx.usuario)
 
 

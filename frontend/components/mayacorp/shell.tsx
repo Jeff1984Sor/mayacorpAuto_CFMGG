@@ -12,7 +12,9 @@ import {
   Search,
   Sun,
   UserRound,
+  ChevronDown,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -29,9 +31,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useBrand } from "@/lib/brand";
 import { EH_HML } from "@/lib/env";
+import type { UsuarioMe } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { ClientLogo, MayaCorpAssinatura } from "./brand";
@@ -131,10 +135,32 @@ function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: bo
   );
 }
 
+/** Grupos do menu recolhidos pelo usuário — salvos no servidor (valem no próximo login, em qualquer computador). */
+function useGruposRecolhidos() {
+  const { usuario } = useAuth();
+  const qc = useQueryClient();
+  const [local, setLocal] = useState<string[] | null>(null);
+  const fechados = new Set(local ?? usuario?.preferencias?.menu_recolhido ?? []);
+  const alternar = (titulo: string) => {
+    const novo = new Set(fechados);
+    if (novo.has(titulo)) novo.delete(titulo);
+    else novo.add(titulo);
+    const lista = [...novo];
+    setLocal(lista);
+    api
+      .put<UsuarioMe>("/auth/me/preferencias", { menu_recolhido: lista })
+      .then((u) => qc.setQueryData(["me"], u))
+      .catch(() => {}); // preferência visual: falhar ao salvar não atrapalha o uso
+  };
+  return { fechados, alternar };
+}
+
 function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boolean; onNavigate?: () => void; onRecolher?: () => void }) {
   const { usuario } = useAuth();
   const { nome_exibicao } = useBrand();
+  const pathname = usePathname();
   const grupos = navPara(usuario?.perfil);
+  const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
       {/* glow indigo */}
@@ -166,22 +192,51 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
       </div>
 
       <nav className="relative flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-4 [scrollbar-width:thin]">
-        {grupos.map((g) => (
-          <div key={g.titulo}>
-            {recolhido ? (
-              <div className="mx-3 mb-2 h-px bg-white/8 first:hidden" />
-            ) : (
-              <p className="mb-1.5 px-2.5 text-[10.5px] font-semibold tracking-[0.12em] text-sidebar-foreground/45 uppercase">
-                {g.titulo}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {g.itens.map((i) => (
-                <ItemNav key={i.label} item={i} recolhido={recolhido} onNavigate={onNavigate} />
-              ))}
+        {grupos.map((g) => {
+          const fechado = !recolhido && fechados.has(g.titulo);
+          // grupo recolhido ainda mostra a tela em que a pessoa está
+          const itens = fechado ? g.itens.filter((i) => ativo(pathname, i)) : g.itens;
+          return (
+            <div key={g.titulo}>
+              {recolhido ? (
+                <div className="mx-3 mb-2 h-px bg-white/8 first:hidden" />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => alternar(g.titulo)}
+                  aria-expanded={!fechado}
+                  className="group/grupo mb-1.5 flex w-full items-center justify-between rounded-md px-2.5 py-0.5 text-[10.5px] font-semibold tracking-[0.12em] text-sidebar-foreground/45 uppercase transition hover:text-sidebar-foreground/80"
+                >
+                  <span>{g.titulo}</span>
+                  <span className="flex items-center gap-1.5">
+                    {fechado && (
+                      <span className="rounded-full bg-white/8 px-1.5 text-[9px] tracking-normal normal-case">{g.itens.length}</span>
+                    )}
+                    <ChevronDown
+                      className={cn(
+                        "size-3.5 opacity-60 transition-transform duration-200 group-hover/grupo:opacity-100",
+                        fechado && "-rotate-90",
+                      )}
+                    />
+                  </span>
+                </button>
+              )}
+              <AnimatePresence initial={false}>
+                <motion.div
+                  key={fechado ? "fechado" : "aberto"}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  className="space-y-0.5 overflow-hidden"
+                >
+                  {itens.map((i) => (
+                    <ItemNav key={i.label} item={i} recolhido={recolhido} onNavigate={onNavigate} />
+                  ))}
+                </motion.div>
+              </AnimatePresence>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className={cn("relative shrink-0 border-t border-sidebar-border p-3", recolhido && "px-2")}>
