@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlarmClock, CalendarClock, FileText, Gavel, Landmark, MessageSquare, MoreHorizontal, Newspaper, Pencil, Plus, Scale, ScrollText, StickyNote, Trash2, Users } from "lucide-react";
+import { CalendarClock, FileText, Gavel, Landmark, MessageSquare, MoreHorizontal, Newspaper, Pencil, Plus, Scale, ScrollText, StickyNote, Trash2, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -32,11 +32,10 @@ export const TIPO_ANDAMENTO: Record<TipoAndamento, { l: string; icone: React.Com
   decisao: { l: "Decisão", icone: Gavel, cor: "bg-warning/14 text-warning-ink ring-warning/30" },
   sentenca: { l: "Sentença", icone: Scale, cor: "bg-danger/10 text-danger-ink ring-danger/25" },
   audiencia: { l: "Audiência", icone: Landmark, cor: "bg-success/10 text-success-ink ring-success/25" },
-  prazo: { l: "Prazo", icone: AlarmClock, cor: "bg-danger/10 text-danger-ink ring-danger/25" },
   reuniao: { l: "Reunião", icone: Users, cor: "bg-teal-500/12 text-teal-700 ring-teal-500/25 dark:text-teal-300" },
   nota: { l: "Nota interna", icone: StickyNote, cor: "bg-muted text-muted-foreground ring-border" },
 };
-const COM_PRAZO: TipoAndamento[] = ["prazo", "audiencia"];
+const COM_PRAZO: TipoAndamento[] = ["audiencia"];
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 const hoje = () => new Date().toLocaleDateString("sv-SE");
@@ -108,7 +107,7 @@ function AndamentoDialog({ open, onOpenChange, casoId, andamento }: { open: bool
             <Input id="and-data" type="date" value={f.data} onChange={(e) => set("data", e.target.value)} />
           </Field>
           {comPrazo && (
-            <Field label={f.tipo === "audiencia" ? "Data da audiência" : "Prazo"} htmlFor="and-prazo" className="sm:col-span-2">
+            <Field label="Data da audiência" htmlFor="and-prazo" className="sm:col-span-2">
               <Input id="and-prazo" type="date" value={f.prazo ?? ""} onChange={(e) => set("prazo", e.target.value || null)} />
             </Field>
           )}
@@ -233,7 +232,7 @@ export function AndamentosCaso({ casoId }: { casoId: number }) {
           <EmptyState
             icone={MessageSquare}
             titulo="Nenhum andamento"
-            descricao="Registre publicações, decisões, prazos, audiências e notas internas do caso."
+            descricao="Registre publicações, decisões, audiências e notas internas do caso. Prazos agora ficam em Tarefas."
             acao={
               isOperador && (
                 <Button onClick={() => setDlg({ a: null })}>

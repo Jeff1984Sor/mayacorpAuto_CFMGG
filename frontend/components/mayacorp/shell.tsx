@@ -92,7 +92,21 @@ function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: bo
     staleTime: 60_000,
     meta: { silencioso: true },
   });
-  const contador = item.badge === "comunicador" ? resumo.nao_lidas : item.badge === "revisoes" ? (revisoes.data?.length ?? 0) : 0;
+  const tarefas = useQuery({
+    queryKey: ["fat", "tarefas", "badge"],
+    queryFn: () => api.get<{ resumo: Record<string, number> }>("/faturamento/tarefas", { situacao: "atrasadas" }),
+    enabled: item.badge === "tarefas",
+    staleTime: 60_000,
+    meta: { silencioso: true },
+  });
+  const contador =
+    item.badge === "comunicador"
+      ? resumo.nao_lidas
+      : item.badge === "revisoes"
+        ? (revisoes.data?.length ?? 0)
+        : item.badge === "tarefas"
+          ? (tarefas.data?.resumo.atrasadas ?? 0)
+          : 0;
   const on = ativo(pathname, item);
   const Icone = item.icone;
   const conteudo = (
@@ -116,9 +130,15 @@ function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: bo
       )}
       {contador > 0 &&
         (recolhido ? (
-          <span className="absolute top-1 right-2 size-2 rounded-full bg-brand ring-2 ring-sidebar" aria-label={`${contador} não lidas`} />
+          <span className={cn("absolute top-1 right-2 size-2 rounded-full ring-2 ring-sidebar", item.badge === "tarefas" ? "bg-danger" : "bg-brand")} aria-label={item.badge === "tarefas" ? `${contador} atrasadas` : `${contador} não lidas`} />
         ) : (
-          <span className="relative min-w-5 rounded-full bg-brand px-1.5 text-center text-[11px] leading-5 font-semibold text-brand-foreground tabular-nums">
+          <span
+            className={cn(
+              "relative min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-semibold tabular-nums",
+              item.badge === "tarefas" ? "bg-danger text-white" : "bg-brand text-brand-foreground",
+            )}
+            title={item.badge === "tarefas" ? `${contador} tarefa(s) atrasada(s)` : undefined}
+          >
             {contador > 99 ? "99+" : contador}
           </span>
         ))}

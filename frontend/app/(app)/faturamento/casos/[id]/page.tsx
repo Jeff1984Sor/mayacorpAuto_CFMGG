@@ -15,6 +15,7 @@ import { CasoDialog, casoParaIn, normalizarCampos, useProfissionais } from "@/co
 import { AreaBadge, DetalhesCaso } from "@/components/faturamento/ficha-caso";
 import { DespesaDialog, LancarRecibosDialog } from "@/components/faturamento/despesas-ia";
 import { EnriquecerIA, erroHoras, HorasInput, minutosDe } from "@/components/faturamento/horas-input";
+import { TarefasCaso } from "@/components/faturamento/tarefas";
 import { RegrasCobranca } from "@/components/faturamento/regras";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
@@ -535,6 +536,9 @@ export default function CasoPage() {
             <TabsTrigger value="andamentos">
               Andamentos{c.qtd_andamentos > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_andamentos}</span>}
             </TabsTrigger>
+            <TabsTrigger value="tarefas">
+              Tarefas{c.qtd_tarefas_abertas > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_tarefas_abertas}</span>}
+            </TabsTrigger>
             <TabsTrigger value="timesheet">
               <Clock /> Timesheet
             </TabsTrigger>
@@ -552,6 +556,9 @@ export default function CasoPage() {
         </TabsContent>
         <TabsContent value="andamentos" className="pt-4">
           <AndamentosCaso casoId={c.id} />
+        </TabsContent>
+        <TabsContent value="tarefas" className="pt-4">
+          <TarefasCaso casoId={c.id} />
         </TabsContent>
         <TabsContent value="timesheet" className="pt-4">
           <Timesheet caso={c} />

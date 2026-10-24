@@ -3,6 +3,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   Briefcase,
+  ListTodo,
   Calculator,
   CalendarClock,
   ChartLine,
@@ -52,7 +53,7 @@ export interface NavItem {
   perfis?: Perfil[];
   emBreve?: boolean;
   /** Contador ao vivo exibido no item (ex.: mensagens não lidas). */
-  badge?: "comunicador" | "revisoes";
+  badge?: "comunicador" | "revisoes" | "tarefas";
   atalho?: string;
   /** Só para a equipe MayaCorp (ex.: chave da IA). */
   equipe?: boolean;
@@ -82,6 +83,7 @@ export const NAV: NavGrupo[] = [
       { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, perfis: TODOS, atalho: "G C" },
       { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, perfis: TODOS },
       { label: "Casos", href: "/faturamento/casos", icone: Briefcase, perfis: TODOS },
+      { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, perfis: TODOS, badge: "tarefas" },
     ],
   },
   {

@@ -7,6 +7,7 @@ import {
   File,
   Folder,
   FolderOpen,
+  ListTodo,
   Receipt,
   FileArchive,
   FileImage,
@@ -38,6 +39,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, baixar, baixarBlob } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { AnexoOut } from "@/lib/faturamento";
+
+import { TarefaDialog, useTarefa } from "./tarefas";
 import { relativo, tamanhoArquivo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +157,7 @@ function Acoes({
   onEditar,
   onExcluir,
   onVerDespesa,
+  onAbrirTarefa,
 }: {
   a: AnexoOut;
   podeEditar: boolean;
@@ -161,6 +165,7 @@ function Acoes({
   onEditar: (a: AnexoOut) => void;
   onExcluir: (a: AnexoOut) => void;
   onVerDespesa?: () => void;
+  onAbrirTarefa?: (id: number) => void;
 }) {
   return (
     <DropdownMenu>
@@ -176,6 +181,11 @@ function Acoes({
         <DropdownMenuItem onClick={() => baixar(`/faturamento/anexos/${a.id}`, { query: { download: true } }, a.nome)}>
           <Download /> Baixar
         </DropdownMenuItem>
+        {a.tarefa_id && onAbrirTarefa && (
+          <DropdownMenuItem onClick={() => onAbrirTarefa(a.tarefa_id!)}>
+            <ListTodo /> Abrir tarefa
+          </DropdownMenuItem>
+        )}
         {a.despesa_id && onVerDespesa && (
           <DropdownMenuItem onClick={onVerDespesa}>
             <Receipt /> Ver despesa
@@ -198,7 +208,7 @@ function Acoes({
 }
 
 const SEM_PASTA = "Sem pasta";
-const pastaDe = (a: AnexoOut) => a.categoria?.trim() || SEM_PASTA;
+const pastaDe = (a: AnexoOut) => a.categoria?.trim() || (a.tarefa_id ? "Tarefas" : SEM_PASTA);
 
 function ItemLista({ a, onAbrir, acoes }: { a: AnexoOut; onAbrir: () => void; acoes: React.ReactNode }) {
   const I = iconeDo(a.nome);
@@ -288,7 +298,11 @@ export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDesp
   const sugestoes = [...new Set([...CATEGORIAS, ...pastas.filter((p) => p !== SEM_PASTA)])];
   const visiveis = aberta ? pastas.filter((p) => p === aberta) : pastas;
   const abrir = (a: AnexoOut) => (previsualiza(a.nome) ? setVer(a) : baixar(`/faturamento/anexos/${a.id}`, { query: { download: true } }, a.nome));
-  const acoes = (a: AnexoOut) => <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} onVerDespesa={onVerDespesa} />;
+  const acoes = (a: AnexoOut) => (
+    <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} onVerDespesa={onVerDespesa} onAbrirTarefa={setTarefaId} />
+  );
+  const [tarefaId, setTarefaId] = useState<number | null>(null);
+  const tarefa = useTarefa(tarefaId);
 
   return (
     <div className="space-y-4">
@@ -433,6 +447,7 @@ export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDesp
         </>
       )}
       <Previa anexo={ver} onClose={() => setVer(null)} />
+      <TarefaDialog open={!!tarefaId && !!tarefa.data} onOpenChange={(o) => !o && setTarefaId(null)} tarefa={tarefa.data ?? null} />
       <EditarAnexo anexo={editar} onClose={() => setEditar(null)} />
       <ConfirmDialog
         open={!!excluir}

@@ -134,6 +134,7 @@ export interface CasoOut extends CasoIn {
   area_cor: string | null;
   qtd_anexos: number;
   qtd_andamentos: number;
+  qtd_tarefas_abertas: number;
   tabela_preco_efetiva: string | null;
   tem_regra_propria: boolean;
   horas_pendentes: Decimal;
@@ -172,7 +173,7 @@ export interface SimulacaoOut {
   total_parcelas: number | null;
 }
 
-export type TipoAndamento = "andamento" | "publicacao" | "despacho" | "decisao" | "sentenca" | "audiencia" | "prazo" | "reuniao" | "nota";
+export type TipoAndamento = "andamento" | "publicacao" | "despacho" | "decisao" | "sentenca" | "audiencia" | "reuniao" | "nota";
 
 export interface AndamentoIn {
   data: string;
@@ -196,6 +197,8 @@ export interface AndamentoOut extends AndamentoIn {
 export interface AnexoOut {
   id: number;
   caso_id: number;
+  /** anexo de uma tarefa (fica na pasta "Tarefas") */
+  tarefa_id: number | null;
   /** recibo de uma despesa do caso (fica na pasta "Despesas" e não pode ser apagado daqui) */
   despesa_id: number | null;
   nome: string;
@@ -454,3 +457,41 @@ export function paraMinutos(txt: string): number | null {
 
 /** Decimal de horas ("1.50") → "1:30" */
 export const horasDecimal = (h: Decimal | number | null | undefined) => hhmm(Number(h ?? 0) * 60);
+
+// ---------------------------------------------------------------- tarefas
+export type TipoTarefa = "prazo" | "audiencia" | "diligencia" | "reuniao" | "peticao" | "ligacao" | "administrativo" | "outro";
+export type StatusTarefa = "a_fazer" | "em_andamento" | "concluida" | "cancelada";
+export type PrioridadeTarefa = "baixa" | "media" | "alta" | "urgente";
+
+export interface TarefaIn {
+  caso_id: number | null;
+  titulo: string;
+  descricao: string | null;
+  tipo: TipoTarefa;
+  status: StatusTarefa;
+  prioridade: PrioridadeTarefa;
+  prazo: string | null;
+  /** "HH:MM" */
+  hora: string | null;
+  responsavel_id: number | null;
+  etiquetas: string[];
+}
+
+export interface TarefaOut extends TarefaIn {
+  id: number;
+  caso_numero: number | null;
+  caso_titulo: string | null;
+  cliente_nome: string | null;
+  responsavel_nome: string | null;
+  concluida_em: string | null;
+  criado_por: string | null;
+  criado_em: string;
+  atrasada: boolean;
+  dias_para_prazo: number | null;
+  qtd_anexos: number;
+}
+
+export interface TarefasListaOut {
+  itens: TarefaOut[];
+  resumo: Record<"abertas" | "atrasadas" | "hoje" | "semana" | "minhas" | "sem_prazo" | "concluidas_7d" | StatusTarefa, number>;
+}
