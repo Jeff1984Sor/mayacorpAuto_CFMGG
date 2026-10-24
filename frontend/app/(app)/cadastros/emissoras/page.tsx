@@ -14,6 +14,7 @@ import { Mono } from "@/components/mayacorp/brand";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, FormSection, NativeSelect } from "@/components/mayacorp/form";
+import { PreencherIA } from "@/components/ia/preencher-ia";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
@@ -22,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useCep } from "@/hooks/use-cep";
+import { destacarCampos } from "@/hooks/use-ia";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -111,6 +113,23 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
     meta: { silencioso: true },
   });
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+
+  // ✨ Preencher com IA (ex.: cartão CNPJ): aplica sem salvar e destaca os campos
+  const aplicarIA = (c: Record<string, unknown>) => {
+    const campos = ["razao_social", "nome_fantasia", "cnpj", "ccm", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "email", "telefone"] as const;
+    const mudou: string[] = [];
+    campos.forEach((k) => {
+      const v = c[k];
+      if (v == null || v === "") return;
+      let valor = String(v);
+      if (k === "cnpj") valor = documento(valor);
+      if (k === "cep") valor = fmtCep(valor);
+      f.setValue(k, valor, { shouldDirty: true, shouldValidate: true });
+      mudou.push(k);
+    });
+    requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+    return mudou.length;
+  };
   useEffect(() => {
     if (open) f.reset(emissora ? paraForm(emissora) : vazio);
   }, [open, emissora, f]);
@@ -158,6 +177,15 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       open={open}
       onOpenChange={(o) => !o && onClose()}
       titulo={emissora ? `Editar ${nomeEmissora(emissora)}` : "Nova empresa emissora"}
+      formId="form-emissora"
+      acaoCabecalho={
+        <PreencherIA
+          endpoint="/ia/preencher/emissora"
+          aplicar={aplicarIA}
+          descricao="Cole o cartão CNPJ ou outro documento da empresa. Você revisa antes de salvar."
+          placeholder="Cole aqui o cartão CNPJ, a ficha cadastral, uma assinatura de e-mail…"
+        />
+      }
       descricao="Quem presta o serviço e emite a nota."
       largura="xl"
       salvando={salvar.isPending}

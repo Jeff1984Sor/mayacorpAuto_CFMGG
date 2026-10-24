@@ -215,3 +215,35 @@ html.ambiente-hml {
     display: none !important;
   }
 }
+
+/* IA: brilho nos campos preenchidos e shimmer do "Pensando…" */
+@keyframes ia-glow {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 70%, transparent);
+    background-color: color-mix(in oklab, var(--brand) 18%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand) 25%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background-color: transparent;
+  }
+}
+[data-ia="1"] {
+  animation: ia-glow 2s ease-out;
+  border-color: var(--brand) !important;
+}
+@keyframes ia-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.ia-shimmer {
+  background-image: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--brand) 35%, transparent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: ia-shimmer 1.4s linear infinite;
+}

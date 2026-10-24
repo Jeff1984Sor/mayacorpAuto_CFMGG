@@ -25,6 +25,8 @@ def main() -> None:
     ap.add_argument("--nome", required=True)
     ap.add_argument("--perfil", choices=[p.value for p in Perfil], default="admin")
     ap.add_argument("--tenant", default="cfme", help="slug do cliente (padrão: cfme)")
+    ap.add_argument("--equipe-mayacorp", action="store_true",
+                    help="libera as configurações da plataforma (ex.: chave da IA); só se concede por aqui")
     a = ap.parse_args()
 
     senha = getpass.getpass("Senha: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\r\n")
@@ -42,6 +44,7 @@ def main() -> None:
             u = Usuario(tenant_id=tenant.id, email=email)
             db.add(u)
         u.login, u.email, u.nome, u.perfil = login, email, a.nome, Perfil(a.perfil)
+        u.equipe_mayacorp = a.equipe_mayacorp or bool(u.equipe_mayacorp)
         u.senha_hash = hash_senha(senha)
         u.ativo, u.convite_pendente, u.tentativas_falhas, u.bloqueado_ate = True, False, 0, None
         db.flush()

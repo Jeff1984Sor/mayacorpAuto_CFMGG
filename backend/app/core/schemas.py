@@ -46,6 +46,7 @@ class UsuarioMe(Schema):
     email: str
     login: str | None = None
     foto_url: str | None = None  # buscar com o token (fetch → blob)
+    equipe_mayacorp: bool = False
     perfil: Perfil
     tenant_id: int
 

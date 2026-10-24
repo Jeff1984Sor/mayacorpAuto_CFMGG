@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.models import Auditoria, Usuario
 
-CAMPOS_SENSIVEIS = {"senha_hash", "pfx_cifrado", "senha_cifrada", "smtp_senha_cifrada"}
+CAMPOS_SENSIVEIS = {"senha_hash", "pfx_cifrado", "senha_cifrada", "smtp_senha_cifrada", "chave_cifrada"}
 
 
 @event.listens_for(Auditoria, "before_update")

@@ -18,6 +18,8 @@ export function FormDialog({
   rotuloSalvar = "Salvar",
   largura = "md",
   rodapeExtra,
+  acaoCabecalho,
+  formId,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -29,6 +31,9 @@ export function FormDialog({
   rotuloSalvar?: string;
   largura?: "md" | "lg" | "xl";
   rodapeExtra?: React.ReactNode;
+  /** Ação no cabeçalho, à direita do título (ex.: "✨ Preencher com IA"). */
+  acaoCabecalho?: React.ReactNode;
+  formId?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,10 +45,15 @@ export function FormDialog({
           largura === "xl" && "sm:max-w-4xl",
         )}
       >
-        <form onSubmit={onSubmit} className="flex max-h-[92dvh] flex-col">
+        <form id={formId} onSubmit={onSubmit} className="flex max-h-[92dvh] flex-col">
           <DialogHeader className="border-b p-5">
-            <DialogTitle className="text-lg">{titulo}</DialogTitle>
-            {descricao && <DialogDescription>{descricao}</DialogDescription>}
+            <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between", acaoCabecalho && "pr-8")}>
+              <div className="min-w-0">
+                <DialogTitle className="text-lg">{titulo}</DialogTitle>
+                {descricao && <DialogDescription>{descricao}</DialogDescription>}
+              </div>
+              {acaoCabecalho && <div className="shrink-0">{acaoCabecalho}</div>}
+            </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-5">{children}</div>
           <DialogFooter className="m-0 items-center rounded-none p-4">

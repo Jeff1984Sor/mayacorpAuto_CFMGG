@@ -20,6 +20,8 @@ export interface UsuarioMe {
   tenant_id: number;
   /** Exige Bearer: buscar com fetch → blob (ver hooks/use-foto). */
   foto_url: string | null;
+  /** Equipe MayaCorp: gerencia configurações restritas (ex.: IA). */
+  equipe_mayacorp: boolean;
 }
 
 export interface TokenOut {
@@ -512,4 +514,41 @@ export interface ExtratoOut {
 
 export interface ExtratoDetalhe extends ExtratoOut {
   lancamentos: LancamentoOut[];
+}
+
+// ---------- Inteligência Artificial ----------
+export type ProvedorIA = "openai" | "gemini";
+
+export interface ConfigIAOut {
+  ativo: boolean;
+  provedor: ProvedorIA;
+  modelo: string | null;
+  chave_definida: boolean;
+  /** Só os 4 últimos caracteres; a chave nunca volta da API. */
+  chave_final: string | null;
+  provedores: Record<ProvedorIA, string>;
+  aviso: string;
+  /** Só a equipe MayaCorp altera chave, provedor e modelo. */
+  pode_editar: boolean;
+}
+
+export interface ConfigIAIn {
+  ativo: boolean;
+  provedor: ProvedorIA;
+  modelo: string | null;
+  chave?: string | null;
+}
+
+export type NivelPonto = "ok" | "atencao" | "risco";
+
+export interface AnaliseOut {
+  titulo: string;
+  resumo: string;
+  pontos: { nivel: NivelPonto; texto: string }[];
+  recomendacao: string;
+}
+
+export interface PreenchimentoOut<C = Record<string, unknown>> {
+  campos: C;
+  avisos: string[];
 }

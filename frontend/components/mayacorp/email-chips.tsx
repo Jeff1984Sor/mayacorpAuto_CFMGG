@@ -13,11 +13,14 @@ export function EmailChips({
   onChange,
   erro,
   placeholder = "nome@empresa.com.br — Enter para adicionar",
+  campo,
 }: {
   value: string[];
   onChange: (v: string[]) => void;
   erro?: string;
   placeholder?: string;
+  /** Nome do campo (data-campo), usado para destacar após preenchimento por IA. */
+  campo?: string;
 }) {
   const [txt, setTxt] = useState("");
   const add = () => {
@@ -30,7 +33,7 @@ export function EmailChips({
   };
   return (
     <div>
-      <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-input px-2 py-1.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
+      <div data-campo={campo} className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-input px-2 py-1.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
         {value.map((e) => (
           <span
             key={e}

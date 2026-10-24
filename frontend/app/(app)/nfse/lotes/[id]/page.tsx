@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { BotaoAnaliseIA } from "@/components/ia/analise-ia";
 import { Mono } from "@/components/mayacorp/brand";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
@@ -136,6 +137,7 @@ export default function LoteDetalhePage() {
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Lotes", href: "/nfse/lotes" }, { label: `#${l.numero}` }]}
         acoes={
           <>
+            {isOperador && <BotaoAnaliseIA endpoint={`/ia/analise/lote/${l.id}`} contexto={`Lote #${String(l.numero).padStart(4, "0")}`} />}
             {l.status === "validando" && isOperador && (
               <Button render={<Link href={`/nfse/nova-emissao?lote=${l.id}`} />}>Continuar conferência</Button>
             )}

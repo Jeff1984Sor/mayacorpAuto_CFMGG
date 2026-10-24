@@ -124,11 +124,14 @@ export function RaioX({
   qtdSelecionados,
   destaque,
   onDestacar,
+  acao,
 }: {
   loteId: number;
   qtdSelecionados: number;
   destaque: { titulo: string; ids: number[] } | null;
   onDestacar: (d: { titulo: string; ids: number[] } | null) => void;
+  /** Ação extra no cabeçalho (ex.: botão "Análise por IA"). */
+  acao?: React.ReactNode;
 }) {
   const [aberto, setAberto] = useState(true);
   const q = useQuery({
@@ -148,10 +151,11 @@ export function RaioX({
   return (
     <div className="card-surface relative mb-4 overflow-hidden">
       <div className="pointer-events-none absolute -top-24 left-1/3 h-48 w-96 rounded-full bg-brand/12 blur-3xl" />
+      <div className="relative flex items-center gap-2 pr-3">
       <button
         type="button"
         onClick={() => setAberto((a) => !a)}
-        className="relative flex w-full items-center gap-3 px-5 py-3.5 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 px-5 py-3.5 text-left"
         aria-expanded={aberto}
       >
         <span className="grid size-8 place-items-center rounded-lg brand-gradient text-white shadow-md shadow-brand/30">
@@ -167,8 +171,10 @@ export function RaioX({
           </span>
         )}
         {q.isFetching && rx && <span className="size-1.5 animate-pulse rounded-full bg-brand" title="Atualizando" />}
-        <ChevronDown className={cn("ml-auto size-4 text-muted-foreground transition-transform", aberto && "rotate-180")} />
+        <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform", aberto && "rotate-180")} />
       </button>
+      {acao}
+      </div>
 
       <AnimatePresence initial={false}>
         {aberto && (

@@ -36,6 +36,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { BotaoAnaliseIA } from "@/components/ia/analise-ia";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { KpiCard } from "@/components/mayacorp/kpi-card";
 import { PageHeader } from "@/components/mayacorp/page-header";
@@ -191,11 +192,14 @@ export default function PainelNfsePage() {
         icone={Gauge}
         migalhas={[{ label: "Início", href: "/" }, { label: "NFS-e" }]}
         acoes={
-          isOperador && (
-            <Button render={<Link href="/nfse/nova-emissao" />} className="h-9 brand-gradient px-4 text-white shadow-md shadow-brand/25">
-              <FileUp /> Nova emissão
-            </Button>
-          )
+          <>
+            <BotaoAnaliseIA endpoint="/ia/analise/painel" contexto="Painel do mês" className="h-9" />
+            {isOperador && (
+              <Button render={<Link href="/nfse/nova-emissao" />} className="h-9 brand-gradient px-4 text-white shadow-md shadow-brand/25">
+                <FileUp /> Nova emissão
+              </Button>
+            )}
+          </>
         }
       />
 

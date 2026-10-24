@@ -92,4 +92,13 @@ def exigir(*perfis: Perfil):
 
 
 Admin = Annotated[Contexto, exigir(Perfil.admin)]
+
+
+def _equipe_mayacorp(ctx: Ctx) -> Contexto:
+    if not ctx.usuario.equipe_mayacorp:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Esta configuração é gerenciada pela MayaCorp.")
+    return ctx
+
+
+EquipeMayaCorp = Annotated[Contexto, Depends(_equipe_mayacorp)]
 Operador = Annotated[Contexto, exigir(Perfil.admin, Perfil.operador)]

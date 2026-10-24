@@ -25,6 +25,7 @@ import { Mono } from "@/components/mayacorp/brand";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { PageHeader } from "@/components/mayacorp/page-header";
+import { BotaoAnaliseIA } from "@/components/ia/analise-ia";
 import { RaioX, raioXKey } from "@/components/nfse/raio-x";
 import { Resultado } from "@/components/nfse/resultado";
 import { RpsEditor } from "@/components/nfse/rps-editor";
@@ -484,7 +485,13 @@ export default function NovaEmissaoPage() {
                     {l.encoding && ` · ${l.encoding}`}
                   </span>
                 </div>
-                <RaioX loteId={l.id} qtdSelecionados={l.resumo.qtd_selecionados} destaque={destaque} onDestacar={setDestaque} />
+                <RaioX
+                  loteId={l.id}
+                  qtdSelecionados={l.resumo.qtd_selecionados}
+                  destaque={destaque}
+                  onDestacar={setDestaque}
+                  acao={<BotaoAnaliseIA endpoint={`/ia/analise/lote/${l.id}`} contexto={`Lote #${String(l.numero).padStart(4, "0")}`} tamanho="sm" />}
+                />
                 <RpsTable
                   rps={l.rps}
                   destaque={destaque}

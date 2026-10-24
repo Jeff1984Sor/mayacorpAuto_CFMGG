@@ -28,6 +28,7 @@ import { Pagination, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar, 
 import { EmailChips } from "@/components/mayacorp/email-chips";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
+import { PreencherIA } from "@/components/ia/preencher-ia";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
@@ -43,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useCep } from "@/hooks/use-cep";
+import { destacarCampos } from "@/hooks/use-ia";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api, baixar } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -136,6 +138,28 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   const { isOperador } = useAuth();
   const cep = useCep();
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+
+  // ✨ Preencher com IA: aplica no formulário (sem salvar) e destaca o que mudou
+  const aplicarIA = (c: Record<string, unknown>) => {
+    const textos = ["tipo", "nome", "cpf_cnpj", "im", "ie", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "telefone", "observacoes"] as const;
+    const mudou: string[] = [];
+    textos.forEach((k) => {
+      const v = c[k];
+      if (v == null || v === "") return;
+      let valor = String(v);
+      if (k === "cpf_cnpj") valor = documento(valor);
+      if (k === "cep") valor = fmtCep(valor);
+      if (k === "tipo" && !["PF", "PJ", "EX"].includes(valor)) return;
+      f.setValue(k, valor as never, { shouldDirty: true, shouldValidate: true });
+      mudou.push(k);
+    });
+    if (Array.isArray(c.emails) && c.emails.length) {
+      f.setValue("emails", [...new Set([...f.getValues("emails"), ...(c.emails as string[])])], { shouldDirty: true, shouldValidate: true });
+      mudou.push("emails");
+    }
+    requestAnimationFrame(() => destacarCampos(document.getElementById("form-cliente"), mudou));
+    return mudou.length;
+  };
   useEffect(() => {
     if (!open) return;
     f.reset(
@@ -197,7 +221,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
         <Input {...f.register("ie")} className="num" />
       </Field>
       <Field label="E-mails para envio da nota" className="sm:col-span-6" erro={er.emails?.message ?? er.emails?.[0]?.message}>
-        <EmailChips value={f.watch("emails")} onChange={(v) => f.setValue("emails", v, { shouldValidate: true })} />
+        <EmailChips campo="emails" value={f.watch("emails")} onChange={(v) => f.setValue("emails", v, { shouldValidate: true })} />
       </Field>
       <Field label="Telefone" className="sm:col-span-2">
         <Input {...f.register("telefone")} />
@@ -246,6 +270,8 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       open={open}
       onOpenChange={(o) => !o && onClose()}
       titulo={cliente ? cliente.nome : "Novo cliente"}
+      formId="form-cliente"
+      acaoCabecalho={isOperador && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
       descricao={cliente ? "Dados do tomador e histórico de notas." : "Quem recebe a nota."}
       largura="lg"
       salvando={salvar.isPending}

@@ -36,6 +36,8 @@ class Usuario(Base, Timestamped):
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     login: Mapped[str | None] = mapped_column(String(60), unique=True)  # opcional: entrar com usuário em vez de e-mail
     foto_path: Mapped[str | None] = mapped_column(String(500))
+    # Equipe MayaCorp: configurações da plataforma (ex.: chave da IA). Só se concede pelo terminal.
+    equipe_mayacorp: Mapped[bool] = mapped_column(Boolean, default=False)
     senha_hash: Mapped[str | None] = mapped_column(String(255))
     perfil: Mapped[Perfil] = mapped_column(Enum(Perfil, native_enum=False, length=20), default=Perfil.operador)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -126,3 +128,15 @@ class Auditoria(Base):
     depois_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     ip: Mapped[str | None] = mapped_column(String(64))
     criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora, index=True)
+
+
+class ConfigIA(Base, Timestamped):
+    """Inteligência Artificial plugável (Configurações › Inteligência Artificial). Chave cifrada com a MASTER_KEY."""
+
+    __tablename__ = "config_ia"
+
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), primary_key=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=False)
+    provedor: Mapped[str] = mapped_column(String(10), default="openai")  # openai | gemini
+    modelo: Mapped[str | None] = mapped_column(String(100))
+    chave_cifrada: Mapped[bytes | None] = mapped_column(LargeBinary)
