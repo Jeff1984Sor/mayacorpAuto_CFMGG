@@ -20,6 +20,7 @@ from app.modules.faturamento.models import (
     FaturaItem,
     Frequencia,
     RegraCobranca,
+    StatusCaso,
     TabelaPreco,
     TabelaPrecoItem,
     Termino,
@@ -283,6 +284,26 @@ def alterar_caso(cid: int, dados: CasoIn, ctx: Operador):
     ctx.auditar("faturamento.caso.alterar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
     ctx.db.commit()
     return _caso_out(ctx, c)
+
+
+@router.delete("/casos/{cid}", response_model=Mensagem)
+def excluir_caso(cid: int, ctx: Admin):
+    """Exclui o caso sem histórico; com horas, despesas, regras ou faturas, apenas encerra (o histórico fica)."""
+    from app.modules.faturamento.models import RevisaoItem
+
+    c = _get(ctx, Caso, cid, "Caso")
+    historico = sum(ctx.db.scalar(select(func.count()).select_from(m).where(m.caso_id == cid)) or 0
+                    for m in (Timesheet, Despesa, RegraCobranca, FaturaItem, RevisaoItem))
+    if historico:
+        c.status = StatusCaso.encerrado
+        c.data_encerramento = c.data_encerramento or date.today()
+        ctx.auditar("faturamento.caso.encerrar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
+        ctx.db.commit()
+        return Mensagem(mensagem="O caso tem horas, despesas, regras ou faturas: foi encerrado (o histórico fica).")
+    ctx.auditar("faturamento.caso.excluir", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
+    ctx.db.delete(c)
+    ctx.db.commit()
+    return Mensagem(mensagem="Caso excluído.")
 
 
 # ================================================================ regras de cobrança

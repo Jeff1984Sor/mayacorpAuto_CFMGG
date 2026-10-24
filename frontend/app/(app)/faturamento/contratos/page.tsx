@@ -38,9 +38,8 @@ export default function ContratosPage() {
     <div>
       <PageHeader
         titulo="Contratos"
-        descricao="Cada contrato reúne os casos e as regras de cobrança de um cliente."
         icone={FileSignature}
-        migalhas={[{ label: "Faturamento" }, { label: "Contratos" }]}
+        migalhas={[{ label: "Cadastros" }, { label: "Contratos" }]}
         acoes={
           isOperador && (
             <Button onClick={() => setNovo(true)}>

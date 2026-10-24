@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   BadgeDollarSign,
   BarChart3,
+  Briefcase,
   Calculator,
   CalendarClock,
   ChartLine,
@@ -77,7 +78,8 @@ export const NAV: NavGrupo[] = [
     titulo: "Cadastros",
     itens: [
       { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, perfis: TODOS, atalho: "G C" },
-      { label: "Empresas emissoras", href: "/cadastros/emissoras", icone: Building2, perfis: TODOS },
+      { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, perfis: TODOS },
+      { label: "Casos", href: "/faturamento/casos", icone: Briefcase, perfis: TODOS },
     ],
   },
   {
@@ -87,7 +89,6 @@ export const NAV: NavGrupo[] = [
       { label: "Itens a faturar", href: "/faturamento/itens", icone: ListChecks, perfis: TODOS, atalho: "G I" },
       { label: "Revisões", href: "/faturamento/revisoes", icone: FileSearch, perfis: TODOS, badge: "revisoes" },
       { label: "Fluxo de Faturamento", href: "/faturamento/fluxo", icone: KanbanSquare, perfis: TODOS },
-      { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, perfis: TODOS },
       { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText, perfis: TODOS, atalho: "G F" },
       { label: "Relatório de Faturamento", href: "/faturamento/relatorio", icone: BarChart3, perfis: TODOS },
       { label: "Projeção de Impostos", href: "/faturamento/impostos", icone: Calculator, perfis: TODOS },
@@ -132,6 +133,7 @@ export const NAV: NavGrupo[] = [
     titulo: "Configurações",
     itens: [
       { label: "Identidade", href: "/configuracoes/identidade", icone: Palette, perfis: ADMIN },
+      { label: "Empresas emissoras", href: "/cadastros/emissoras", icone: Building2, perfis: ADMIN },
       { label: "Certificado digital", href: "/configuracoes/certificado", icone: KeyRound, perfis: ADMIN },
       { label: "Profissionais", href: "/configuracoes/usuarios", icone: Users, perfis: ADMIN },
       { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, perfis: ADMIN },

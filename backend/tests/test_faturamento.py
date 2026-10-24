@@ -220,3 +220,15 @@ def test_funcionario_sem_acesso_lanca_horas_mas_nao_entra(cliente):  # noqa: F81
     r = cliente.post(f"/api/faturamento/casos/{caso['id']}/timesheet", headers=h, json={
         "profissional_id": ana["id"], "data": "2026-05-02", "minutos": 30, "descricao": "Pesquisa de jurisprudência"})
     assert r.status_code == 201 and r.json()["cargo_nome"] == "Estagiário"
+
+
+def test_excluir_caso(cliente):  # noqa: F811
+    h = _login(cliente)
+    _, contrato, caso = _base(cliente, h, "E")
+    vazio = cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={"titulo": "Consulta avulsa"}).json()
+    assert cliente.delete(f"/api/faturamento/casos/{vazio['id']}", headers=h).json()["mensagem"] == "Caso excluído."
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/despesas", headers=h, json={
+        "data": "2026-06-01", "tipo": "copias", "descricao": "Cópias", "valor": "10"})
+    r = cliente.delete(f"/api/faturamento/casos/{caso['id']}", headers=h).json()
+    assert "encerrado" in r["mensagem"]
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()["status"] == "encerrado"

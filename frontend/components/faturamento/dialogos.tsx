@@ -203,12 +203,19 @@ export function CasoDialog({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  contratoId: number;
+  contratoId?: number;
   caso?: CasoOut | null;
   onSalvo?: (c: CasoOut) => void;
 }) {
   const qc = useQueryClient();
   const usuarios = useProfissionais(open);
+  const escolherContrato = !contratoId && !caso;
+  const [contrato, setContrato] = useState<number | null>(null);
+  const contratos = useQuery({
+    queryKey: ["fat", "contratos", "ativos-select"],
+    queryFn: () => api.get<ContratoOut[]>("/faturamento/contratos", { ativos: true }),
+    enabled: open && escolherContrato,
+  });
   const [f, setF] = useState<CasoIn>({
     titulo: "",
     descricao: null,
@@ -253,7 +260,9 @@ export function CasoDialog({
         parte_contraria: nulo(f.parte_contraria),
         data_encerramento: f.status === "encerrado" ? f.data_encerramento : null,
       };
-      return caso ? api.put<CasoOut>(`/faturamento/casos/${caso.id}`, body) : api.post<CasoOut>(`/faturamento/contratos/${contratoId}/casos`, body);
+      return caso
+        ? api.put<CasoOut>(`/faturamento/casos/${caso.id}`, body)
+        : api.post<CasoOut>(`/faturamento/contratos/${contratoId ?? contrato}/casos`, body);
     },
     onSuccess: (c) => {
       toast.success(caso ? "Caso atualizado" : `Caso #${c.numero} criado`);
@@ -268,17 +277,32 @@ export function CasoDialog({
       open={open}
       onOpenChange={onOpenChange}
       titulo={caso ? `Editar caso #${caso.numero}` : "Novo caso"}
-      descricao="Casos recebem horas e despesas e podem ter regra de cobrança própria."
       largura="lg"
       salvando={salvar.isPending}
       onSubmit={(e) => {
         e.preventDefault();
+        if (escolherContrato && !contrato) {
+          toast.error("Escolha o contrato do caso.");
+          return;
+        }
         salvar.mutate();
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
+        {escolherContrato && (
+          <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-2">
+            <NativeSelect id="caso-contrato" value={contrato ?? ""} onChange={(e) => setContrato(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">Escolha o contrato…</option>
+              {contratos.data?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.numero} {c.nome} — {c.tomador_nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        )}
         <Field label="Título" obrigatorio htmlFor="caso-titulo" className="sm:col-span-2">
-          <Input id="caso-titulo" value={f.titulo} onChange={(e) => set("titulo", e.target.value)} placeholder="ex.: Ação de cobrança — Cond. Solar" autoFocus />
+          <Input id="caso-titulo" value={f.titulo} onChange={(e) => set("titulo", e.target.value)} placeholder="ex.: Ação de cobrança — Cond. Solar" autoFocus={!escolherContrato} />
         </Field>
         <Field label="Nº do processo" htmlFor="caso-processo">
           <Input id="caso-processo" value={f.numero_processo ?? ""} onChange={(e) => set("numero_processo", e.target.value)} className="font-mono" placeholder="0000000-00.0000.0.00.0000" />

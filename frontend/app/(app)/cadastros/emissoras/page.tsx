@@ -460,7 +460,7 @@ export default function EmissorasPage() {
         titulo="Empresa emissora"
         descricao="Prestadores que emitem as notas. Preparado para mais de uma empresa."
         icone={Building2}
-        migalhas={[{ label: "Cadastros", href: "/cadastros" }, { label: "Empresas emissoras" }]}
+        migalhas={[{ label: "Configurações", href: "/configuracoes" }, { label: "Empresas emissoras" }]}
         acoes={
           isAdmin && (
             <Button onClick={() => setNovo(true)}>
