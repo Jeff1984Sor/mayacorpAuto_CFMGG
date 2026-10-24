@@ -30,7 +30,13 @@ echo "=== Instalando MayaCorp Automações ($AMB) em $DIR ==="
 
 echo "--- 1/8 Pacotes do sistema"
 apt-get update -qq
-apt-get install -y -qq git curl nginx postgresql-client libpq5 >/dev/null
+apt-get install -y -qq git curl openssl python3 nginx postgresql-client libpq5 >/dev/null
+# Servidor sem PostgreSQL (VPS nova): instala o servidor local também
+if ! id postgres >/dev/null 2>&1; then
+  echo "    PostgreSQL não encontrado: instalando"
+  apt-get install -y -qq postgresql >/dev/null
+fi
+systemctl enable --now postgresql >/dev/null 2>&1 || true
 command -v certbot >/dev/null || apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
 if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
