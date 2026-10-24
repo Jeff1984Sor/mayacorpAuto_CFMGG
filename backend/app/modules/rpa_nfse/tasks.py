@@ -114,18 +114,38 @@ def _salvar_nota(db, lote: Lote, r: Rps, numero: int, cod: str, simulada: bool, 
         + b"</NFSeEmitida>"
     )
     nota.xml_path = str(xml_path)
+    # PDF próprio na hora; o oficial da Prefeitura substitui depois, em paralelo (_trocar_por_pdf_oficial)
     link = link_nota(emissora.ccm, numero, cod)
-    conteudo = None if simulada else pdf.baixar_oficial(emissora.ccm, numero, cod)
-    if conteudo is None:
-        conteudo = pdf.gerar(nota, db.get(Identidade, lote.tenant_id), link)
     pdf_path = destino / f"NFSe_{numero}.pdf"
-    pdf_path.write_bytes(conteudo)
+    pdf_path.write_bytes(pdf.gerar(nota, db.get(Identidade, lote.tenant_id), link))
     nota.pdf_path = str(pdf_path)
     r.status = StatusRps.emitido
     cfg = service.config_nfse(db, lote.tenant_id)
     if cfg.fatura_ativa:
         fatura.criar(db, nota, cfg)
     return nota
+
+
+def _trocar_por_pdf_oficial(ccm: str, notas: list[Nfse]) -> None:
+    """Baixa o PDF oficial do portal (notaprintpdf.aspx) de 8 em 8. Se o portal falhar, fica o PDF próprio."""
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+
+    def baixar(n: Nfse) -> None:
+        conteudo = pdf.baixar_oficial(ccm, n.numero, n.cod_verificacao)
+        if conteudo and n.pdf_path:
+            Path(n.pdf_path).write_bytes(conteudo)
+
+    alvo = [(n.numero, n.cod_verificacao, n.pdf_path) for n in notas]
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="pdf-oficial") as pool:
+        list(pool.map(lambda t: baixar(_NotaPdf(*t)), alvo))
+
+
+class _NotaPdf:
+    """Só os campos necessários: objetos ORM não atravessam threads."""
+
+    def __init__(self, numero: int, cod_verificacao: str, pdf_path: str | None):
+        self.numero, self.cod_verificacao, self.pdf_path = numero, cod_verificacao, pdf_path
 
 
 def _rejeitar(r: Rps, erros: list[dict]) -> None:
@@ -202,6 +222,8 @@ def _enviar_sublote(db, lote: Lote, rps: list[Rps], cliente: ClientePrefeitura) 
         if r and r.status != StatusRps.emitido:
             _salvar_nota(db, lote, r, n.numero_nfe, n.cod_verificacao, ret.simulado, pedido_bytes.get((r.serie, r.numero), b""))
             emitidos.add(r.id)
+    if not ret.simulado:
+        _trocar_por_pdf_oficial(emissora.ccm, [r.nfse for r in limpos if r.id in emitidos and r.nfse])
     for e in ret.erros:
         r = por_chave.get((e.serie, e.numero)) if e.numero else None
         if r and r.id not in emitidos:

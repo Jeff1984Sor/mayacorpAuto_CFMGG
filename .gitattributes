@@ -5,3 +5,5 @@
 *.ico binary
 *.pdf binary
 *.pfx binary
+# Exemplos no formato real da Lello (CRLF, Windows-1252): bytes preservados
+backend/exemplos/*.txt -text

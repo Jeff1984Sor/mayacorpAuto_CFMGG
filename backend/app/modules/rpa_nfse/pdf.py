@@ -8,9 +8,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 
-from reportlab.graphics import renderPDF
-from reportlab.graphics.barcode.qr import QrCodeWidget
-from reportlab.graphics.shapes import Drawing
+from reportlab import rl_config
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -19,7 +17,11 @@ from reportlab.pdfgen import canvas
 
 from app.core.documentos import formatar_documento
 from app.core.models import Identidade
+from app.modules.rpa_nfse import qr
 from app.modules.rpa_nfse.models import Nfse
+
+# Streams só comprimidos (sem ASCII85): o codificador ASCII85 em Python puro era o maior custo por PDF
+rl_config.useA85 = 0
 
 NAVY = colors.HexColor("#1E2D6B")
 INDIGO = colors.HexColor("#7C8FFF")
@@ -186,12 +188,8 @@ def gerar(nota: Nfse, identidade: Identidade | None, link: str) -> bytes:
     c.drawString(m + 5 * mm, y - 8 * mm, "VALOR TOTAL DA NOTA")
     c.setFont("Helvetica-Bold", 18)
     c.drawString(m + 5 * mm, y - 17 * mm, brl(nota.valor))
-    qr = QrCodeWidget(link)
-    b = qr.getBounds()
     tam = 26 * mm
-    d = Drawing(tam, tam, transform=[tam / (b[2] - b[0]), 0, 0, tam / (b[3] - b[1]), 0, 0])
-    d.add(qr)
-    renderPDF.draw(d, c, w - m - tam + 2 * mm, y - 24 * mm)
+    qr.desenhar(c, link, w - m - tam + 2 * mm, y - 24 * mm, tam)
 
     # ---- Rodapé
     c.setFillColor(CINZA)

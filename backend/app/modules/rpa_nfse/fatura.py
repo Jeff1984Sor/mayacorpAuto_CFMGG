@@ -21,6 +21,7 @@ from app.core.models import Identidade
 from app.modules.rpa_nfse import service
 from app.modules.rpa_nfse.models import ConfigNfse, Fatura, Nfse, StatusFatura, StatusNfse
 from app.modules.rpa_nfse.pix import br_code
+from app.modules.rpa_nfse.qr import QrFlowable
 
 
 def proximo_numero(db: Session, emissora_id: int, ano: int) -> int:
@@ -85,8 +86,6 @@ def _brl(v) -> str:
 
 
 def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
-    from reportlab.graphics.barcode.qr import QrCodeWidget
-    from reportlab.graphics.shapes import Drawing
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_RIGHT
     from reportlab.lib.pagesizes import A4
@@ -214,12 +213,7 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
     codigo_pix = pix_da_fatura(fat)
     qr_cell = ""
     if codigo_pix:
-        qr = QrCodeWidget(codigo_pix)
-        b = qr.getBounds()
-        tam = 30 * mm
-        dr = Drawing(tam, tam, transform=[tam / (b[2] - b[0]), 0, 0, tam / (b[3] - b[1]), 0, 0])
-        dr.add(qr)
-        qr_cell = [dr, Paragraph("PIX copia e cola", ParagraphStyle("qrc", parent=p_sm, alignment=1))]
+        qr_cell = [QrFlowable(codigo_pix, 30 * mm), Paragraph("PIX copia e cola", ParagraphStyle("qrc", parent=p_sm, alignment=1))]
         pag += [Spacer(1, 2 * mm), Paragraph(f"<font size=6>{codigo_pix}</font>", p_sm)]
     caixa = Table([[pag, qr_cell]], colWidths=[LARG - 38 * mm, 38 * mm])
     caixa.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.7, DARK), ("VALIGN", (0, 0), (-1, -1), "TOP"),

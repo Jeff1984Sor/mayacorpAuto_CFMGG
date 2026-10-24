@@ -65,22 +65,43 @@ def gerar_exemplo() -> Path:
     return destino
 
 
+def base(db) -> Tenant:
+    """Só o essencial para um ambiente real: o cliente, a identidade e as configurações. Sem dados de teste."""
+    t = db.scalar(select(Tenant).where(Tenant.slug == "cfme"))
+    if t:
+        return t
+    t = Tenant(slug="cfme", nome="CFME Advogados")
+    db.add(t)
+    db.flush()
+    db.add(Identidade(tenant_id=t.id, nome_exibicao="CFME Advogados", cor_destaque=None,
+                      assinatura_email="CFME Advogados\nDepartamento Financeiro"))
+    db.add(ConfigNotificacao(tenant_id=t.id, remetente_nome="CFME Advogados", avisos_destinatarios=[]))
+    db.commit()
+    return t
+
+
 def main() -> None:
+    import sys
+
     from app.main import migrar
 
     migrar()
+    if "--somente-base" in sys.argv:
+        with SessionLocal() as db:
+            base(db)
+        print("Base pronta (cliente CFME, identidade e configurações), sem dados de teste.")
+        print("Crie o primeiro acesso: python -m app.criar_usuario --login ... --nome ... --email ... --perfil admin")
+        return
+    from app.core.config import settings
+
+    if settings.ambiente != "dev":
+        sys.exit("Dados de demonstração só no ambiente dev. No servidor use: python -m app.seed --somente-base")
     with SessionLocal() as db:
-        t = db.scalar(select(Tenant).where(Tenant.slug == "cfme"))
-        if t:
+        if db.scalar(select(Tenant).where(Tenant.slug == "cfme")):
             print("Seed já aplicado.")
             print(f"Arquivo de exemplo: {gerar_exemplo()}")
             return
-        t = Tenant(slug="cfme", nome="CFME Advogados")
-        db.add(t)
-        db.flush()
-        db.add(Identidade(tenant_id=t.id, nome_exibicao="CFME Advogados", cor_destaque=None,
-                          assinatura_email="CFME Advogados\nDepartamento Financeiro"))
-        db.add(ConfigNotificacao(tenant_id=t.id, remetente_nome="CFME Advogados", avisos_destinatarios=["financeiro@cfme.com.br"]))
+        t = base(db)
         for nome, email, perfil in [("Cristina", "admin@cfme.com.br", Perfil.admin),
                                     ("Operador CFME", "operador@cfme.com.br", Perfil.operador),
                                     ("Visualizador CFME", "visualizador@cfme.com.br", Perfil.visualizador)]:

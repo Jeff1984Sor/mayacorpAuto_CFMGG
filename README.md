@@ -107,7 +107,25 @@ deploy/                           deploy.sh, rollback.sh, backup.sh, systemd, ng
 
 ## Deploy
 
-Homologação → produção, sempre nessa ordem. Ver `.claude/skills/deploy-hml` e `.claude/skills/deploy-prod`.
+**Primeira instalação** de um ambiente (no servidor, Ubuntu/Debian com PostgreSQL):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jeff1984Sor/mayacorpAuto_CFMGG/main/deploy/instalar.sh -o instalar.sh
+sudo bash instalar.sh hml     # homologação (branch develop)
+sudo bash instalar.sh prod    # produção (branch main)
+```
+
+O banco começa **vazio** (só o cliente, a identidade e as configurações) e o script pede o login do primeiro
+administrador. **Atualizações** depois: `./deploy/deploy.sh hml` → validar → `./deploy/deploy.sh prod`.
+Ver `.claude/skills/deploy-hml` e `.claude/skills/deploy-prod`.
+
+Para zerar dados de teste mantendo os usuários: `uv run python -m app.limpar_dados --confirmar "LIMPAR TUDO"`.
+
+## Volume
+
+Medido com 500 RPS (modo simulação, notebook): leitura + pré-validação 0,4 s · Raio-X 0,03 s · emissão completa
+(teste + envio em 10 lotes de 50, XML, PDF da nota e fatura com PIX) 63 s · 11 MB de memória. Em produção soma-se
+o tempo de resposta da Prefeitura (teste + envio por lote de 50); os PDFs oficiais são baixados 8 em paralelo.
 
 ---
 
