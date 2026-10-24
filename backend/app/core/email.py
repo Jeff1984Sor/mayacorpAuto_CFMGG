@@ -54,8 +54,11 @@ def enviar(
     senha = settings.smtp_password
     if config and config.smtp_senha_cifrada:
         senha = decifrar(config.smtp_senha_cifrada).decode()
-    with smtplib.SMTP(host, porta, timeout=30) as s:
-        s.starttls()
+    # 465 = SSL direto (padrão da GoDaddy/secureserver); outras portas = STARTTLS
+    conexao = smtplib.SMTP_SSL(host, porta, timeout=30) if porta == 465 else smtplib.SMTP(host, porta, timeout=30)
+    with conexao as s:
+        if porta != 465:
+            s.starttls()
         if usuario and senha:
             s.login(usuario, senha)
         s.send_message(msg, to_addrs=todos)

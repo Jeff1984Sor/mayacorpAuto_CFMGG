@@ -7,7 +7,7 @@
 | Ambiente | Endereço | Pasta no servidor | Portas (API/web) | Banco | Branch |
 |---|---|---|---|---|---|
 | Homologação | `hml-automacoes.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/hml` | 10031 / 10032 | `automacoes_hml` | `develop` |
-| Produção | `automacoes1.mayacorp.com.br` | `/home/deploy/mayacorp-automacoes/prod` | 10021 / 10022 | `automacoes_prod` | `main` |
+| Produção | `mayajus.mayacorp.com.br` (antigo: automacoes1) | `/home/deploy/mayacorp-automacoes/prod` | 10021 / 10022 | `automacoes_prod` | `main` |
 
 **O servidor é compartilhado** (Hostinger VPS `srv1703721`, IP `2.25.130.240`, acesso `ssh flicsales` como `deploy` com sudo; Ubuntu 24.04) com Flicsales, MayaSec, MayaPost, MayaAssinador,
 Pilates, App Beach, Print3D (Docker), Evolution e o site da MayaCorp. Regras: só **acrescentar** (nunca atualizar

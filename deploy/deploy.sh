@@ -7,7 +7,7 @@
 #
 # Uso (no servidor):
 #     ./deploy/deploy.sh hml            # branch develop -> hml-automacoes.mayacorp.com.br
-#     ./deploy/deploy.sh prod           # branch main    -> automacoes1.mayacorp.com.br  (cria tag vN)
+#     ./deploy/deploy.sh prod           # branch main    -> mayajus.mayacorp.com.br  (cria tag vN)
 # Rode como o usuário deploy, dentro de /home/deploy/mayacorp-automacoes/<amb>.
 #     ./deploy/deploy.sh prod --sem-tag
 #

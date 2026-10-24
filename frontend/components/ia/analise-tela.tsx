@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import type { AnaliseOut } from "@/lib/types";
 
 import { AnaliseSheet } from "./analise-ia";
+import { AssistenteChat } from "./assistente-chat";
 import { IaButton } from "./ia-button";
 
 const LIMITE = 60_000;
@@ -64,7 +65,9 @@ export function AnaliseTelaIA({ titulo }: { titulo: string }) {
         contexto={titulo}
         onRefazer={() => gerar.mutate()}
         refazendo={gerar.isPending}
-      />
+      >
+        <AssistenteChat key={pathname} tela={pathname} titulo={titulo} conteudo={conteudoDaTela} />
+      </AnaliseSheet>
     </>
   );
 }

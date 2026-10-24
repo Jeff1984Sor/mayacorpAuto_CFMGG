@@ -42,6 +42,7 @@ export function AnaliseSheet({
   contexto,
   onRefazer,
   refazendo,
+  children,
 }: {
   analise: AnaliseOut | null;
   aberto: boolean;
@@ -49,6 +50,8 @@ export function AnaliseSheet({
   contexto: string;
   onRefazer?: () => void;
   refazendo?: boolean;
+  /** Conteúdo extra abaixo da análise (ex.: conversa com o assistente). */
+  children?: React.ReactNode;
 }) {
   const [copiado, setCopiado] = useState(false);
   const copiar = async () => {
@@ -70,8 +73,9 @@ export function AnaliseSheet({
           <SheetDescription className="sr-only">Resultado da análise gerada por inteligência artificial</SheetDescription>
         </SheetHeader>
 
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {analise && (
-          <div className={cn("flex-1 space-y-5 overflow-y-auto p-5 transition-opacity", refazendo && "opacity-50")}>
+          <div className={cn("space-y-5 p-5 transition-opacity", refazendo && "opacity-50")}>
             <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="text-[15px] leading-relaxed">
               {analise.resumo}
             </motion.p>
@@ -112,6 +116,8 @@ export function AnaliseSheet({
             )}
           </div>
         )}
+        {children}
+        </div>
 
         <SheetFooter className="flex-row items-center justify-between gap-2 border-t bg-muted/30 p-4">
           <p className="text-xs text-muted-foreground">Gerado por IA, confira antes de decidir.</p>
