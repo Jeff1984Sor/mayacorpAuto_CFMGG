@@ -54,7 +54,7 @@ function mensagemDeErro(status: number, body: unknown): string {
 
 let refreshing: Promise<boolean> | null = null;
 
-async function tentarRefresh(): Promise<boolean> {
+export async function tentarRefresh(): Promise<boolean> {
   const rt = tokens.refresh;
   if (!rt) return false;
   refreshing ??= fetch(`${API_URL}/auth/refresh`, {

@@ -1,5 +1,6 @@
 "use client";
 
+import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
@@ -151,6 +152,7 @@ export default function FaturaDetalhePage() {
         ]}
         acoes={
           <>
+            <ChamarAlguem origemTipo="fatura" origemId={f.id} contexto={`a fatura ${f.codigo}`} />
             <Button variant="outline" onClick={() => abrirArquivo(`/nfse/faturas/${fid}/pdf`)}>
               <ExternalLink /> Abrir PDF
             </Button>

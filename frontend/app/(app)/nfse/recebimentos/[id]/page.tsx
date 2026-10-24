@@ -1,5 +1,6 @@
 "use client";
 
+import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 import {
@@ -383,6 +384,7 @@ export default function ExtratoPage() {
         titulo={e.arquivo_nome}
         descricao={`${e.banco ?? "Banco não identificado"} · ${e.formato.toUpperCase()}${e.periodo_de ? ` · ${data(e.periodo_de)} → ${data(e.periodo_ate)}` : ""} · enviado ${dataHora(e.criado_em)}`}
         icone={HandCoins}
+        acoes={<ChamarAlguem origemTipo="extrato" origemId={e.id} contexto={`o extrato ${e.arquivo_nome}`} />}
         migalhas={[
           { label: "NFS-e", href: "/nfse" },
           { label: "Recebimentos", href: "/nfse/recebimentos" },

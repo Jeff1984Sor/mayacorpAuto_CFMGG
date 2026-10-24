@@ -1,5 +1,6 @@
 "use client";
 
+import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -137,6 +138,7 @@ export default function LoteDetalhePage() {
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Lotes", href: "/nfse/lotes" }, { label: `#${l.numero}` }]}
         acoes={
           <>
+            <ChamarAlguem origemTipo="lote" origemId={l.id} contexto={`o lote #${String(l.numero).padStart(4, "0")}`} />
             {isOperador && <BotaoAnaliseIA endpoint={`/ia/analise/lote/${l.id}`} contexto={`Lote #${String(l.numero).padStart(4, "0")}`} />}
             {l.status === "validando" && isOperador && (
               <Button render={<Link href={`/nfse/nova-emissao?lote=${l.id}`} />}>Continuar conferência</Button>

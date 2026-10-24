@@ -11,6 +11,7 @@ import {
   Layers,
   LayoutDashboard,
   Mail,
+  MessagesSquare,
   Palette,
   Percent,
   ReceiptText,
@@ -31,6 +32,8 @@ export interface NavItem {
   icone: LucideIcon;
   perfis?: Perfil[];
   emBreve?: boolean;
+  /** Contador ao vivo exibido no item (ex.: mensagens não lidas). */
+  badge?: "comunicador";
   atalho?: string;
   exato?: boolean;
 }
@@ -50,6 +53,7 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Início", href: "/", icone: Home, perfis: TODOS, exato: true },
       { label: "Dashboard", href: "/dashboard", icone: LayoutDashboard, perfis: TODOS, atalho: "G D" },
+      { label: "Comunicador", href: "/comunicador", icone: MessagesSquare, perfis: TODOS, atalho: "G M", badge: "comunicador" },
     ],
   },
   {

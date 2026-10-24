@@ -1,5 +1,6 @@
 "use client";
 
+import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, Building2, Copy, ReceiptText, ExternalLink, FileCheck2, FileCode2, FileText, Loader2, Mail, Send } from "lucide-react";
 import Link from "next/link";
@@ -69,6 +70,7 @@ export default function NotaDetalhePage() {
         ]}
         acoes={
           <>
+            <ChamarAlguem origemTipo="nfse" origemId={n.id} contexto={`a NFS-e ${n.numero}`} />
             <Button onClick={() => acoes.pdf(n)}>
               <FileText /> Ver PDF
             </Button>

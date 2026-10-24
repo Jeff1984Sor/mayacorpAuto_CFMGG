@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Bell,
   ChevronsLeft,
   CircleUserRound,
   KeyRound,
@@ -32,6 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { useComunicador } from "@/components/comunicador/provider";
+import { ChatBotao, MencoesBotao } from "@/components/comunicador/topbar";
 import { useAuth } from "@/lib/auth";
 import { useBrand } from "@/lib/brand";
 import { EH_HML } from "@/lib/env";
@@ -82,6 +83,8 @@ export function FaixaAmbiente() {
 
 function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { resumo } = useComunicador();
+  const contador = item.badge === "comunicador" ? resumo.nao_lidas : 0;
   const on = ativo(pathname, item);
   const Icone = item.icone;
   const conteudo = (
@@ -103,6 +106,14 @@ function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: bo
       {!recolhido && (
         <span className="relative flex-1 truncate">{item.label}</span>
       )}
+      {contador > 0 &&
+        (recolhido ? (
+          <span className="absolute top-1 right-2 size-2 rounded-full bg-brand ring-2 ring-sidebar" aria-label={`${contador} não lidas`} />
+        ) : (
+          <span className="relative min-w-5 rounded-full bg-brand px-1.5 text-center text-[11px] leading-5 font-semibold text-brand-foreground tabular-nums">
+            {contador > 99 ? "99+" : contador}
+          </span>
+        ))}
       {!recolhido && item.emBreve && (
         <span className="relative rounded-md bg-white/8 px-1.5 py-0.5 text-[10px] font-semibold text-sidebar-foreground/70 uppercase">
           em breve
@@ -316,13 +327,8 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       <div className="hidden md:block">
         <ThemeToggle />
       </div>
-      <Link
-        href="/nfse"
-        className="relative grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        aria-label="Alertas"
-      >
-        <Bell className="size-[18px]" />
-      </Link>
+      <ChatBotao />
+      <MencoesBotao />
 
       <DropdownMenu>
         <DropdownMenuTrigger

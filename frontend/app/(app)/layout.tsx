@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { ClientLogo } from "@/components/mayacorp/brand";
+import { ComunicadorProvider } from "@/components/comunicador/provider";
 import { AppShell } from "@/components/mayacorp/shell";
 import { useMontado } from "@/hooks/use-montado";
 import { useAuth, useTemToken } from "@/lib/auth";
@@ -36,5 +37,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [montado, temToken, router, pathname]);
 
   if (!montado || !logado || carregando) return <TelaCarregando />;
-  return <AppShell>{children}</AppShell>;
+  return (
+    <ComunicadorProvider>
+      <AppShell>{children}</AppShell>
+    </ComunicadorProvider>
+  );
 }
