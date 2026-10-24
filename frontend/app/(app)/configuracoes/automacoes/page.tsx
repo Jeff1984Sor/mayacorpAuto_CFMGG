@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileSpreadsheet, FolderArchive, Landmark, Loader2, Mail, ReceiptText, Save, Sparkles, Wand2 } from "lucide-react";
+import { FileSpreadsheet, FolderArchive, Landmark, Loader2, Mail, ReceiptText, Save, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,15 +18,6 @@ import { useAuth } from "@/lib/auth";
 import { useBrand } from "@/lib/brand";
 import type { ConfigAutomacoes } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const NIVEIS = [
-  { v: 97, t: "Valor exato e cliente identificado na descrição do crédito" },
-  { v: 92, t: "Crédito igual à soma de um lote inteiro" },
-  { v: 90, t: "Soma das notas em aberto do mesmo cliente" },
-  { v: 88, t: "Valor único: só uma nota em aberto com esse valor" },
-  { v: 70, t: "Combinação de notas do mesmo lote que soma o valor" },
-  { v: 60, t: "Várias notas com o mesmo valor — sugere a mais antiga" },
-];
 
 function Cartao({
   icone: I,
@@ -136,7 +127,6 @@ export default function AutomacoesPage() {
   const set = <K extends keyof ConfigAutomacoes>(k: K, v: ConfigAutomacoes[K]) => setC((o) => (o ? { ...o, [k]: v } : o));
   const destinatariosOk = emailsValidos(c.relatorio_destinatarios);
   const sujo = JSON.stringify(c) !== JSON.stringify(q.data);
-  const nivelAtivo = NIVEIS.filter((n) => n.v >= c.confianca_minima);
 
   return (
     <div className="space-y-5 pb-20">
@@ -278,30 +268,6 @@ export default function AutomacoesPage() {
               <span>100 · só certeza</span>
             </div>
           </div>
-          <ul className="space-y-1.5">
-            {NIVEIS.map((n) => {
-              const auto = n.v >= c.confianca_minima;
-              return (
-                <li
-                  key={n.v}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors",
-                    auto ? "border-success/25 bg-success/6" : "bg-muted/40 text-muted-foreground",
-                  )}
-                >
-                  <span className={cn("w-8 shrink-0 text-right font-semibold num", auto && "text-success-ink")}>{n.v}</span>
-                  <span className="flex-1">{n.t}</span>
-                  <span className={cn("shrink-0 text-xs font-medium", auto ? "text-success-ink" : "text-warning-ink")}>
-                    {auto ? "baixa sozinha" : "vira sugestão"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Sparkles className="size-3.5 text-info-ink" />
-            Com {c.confianca_minima}, {nivelAtivo.length} de {NIVEIS.length} situações dão baixa sozinhas; o resto aparece para confirmar em Recebimentos.
-          </p>
         </div>
       </Cartao>
 

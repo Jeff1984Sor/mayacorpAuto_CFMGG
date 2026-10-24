@@ -178,7 +178,7 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
   const { usuario } = useAuth();
   const { nome_exibicao } = useBrand();
   const pathname = usePathname();
-  const grupos = navPara(usuario?.perfil);
+  const grupos = navPara(usuario?.perfil, usuario?.equipe_mayacorp);
   const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">

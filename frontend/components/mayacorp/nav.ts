@@ -54,6 +54,8 @@ export interface NavItem {
   /** Contador ao vivo exibido no item (ex.: mensagens não lidas). */
   badge?: "comunicador" | "revisoes";
   atalho?: string;
+  /** Só para a equipe MayaCorp (ex.: chave da IA). */
+  equipe?: boolean;
   exato?: boolean;
 }
 
@@ -136,7 +138,7 @@ export const NAV: NavGrupo[] = [
       { label: "Empresas emissoras", href: "/cadastros/emissoras", icone: Building2, perfis: ADMIN },
       { label: "Certificado digital", href: "/configuracoes/certificado", icone: KeyRound, perfis: ADMIN },
       { label: "Profissionais", href: "/configuracoes/usuarios", icone: Users, perfis: ADMIN },
-      { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, perfis: ADMIN },
+      { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, perfis: ADMIN, equipe: true },
       { label: "Automações", href: "/configuracoes/automacoes", icone: Workflow, perfis: ADMIN },
       { label: "Prefeitura", href: "/configuracoes/prefeitura", icone: Landmark, perfis: ADMIN },
       { label: "Faturamento", href: "/configuracoes/faturamento", icone: BadgeDollarSign, perfis: ADMIN },
@@ -154,9 +156,12 @@ export const ICONE_AUTOMACAO: Record<string, LucideIcon> = {
   fingerprint: Fingerprint,
 };
 
-export function navPara(perfil: Perfil | undefined): NavGrupo[] {
+export function navPara(perfil: Perfil | undefined, equipeMayaCorp = false): NavGrupo[] {
   if (!perfil) return [];
-  return NAV.map((g) => ({ ...g, itens: g.itens.filter((i) => !i.perfis || i.perfis.includes(perfil)) })).filter(
+  return NAV.map((g) => ({
+    ...g,
+    itens: g.itens.filter((i) => (!i.perfis || i.perfis.includes(perfil)) && (!i.equipe || equipeMayaCorp)),
+  })).filter(
     (g) => g.itens.length > 0,
   );
 }

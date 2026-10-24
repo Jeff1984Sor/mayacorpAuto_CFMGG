@@ -109,7 +109,7 @@ export function CommandPalette() {
             </CommandGroup>
           )}
           {!ativo &&
-            navPara(usuario?.perfil).map((g) => (
+            navPara(usuario?.perfil, usuario?.equipe_mayacorp).map((g) => (
               <CommandGroup key={g.titulo} heading={g.titulo}>
                 {g.itens
                   .filter((i) => !i.emBreve)

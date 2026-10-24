@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 const ABAS = NAV.find((g) => g.titulo === "Configurações")!.itens.filter((i) => i.href.startsWith("/configuracoes"));
 
 export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, usuario } = useAuth();
+  const abas = ABAS.filter((a) => !a.equipe || usuario?.equipe_mayacorp);
   const pathname = usePathname();
   if (!isAdmin)
     return <EmptyState icone={ShieldAlert} titulo="Somente administradores" descricao="Peça a um administrador para alterar as configurações." />;
@@ -26,7 +27,7 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
         migalhas={[{ label: "Início", href: "/" }, { label: "Configurações" }]}
       />
       <nav className="-mx-1 mb-6 flex gap-1 overflow-x-auto border-b px-1">
-        {ABAS.map((a) => {
+        {abas.map((a) => {
           const on = pathname.startsWith(a.href);
           return (
             <Link

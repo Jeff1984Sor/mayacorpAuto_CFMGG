@@ -119,3 +119,26 @@ def test_analise_de_qualquer_tela(cliente, ia_falsa):  # noqa: F811
         "conteudo": "Em aberto R$ 3.000 · Atrasado R$ 1.000 · Aluguel venc. 10/10 R$ 1.000 atrasado"})
     assert r.status_code == 200 and r.json()["pontos"][0]["nivel"] == "risco"
     assert "contas atrasadas" in ia_falsa["ultimo"][1] and "Aluguel venc." in ia_falsa["ultimo"][1]
+
+
+def test_assistente_conversa_e_executa_acao(cliente, ia_falsa):  # noqa: F811
+    h = _login(cliente)
+    _ativar(cliente, h)
+    cli = cliente.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Cliente Assistente"}).json()
+    contrato = cliente.post("/api/faturamento/contratos", headers=h, json={"tomador_id": cli["id"], "nome": "Contrato IA"}).json()
+    caso = cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={"titulo": "Caso IA"}).json()
+    ia_falsa["proxima"] = {"resposta": "Vou lançar 2h.", "acoes": [
+        {"tipo": "lancar_horas", "rotulo": "Lançar 2h no caso", "parametros": {"caso_id": caso["id"], "data": "2026-10-20",
+                                                                                "minutos": 120, "descricao": "Reunião com o cliente"}},
+        {"tipo": "apagar_tudo", "rotulo": "x", "parametros": {}}]}
+    r = cliente.post("/api/ia/assistente/conversa", headers=h, json={
+        "tela": f"/faturamento/casos/{caso['id']}", "titulo": "Caso", "conteudo": "Caso IA",
+        "mensagens": [{"papel": "usuario", "texto": "lança 2h de reunião hoje"}]}).json()
+    assert r["resposta"] == "Vou lançar 2h." and [a["tipo"] for a in r["acoes"]] == ["lancar_horas"]  # fora do catálogo cai fora
+    assert "caso_aberto_na_tela" in ia_falsa["ultimo"][1]
+    e = cliente.post("/api/ia/assistente/executar", headers=h, json=r["acoes"][0])
+    assert e.status_code == 200, e.text
+    ts = cliente.get(f"/api/faturamento/casos/{caso['id']}/timesheet", headers=h).json()
+    assert ts[0]["minutos"] == 120
+    assert cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "navegar", "parametros": {"rota": "//evil.com"}}).status_code == 400
+    assert cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "lancar_horas", "parametros": {}}).status_code == 400

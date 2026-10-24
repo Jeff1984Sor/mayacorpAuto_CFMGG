@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, SwitchRow } from "@/components/mayacorp/form";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { configIAKey, useConfigIA } from "@/hooks/use-ia";
 import { api } from "@/lib/api";
 import type { ConfigIAIn, ConfigIAOut, ProvedorIA } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 function LogoOpenAI({ className }: { className?: string }) {
@@ -183,7 +185,7 @@ function ModoLeitura({ cfg }: { cfg: ConfigIAOut }) {
   );
 }
 
-export default function IAPage() {
+function IAConteudo() {
   const qc = useQueryClient();
   const q = useConfigIA();
   const salvo = q.data;
@@ -392,4 +394,13 @@ export default function IAPage() {
       </p>
     </div>
   );
+}
+
+/** A chave e o provedor de IA são da MayaCorp: só a equipe MayaCorp vê esta tela. */
+export default function IAPage() {
+  const { usuario } = useAuth();
+  if (!usuario) return null;
+  if (!usuario.equipe_mayacorp)
+    return <EmptyState icone={ShieldCheck} titulo="Gerenciado pela MayaCorp" descricao="A Inteligência Artificial é configurada pela equipe MayaCorp." />;
+  return <IAConteudo />;
 }
