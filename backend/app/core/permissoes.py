@@ -10,7 +10,7 @@ ROTULO_ACAO = {
     "ver": "Ver", "editar": "Criar e editar", "excluir": "Excluir", "importar": "Importar planilha", "usar": "Usar",
     "ver_todas": "Ver as de todos", "lancar": "Lançar horas", "ver_todos": "Ver as horas de todos", "faturar": "Faturar",
     "aprovar": "Aprovar e faturar", "baixar": "Dar baixa (pagamento)", "cancelar": "Cancelar", "configurar": "Configurar",
-    "pagar": "Pagar / reabrir", "emitir": "Emitir NFS-e", "enviar_email": "Enviar por e-mail",
+    "pagar": "Pagar / reabrir", "emitir": "Emitir NFS-e", "enviar_email": "Enviar por e-mail", "reabrir": "Reabrir concluídas",
 }
 
 CATALOGO: list[dict] = [
@@ -23,7 +23,7 @@ CATALOGO: list[dict] = [
         {"id": "clientes", "nome": "Clientes", "acoes": ["ver", "editar", "excluir", "importar"]},
         {"id": "contratos", "nome": "Contratos e regras de cobrança", "acoes": ["ver", "editar", "excluir", "importar"]},
         {"id": "casos", "nome": "Casos (ficha, andamentos, despesas, anexos)", "acoes": ["ver", "editar", "excluir", "importar"]},
-        {"id": "tarefas", "nome": "Tarefas", "acoes": ["ver", "editar", "excluir", "ver_todas"]},
+        {"id": "tarefas", "nome": "Tarefas", "acoes": ["ver", "editar", "excluir", "ver_todas", "reabrir"]},
         {"id": "timesheet", "nome": "Timesheet", "acoes": ["ver", "lancar", "ver_todos"]},
     ]},
     {"grupo": "Faturamento", "recursos": [
@@ -79,10 +79,12 @@ PERFIS_PADRAO: list[dict] = [
     {"nome": "Administrador", "descricao": "Acesso total, inclusive configurações e perfis.", "cor": "#1E2D6B",
      "administrador": True, "sistema": True, "permissoes": []},
     {"nome": "Operador", "descricao": "Usa todo o sistema; não altera configurações.", "cor": "#7C8FFF", "administrador": False,
-     "sistema": False, "permissoes": sorted(TODAS - _todas_de(*_CONFIG) | _todas_de(*_CONFIG, acoes=("ver",)) - {"auditoria.ver"})},
+     "sistema": False, "permissoes": sorted(TODAS - _todas_de(*_CONFIG) | _todas_de(*_CONFIG, acoes=("ver",))
+                                            - {"auditoria.ver", "tarefas.reabrir"})},
     {"nome": "Advogado", "descricao": "Casos, tarefas e timesheet; sem financeiro.", "cor": "#1A8F5E", "administrador": False,
      "sistema": False, "permissoes": sorted(
-         _todas_de(*_CADASTROS) - {"clientes.excluir", "contratos.excluir", "casos.excluir", "tarefas.ver_todas", "timesheet.ver_todos"}
+         _todas_de(*_CADASTROS) - {"clientes.excluir", "contratos.excluir", "casos.excluir", "tarefas.ver_todas", "timesheet.ver_todos",
+                                   "tarefas.reabrir"}
          | {"comunicador.usar", "ia.usar", "clientes.ver", "contratos.ver"})},
     {"nome": "Financeiro", "descricao": "Faturamento, financeiro e NFS-e; cadastros só para consulta.", "cor": "#F5A623",
      "administrador": False, "sistema": False, "permissoes": sorted(

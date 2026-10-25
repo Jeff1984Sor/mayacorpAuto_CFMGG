@@ -77,3 +77,17 @@ def test_assistente_respeita_o_perfil(cliente):  # noqa: F811
         "descricao": "Hack", "valor": 1, "data_vencimento": "2026-12-01", "categoria_id": cat["id"]}})
     assert x.status_code == 403
     assert cliente.post("/api/ia/assistente/executar", headers=hu, json={"tipo": "navegar", "parametros": {"rota": "/"}}).status_code == 200
+
+
+def test_reabrir_tarefa_concluida_exige_permissao(cliente):  # noqa: F811
+    h = _login(cliente)
+    p = cliente.post("/api/config/perfis", headers=h, json={"nome": "Tarefeiro", "permissoes": ["tarefas.editar"]}).json()
+    _, hu, _ = _usuario_com_perfil(cliente, h, "tarefeiro@cfme.com.br", p["id"])
+    t = cliente.post("/api/faturamento/tarefas", headers=hu, json={"titulo": "Protocolar"}).json()
+    assert cliente.patch(f"/api/faturamento/tarefas/{t['id']}/status", headers=hu, json={"status": "concluida"}).status_code == 200
+    r = cliente.patch(f"/api/faturamento/tarefas/{t['id']}/status", headers=hu, json={"status": "a_fazer"})
+    assert r.status_code == 403 and "Reabrir" in r.json()["detail"]
+    assert cliente.put(f"/api/faturamento/tarefas/{t['id']}", headers=hu, json={"titulo": "Mudou", "status": "concluida"}).status_code == 403
+    cliente.put(f"/api/config/perfis/{p['id']}", headers=h, json={"nome": "Tarefeiro", "permissoes": ["tarefas.editar", "tarefas.reabrir"]})
+    r = cliente.patch(f"/api/faturamento/tarefas/{t['id']}/status", headers=hu, json={"status": "a_fazer"})
+    assert r.status_code == 200 and r.json()["concluida_em"] is None

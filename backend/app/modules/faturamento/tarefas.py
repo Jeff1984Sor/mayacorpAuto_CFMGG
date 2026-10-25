@@ -67,6 +67,13 @@ def _validar(ctx, dados: TarefaIn) -> None:
     dados.etiquetas = list(dict.fromkeys(e.strip()[:30] for e in dados.etiquetas if e and e.strip()))[:10]
 
 
+def _checar_concluida(ctx, t: Tarefa, novo_status: StatusTarefa | None = None) -> None:
+    """Tarefa concluída só muda (ou reabre) com a permissão "Reabrir concluídas" do perfil de acesso."""
+    if t.status == StatusTarefa.concluida and not ctx.pode("tarefas.reabrir"):
+        if novo_status is None or novo_status != StatusTarefa.concluida:
+            raise HTTPException(403, "Tarefa concluída: só quem tem a permissão “Reabrir concluídas” pode reabrir ou alterar.")
+
+
 def _aplicar_status(t: Tarefa, status: StatusTarefa) -> None:
     t.status = status
     t.concluida_em = (t.concluida_em or date.today()) if status == StatusTarefa.concluida else None
@@ -175,6 +182,7 @@ def ler_tarefa(tid: int, ctx: Ctx):
 @router.put("/tarefas/{tid}", response_model=TarefaOut)
 def alterar_tarefa(tid: int, dados: TarefaIn, ctx: Operador):
     t = _tarefa(ctx, tid)
+    _checar_concluida(ctx, t)
     _validar(ctx, dados)
     caso_antes = t.caso_id
     for k, v in dados.model_dump(exclude={"status"}).items():
@@ -193,9 +201,14 @@ def alterar_tarefa(tid: int, dados: TarefaIn, ctx: Operador):
 def mudar_status(tid: int, body: dict, ctx: Operador):
     t = _tarefa(ctx, tid)
     try:
-        _aplicar_status(t, StatusTarefa(body.get("status")))
+        novo = StatusTarefa(body.get("status"))
     except ValueError:
         raise HTTPException(400, "Status inválido.") from None
+    _checar_concluida(ctx, t, novo)
+    reabriu = t.status == StatusTarefa.concluida and novo != StatusTarefa.concluida
+    _aplicar_status(t, novo)
+    if reabriu:
+        ctx.auditar("faturamento.tarefa.reabrir", "fat_tarefa", t.id, descricao=f"{t.titulo} reaberta por {ctx.usuario.nome}")
     ctx.auditar("faturamento.tarefa.status", "fat_tarefa", t.id, descricao=f"{t.titulo}: {t.status.value}")
     ctx.db.commit()
     return _out(ctx, t)
