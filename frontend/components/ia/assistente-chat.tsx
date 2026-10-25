@@ -33,7 +33,9 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [texto, setTexto] = useState("");
   const fim = useRef<HTMLDivElement>(null);
-  useEffect(() => fim.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [msgs]);
+  useEffect(() => {
+    fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgs]);
 
   const enviar = useMutation({
     mutationFn: (historico: Msg[]) =>

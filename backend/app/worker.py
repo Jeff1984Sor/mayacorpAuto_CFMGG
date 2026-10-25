@@ -26,6 +26,7 @@ def _sinal(*_):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # o httpx loga a URL completa de cada chamada
     signal.signal(signal.SIGTERM, _sinal)
     signal.signal(signal.SIGINT, _sinal)
     with SessionLocal() as db:

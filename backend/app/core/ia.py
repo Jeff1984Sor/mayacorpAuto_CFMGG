@@ -69,7 +69,7 @@ def listar_modelos(provedor: str, chave: str) -> list[str]:
             # só modelos de texto/chat (fora embeddings, áudio, imagem, moderação)
             fora = ("embedding", "whisper", "tts", "dall-e", "moderation", "audio", "realtime", "image", "transcribe", "search")
             return sorted((i for i in ids if i.startswith(("gpt", "o")) and not any(f in i for f in fora)), reverse=True)
-        r = httpx.get("https://generativelanguage.googleapis.com/v1beta/models", params={"key": chave, "pageSize": 200},
+        r = httpx.get("https://generativelanguage.googleapis.com/v1beta/models", params={"pageSize": 200}, headers={"x-goog-api-key": chave},
                       timeout=20)
         if r.status_code != 200:
             raise _erro_http(provedor, r)
@@ -111,7 +111,7 @@ def gerar_json(p: Provedor, sistema: str, usuario: str, anexo: tuple[str, bytes]
         else:
             r = httpx.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{p.modelo}:generateContent",
-                params={"key": p.chave},
+                headers={"x-goog-api-key": p.chave},  # chave no cabeçalho: não aparece em URL nem em log
                 json={"systemInstruction": {"parts": [{"text": sistema}]},
                       "contents": [{"role": "user", "parts": [{"text": usuario}]
                                 + ([{"inline_data": {"mime_type": anexo[0], "data": b64}}] if anexo else [])}],

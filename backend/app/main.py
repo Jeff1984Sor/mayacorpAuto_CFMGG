@@ -25,6 +25,7 @@ from app.modules.rpa_nfse import routes as nfse_routes
 from app.modules.rpa_nfse import routes_dashboard, routes_faturas, routes_financeiro, tasks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # o httpx loga a URL completa de cada chamada
 
 VERSAO = (BASE_DIR / "VERSION").read_text().strip() if (BASE_DIR / "VERSION").exists() else "dev"
 
