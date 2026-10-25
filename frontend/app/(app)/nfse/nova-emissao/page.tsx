@@ -435,10 +435,9 @@ export default function NovaEmissaoPage() {
   return (
     <div>
       <PageHeader
-        titulo="Nova emissão"
-        descricao="Do arquivo da Lello às notas emitidas no layout 2 — em minutos."
+        titulo="Nova emissão em lote"
         icone={FileUp}
-        migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Nova emissão" }]}
+        migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Nova emissão em lote" }]}
         acoes={
           etapa === 3 && (
             <>

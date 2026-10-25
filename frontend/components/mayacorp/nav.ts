@@ -125,7 +125,7 @@ export const NAV: NavGrupo[] = [
     titulo: "NFS-e · RPA 01",
     itens: [
       { label: "Painel", href: "/nfse", icone: Gauge, perfis: TODOS, exato: true, atalho: "G P" },
-      { label: "Nova emissão", href: "/nfse/nova-emissao", icone: FileUp, perfis: OPERA, atalho: "N" },
+      { label: "Nova emissão em lote", href: "/nfse/nova-emissao", icone: FileUp, perfis: OPERA, atalho: "N" },
       { label: "Lotes", href: "/nfse/lotes", icone: Layers, perfis: TODOS, atalho: "G L" },
       { label: "Notas emitidas", href: "/nfse/notas", icone: FileCheck2, perfis: TODOS, atalho: "G N" },
       { label: "Recebimentos", href: "/nfse/recebimentos", icone: HandCoins, perfis: TODOS, atalho: "G R" },
