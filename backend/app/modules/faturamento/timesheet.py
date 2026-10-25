@@ -54,6 +54,8 @@ def _horas(minutos: int) -> Decimal:
 
 
 def _consulta(ctx, de, ate, profissional_id, minhas, caso_id, contrato_id, tomador_id, faturavel, situacao, q):
+    if not ctx.pode("timesheet.ver_todos"):  # perfil sem "ver as horas de todos": só as próprias
+        minhas = True
     sel = (select(Timesheet).join(Caso, Timesheet.caso_id == Caso.id).join(Contrato, Caso.contrato_id == Contrato.id)
            .where(Timesheet.tenant_id == ctx.tenant_id, Timesheet.data >= de, Timesheet.data <= ate))
     if minhas:

@@ -50,6 +50,10 @@ class UsuarioMe(Schema):
     preferencias: dict[str, Any] = {}
     perfil: Perfil
     tenant_id: int
+    perfil_acesso_id: int | None = None
+    perfil_acesso_nome: str | None = None
+    administrador: bool = False
+    permissoes: list[str] = []
 
 
 class IdentidadePublica(Schema):
@@ -117,6 +121,9 @@ class UsuarioOut(Schema):
     convite_pendente: bool
     ultimo_acesso: datetime | None
     online: bool = False
+    perfil_acesso_id: int | None = None
+    perfil_acesso_nome: str | None = None
+    perfil_acesso_cor: str | None = None
     acesso_sistema: bool = True
     cargo_id: int | None = None
     cargo_nome: str | None = None
@@ -161,6 +168,7 @@ class UsuarioConviteIn(BaseModel):
     perfil: Perfil = Perfil.operador
     senha: str | None = None  # opcional: já define a senha (sem depender do e-mail de convite)
     acesso_sistema: bool = True  # False = funcionário sem login (só lança horas); não recebe convite
+    perfil_acesso_id: int | None = None
     cargo_id: int | None = None
     cpf: str | None = None
     oab: str | None = Field(default=None, max_length=20)
@@ -185,6 +193,7 @@ class UsuarioPatch(BaseModel):
     perfil: Perfil | None = None
     ativo: bool | None = None
     acesso_sistema: bool | None = None
+    perfil_acesso_id: int | None = None
     cargo_id: int | None = None
     cpf: str | None = None
     oab: str | None = Field(default=None, max_length=20)
@@ -277,3 +286,22 @@ class AutomacaoCard(Schema):
     status: str  # ativo | planejado | ideia
     href: str | None
     metrica: str | None = None
+
+
+class PerfilAcessoIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=80)
+    descricao: str | None = Field(default=None, max_length=300)
+    cor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    administrador: bool = False
+    permissoes: list[str] = []
+
+
+class PerfilAcessoOut(Schema):
+    id: int
+    nome: str
+    descricao: str | None
+    cor: str | None
+    administrador: bool
+    sistema: bool
+    permissoes: list[str]
+    qtd_usuarios: int = 0

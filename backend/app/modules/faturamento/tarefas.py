@@ -90,6 +90,8 @@ def tarefas(ctx: Ctx, q: str | None = None, status: list[StatusTarefa] | None = 
         sel = sel.where(Tarefa.prioridade.in_(prioridade))
     if tipo:
         sel = sel.where(Tarefa.tipo.in_(tipo))
+    if not ctx.pode("tarefas.ver_todas"):  # perfil sem "ver as de todos": só as suas (responsável ou criador)
+        sel = sel.where(or_(Tarefa.responsavel_id == ctx.usuario.id, Tarefa.criado_por_id == ctx.usuario.id))
     if minhas:
         sel = sel.where(Tarefa.responsavel_id == ctx.usuario.id)
     elif responsavel_id:
@@ -121,6 +123,8 @@ def tarefas(ctx: Ctx, q: str | None = None, status: list[StatusTarefa] | None = 
     lista.sort(key=lambda t: (t.status not in ABERTAS, t.prazo is None, t.prazo or date.max, ORDEM_PRIORIDADE.get(t.prioridade, 9), t.id))
 
     base = select(Tarefa).where(Tarefa.tenant_id == ctx.tenant_id)
+    if not ctx.pode("tarefas.ver_todas"):
+        base = base.where(or_(Tarefa.responsavel_id == ctx.usuario.id, Tarefa.criado_por_id == ctx.usuario.id))
     if caso_id:
         base = base.where(Tarefa.caso_id == caso_id)
     todas = list(ctx.db.scalars(base))

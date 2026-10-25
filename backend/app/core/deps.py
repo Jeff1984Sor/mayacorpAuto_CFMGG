@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.core.db import agora, get_db
 from app.core.models import Perfil, Usuario
+from app.core.permissoes import permissao_da_rota
 from app.core.security import decodificar_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -24,6 +25,10 @@ class Contexto:
     db: Session
     usuario: Usuario
     ip: str | None
+    rota_liberada: bool = False  # a rota está no mapa de permissões e o perfil passou
+
+    def pode(self, permissao: str) -> bool:
+        return self.usuario.pode(permissao)
 
     @property
     def tenant_id(self) -> int:
@@ -76,7 +81,10 @@ def get_contexto(
     if ultima is None or (now - ultima.replace(tzinfo=now.tzinfo)) > timedelta(minutes=1):
         usuario.ultima_atividade = now
         db.commit()
-    return Contexto(db=db, usuario=usuario, ip=ip_cliente(request))
+    mapeada, permissao = permissao_da_rota(request.method, request.url.path)
+    if mapeada and permissao and not usuario.pode(permissao):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seu perfil de acesso não permite esta ação.")
+    return Contexto(db=db, usuario=usuario, ip=ip_cliente(request), rota_liberada=mapeada)
 
 
 Ctx = Annotated[Contexto, Depends(get_contexto)]
@@ -84,7 +92,9 @@ Ctx = Annotated[Contexto, Depends(get_contexto)]
 
 def exigir(*perfis: Perfil):
     def _dep(ctx: Ctx) -> Contexto:
-        if ctx.usuario.perfil not in perfis:
+        if ctx.rota_liberada:  # quem decide é o perfil de acesso (já checado em get_contexto)
+            return ctx
+        if ctx.usuario.perfil not in perfis and not ctx.usuario.administrador:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Seu perfil não tem permissão para esta ação.")
         return ctx
 

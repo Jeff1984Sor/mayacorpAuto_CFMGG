@@ -27,6 +27,21 @@ class Tenant(Base, Timestamped):
     identidade: Mapped["Identidade"] = relationship(back_populates="tenant", uselist=False)
 
 
+class PerfilAcesso(Base, Timestamped):
+    """Grupo de permissões (Configurações › Perfis de acesso). "administrador" pode tudo."""
+
+    __tablename__ = "perfil_acesso"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    nome: Mapped[str] = mapped_column(String(80))
+    descricao: Mapped[str | None] = mapped_column(String(300))
+    cor: Mapped[str | None] = mapped_column(String(7))
+    administrador: Mapped[bool] = mapped_column(Boolean, default=False)
+    sistema: Mapped[bool] = mapped_column(Boolean, default=False)  # o Administrador padrão não pode ser excluído
+    permissoes: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
 class Cargo(Base, Timestamped):
     """Cargo do funcionário (Sócio, Advogado Sênior, Estagiário...). É a categoria usada nas tabelas de preço."""
 
@@ -60,6 +75,7 @@ class Usuario(Base, Timestamped):
     acesso_sistema: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     # dados de funcionário
     cargo_id: Mapped[int | None] = mapped_column(ForeignKey("cargo.id"))
+    perfil_acesso_id: Mapped[int | None] = mapped_column(ForeignKey("perfil_acesso.id"))
     cpf: Mapped[str | None] = mapped_column(String(11))
     oab: Mapped[str | None] = mapped_column(String(20))
     telefone: Mapped[str | None] = mapped_column(String(20))
@@ -79,6 +95,28 @@ class Usuario(Base, Timestamped):
 
     tenant: Mapped[Tenant] = relationship()
     cargo: Mapped["Cargo | None"] = relationship()
+    perfil_acesso: Mapped["PerfilAcesso | None"] = relationship()
+
+    @property
+    def administrador(self) -> bool:
+        if self.equipe_mayacorp:
+            return True
+        return self.perfil_acesso.administrador if self.perfil_acesso else self.perfil == Perfil.admin
+
+    @property
+    def permissoes(self) -> set[str]:
+        from app.core.permissoes import PERFIS_PADRAO, TODAS
+
+        if self.administrador:
+            return set(TODAS)
+        if self.perfil_acesso:
+            return set(self.perfil_acesso.permissoes or [])
+        # sem perfil de acesso (legado): equivale ao perfil padrão de mesmo nome
+        nome = {Perfil.operador: "Operador", Perfil.visualizador: "Visualizador"}.get(self.perfil, "Visualizador")
+        return set(next(p["permissoes"] for p in PERFIS_PADRAO if p["nome"] == nome))
+
+    def pode(self, permissao: str) -> bool:
+        return self.administrador or permissao in self.permissoes
 
 
 class Identidade(Base, Timestamped):

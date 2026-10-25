@@ -137,7 +137,8 @@ def conversar(dados: ConversaIn, ctx: Ctx):
     historico = "\n".join(f"{'Usuário' if m.papel == 'usuario' else 'Assistente'}: {m.texto}" for m in dados.mensagens[-12:])
     prompt = (f"Tela: “{dados.titulo or dados.tela}” (rota {dados.tela}).\n"
               f"Catálogo de ações: {json.dumps(CATALOGO, ensure_ascii=False)}\n"
-              f"Perfil do usuário: {ctx.usuario.perfil.value} (visualizador não executa ações).\n"
+              f"Ações que este usuário pode executar: {[a for a, perm in PERMISSAO_ACAO.items() if ctx.pode(perm)] + ['navegar']} "
+              "(não proponha as outras: diga que o perfil de acesso não permite).\n"
               f"Referências (com ids): {json.dumps(refs, ensure_ascii=False, default=str)}\n"
               f"Conteúdo visível da tela:\n{dados.conteudo[:40000]}\n\nConversa:\n{historico}\nAssistente:")
     try:
@@ -155,6 +156,15 @@ def conversar(dados: ConversaIn, ctx: Ctx):
 
 
 # ------------------------------------------------------------------------------------------- execução
+# permissão que cada ação do assistente exige (a mesma da tela equivalente)
+PERMISSAO_ACAO = {
+    "criar_andamento": "casos.editar", "lancar_despesa": "casos.editar", "criar_caso": "casos.editar", "atualizar_caso": "casos.editar",
+    "lancar_horas": "timesheet.lancar", "criar_tarefa": "tarefas.editar", "concluir_tarefa": "tarefas.editar",
+    "criar_conta_pagar": "contas_pagar.editar", "pagar_conta": "contas_pagar.pagar", "lancamento_bancario": "contas_bancarias.editar",
+    "criar_cliente": "clientes.editar",
+}
+
+
 def _limpo(p: dict, *permitidos: str) -> dict:
     return {k: v for k, v in p.items() if k in permitidos and v not in (None, "")}
 
@@ -208,6 +218,9 @@ def executar(dados: ExecutarIn, ctx: Operador):
     from app.modules.rpa_nfse import routes as nfse
     from app.modules.rpa_nfse.schemas import TomadorIn
 
+    exigida = PERMISSAO_ACAO.get(dados.tipo)
+    if exigida and not ctx.pode(exigida):  # a IA não passa por cima do perfil de acesso
+        raise HTTPException(403, "Seu perfil de acesso não permite esta ação.")
     p, t = _resolver_ids(ctx, dados.parametros or {}), dados.tipo
     try:
         if t == "navegar":

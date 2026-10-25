@@ -6,12 +6,12 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 
-from app.core import audit, certificados
+from app.core import audit, certificados, perfis
 from app.core import email as mail
 from app.core.config import settings
 from app.core.db import agora
 from app.core.deps import Admin, Ctx
-from app.core.models import Cargo, Certificado, ConfigNotificacao, Identidade, Perfil, Usuario
+from app.core.models import Cargo, Certificado, ConfigNotificacao, Identidade, Perfil, PerfilAcesso, Usuario
 from app.core.routes.public import logo_url
 from app.core.schemas import (
     CargoIn,
@@ -23,6 +23,8 @@ from app.core.schemas import (
     Mensagem,
     NotificacoesIn,
     NotificacoesOut,
+    PerfilAcessoIn,
+    PerfilAcessoOut,
     TesteConexaoOut,
     UsuarioConviteIn,
     UsuarioOut,
@@ -184,7 +186,9 @@ def _usuario_out(u: Usuario) -> UsuarioOut:
 
     return UsuarioOut(id=u.id, nome=u.nome, email=u.email, login=u.login, foto_url=foto_url(u), perfil=u.perfil, ativo=u.ativo,
                       convite_pendente=u.convite_pendente and u.acesso_sistema, ultimo_acesso=u.ultimo_acesso, online=online,
-                      acesso_sistema=u.acesso_sistema, cargo_id=u.cargo_id, cargo_nome=u.cargo.nome if u.cargo else None,
+                      acesso_sistema=u.acesso_sistema, cargo_id=u.cargo_id, perfil_acesso_id=u.perfil_acesso_id,
+                      perfil_acesso_nome=u.perfil_acesso.nome if u.perfil_acesso else None,
+                      perfil_acesso_cor=u.perfil_acesso.cor if u.perfil_acesso else None, cargo_nome=u.cargo.nome if u.cargo else None,
                       cpf=u.cpf, oab=u.oab, telefone=u.telefone, data_admissao=u.data_admissao, cep=u.cep,
                       logradouro=u.logradouro, numero_endereco=u.numero_endereco, complemento=u.complemento, bairro=u.bairro,
                       cidade=u.cidade, uf=u.uf)
@@ -233,8 +237,10 @@ def convidar_usuario(dados: UsuarioConviteIn, ctx: Admin):
                 convite_pendente=acesso and not dados.senha, acesso_sistema=acesso, cargo_id=dados.cargo_id,
                 **dados.model_dump(include={"cpf", "oab", "telefone", "data_admissao", "cep", "logradouro", "numero_endereco",
                                             "complemento", "bairro", "cidade", "uf"}))
+    u.perfil_acesso_id = None
     ctx.db.add(u)
     ctx.db.flush()
+    _definir_perfil(ctx, u, dados.perfil_acesso_id, dados.perfil)
     if acesso and not dados.senha:
         _enviar_convite(u, novo=True)
     ctx.auditar("usuario.convidar", "usuario", u.id, descricao=f"{u.nome} ({u.perfil.value})", depois=audit.snapshot(u))
@@ -247,6 +253,23 @@ def _usuario(ctx, uid: int) -> Usuario:
     if not u or u.tenant_id != ctx.tenant_id:
         raise HTTPException(404, "Usuário não encontrado.")
     return u
+
+
+def _perfil(ctx, pid: int | None) -> PerfilAcesso:
+    p = ctx.db.get(PerfilAcesso, pid) if pid else None
+    if not p or p.tenant_id != ctx.tenant_id:
+        raise HTTPException(404, "Perfil de acesso não encontrado.")
+    return p
+
+
+def _definir_perfil(ctx, u: Usuario, perfil_acesso_id: int | None, legado: Perfil) -> None:
+    """Novo usuário: o perfil de acesso escolhido ou o equivalente ao perfil legado informado."""
+    if perfil_acesso_id:
+        perfis.aplicar(u, _perfil(ctx, perfil_acesso_id))
+        return
+    nome = {Perfil.admin: "Administrador", Perfil.operador: "Operador"}.get(legado, "Visualizador")
+    padrao = perfis.garantir_padrao(ctx.db, ctx.tenant_id)
+    perfis.aplicar(u, padrao[nome])
 
 
 def _sobra_admin(ctx, u: Usuario) -> bool:
@@ -268,6 +291,13 @@ def alterar_usuario(uid: int, dados: UsuarioPatch, ctx: Admin):
     for k in ("email", "login"):
         if mudancas.get(k):
             mudancas[k] = mudancas[k].lower()
+    if "perfil_acesso_id" in mudancas:
+        novo = _perfil(ctx, mudancas.pop("perfil_acesso_id"))
+        mudancas.pop("perfil", None)
+        if u.administrador and not novo.administrador and u.id == ctx.usuario.id:
+            raise HTTPException(400, "Você não pode tirar o seu próprio acesso de administrador.")
+        mudancas["perfil"] = perfis.perfil_legado(novo)
+        u.perfil_acesso_id = novo.id
     perde_admin = (mudancas.get("perfil") not in (None, Perfil.admin) or mudancas.get("ativo") is False)
     if u.perfil == Perfil.admin and perde_admin and not _sobra_admin(ctx, u):
         raise HTTPException(400, "É preciso manter pelo menos um Administrador ativo.")
@@ -343,6 +373,104 @@ def excluir_cargo(cid: int, ctx: Admin):
     ctx.db.delete(c)
     ctx.db.commit()
     return Mensagem(mensagem="Cargo excluído.")
+
+
+# ---------------------------------------------------------------- perfis de acesso
+def _perfil_out(ctx, p: PerfilAcesso) -> PerfilAcessoOut:
+    from sqlalchemy import func
+
+    qtd = ctx.db.scalar(select(func.count()).select_from(Usuario).where(Usuario.perfil_acesso_id == p.id, Usuario.ativo)) or 0
+    return PerfilAcessoOut.model_validate(p).model_copy(update={"qtd_usuarios": qtd})
+
+
+@router.get("/perfis/catalogo")
+def catalogo_permissoes(ctx: Ctx):
+    from app.core.permissoes import CATALOGO, ROTULO_ACAO
+
+    return {"grupos": CATALOGO, "acoes": ROTULO_ACAO}
+
+
+@router.get("/perfis", response_model=list[PerfilAcessoOut])
+def listar_perfis(ctx: Ctx):
+    perfis.garantir_padrao(ctx.db, ctx.tenant_id)
+    ctx.db.commit()
+    lista = ctx.db.scalars(select(PerfilAcesso).where(PerfilAcesso.tenant_id == ctx.tenant_id)
+                           .order_by(PerfilAcesso.administrador.desc(), PerfilAcesso.nome))
+    return [_perfil_out(ctx, p) for p in lista]
+
+
+def _salvar_perfil(ctx, p: PerfilAcesso, dados: PerfilAcessoIn) -> None:
+    from sqlalchemy import func
+
+    from app.core.permissoes import normalizar
+
+    if ctx.db.scalar(select(PerfilAcesso.id).where(PerfilAcesso.tenant_id == ctx.tenant_id, PerfilAcesso.id != (p.id or 0),
+                                                   func.lower(PerfilAcesso.nome) == dados.nome.strip().lower())):
+        raise HTTPException(409, "Já existe um perfil com este nome.")
+    if p.sistema and not dados.administrador:
+        raise HTTPException(400, "O perfil Administrador padrão continua com acesso total (duplique para criar outro).")
+    p.nome, p.descricao, p.cor = dados.nome.strip(), dados.descricao, dados.cor
+    p.administrador = dados.administrador
+    p.permissoes = [] if dados.administrador else normalizar(dados.permissoes)
+    ctx.db.flush()
+    for u in ctx.db.scalars(select(Usuario).where(Usuario.perfil_acesso_id == p.id)):
+        u.perfil = perfis.perfil_legado(p)
+
+
+@router.post("/perfis", response_model=PerfilAcessoOut, status_code=201)
+def criar_perfil(dados: PerfilAcessoIn, ctx: Admin):
+    p = PerfilAcesso(tenant_id=ctx.tenant_id, nome=dados.nome)
+    ctx.db.add(p)
+    _salvar_perfil(ctx, p, dados)
+    ctx.auditar("perfil_acesso.criar", "perfil_acesso", p.id, descricao=p.nome, depois={"permissoes": p.permissoes})
+    ctx.db.commit()
+    return _perfil_out(ctx, p)
+
+
+@router.put("/perfis/{pid}", response_model=PerfilAcessoOut)
+def alterar_perfil(pid: int, dados: PerfilAcessoIn, ctx: Admin):
+    p = _perfil(ctx, pid)
+    antes = {"nome": p.nome, "administrador": p.administrador, "permissoes": list(p.permissoes or [])}
+    if p.administrador and not dados.administrador and ctx.usuario.perfil_acesso_id == p.id:
+        raise HTTPException(400, "Você usa este perfil: tirar o acesso total dele tiraria o seu também.")
+    _salvar_perfil(ctx, p, dados)
+    ctx.auditar("perfil_acesso.alterar", "perfil_acesso", p.id, descricao=p.nome, antes=antes,
+                depois={"nome": p.nome, "administrador": p.administrador, "permissoes": p.permissoes})
+    ctx.db.commit()
+    return _perfil_out(ctx, p)
+
+
+@router.post("/perfis/{pid}/duplicar", response_model=PerfilAcessoOut, status_code=201)
+def duplicar_perfil(pid: int, ctx: Admin):
+    base = _perfil(ctx, pid)
+    nome, n = f"{base.nome} (cópia)", 2
+    while ctx.db.scalar(select(PerfilAcesso.id).where(PerfilAcesso.tenant_id == ctx.tenant_id, PerfilAcesso.nome == nome)):
+        nome, n = f"{base.nome} (cópia {n})", n + 1
+    from app.core.permissoes import TODAS
+
+    p = PerfilAcesso(tenant_id=ctx.tenant_id, nome=nome, descricao=base.descricao, cor=base.cor, administrador=False,
+                     permissoes=sorted(TODAS) if base.administrador else list(base.permissoes or []))
+    ctx.db.add(p)
+    ctx.db.flush()
+    ctx.auditar("perfil_acesso.criar", "perfil_acesso", p.id, descricao=f"{p.nome} (duplicado de {base.nome})")
+    ctx.db.commit()
+    return _perfil_out(ctx, p)
+
+
+@router.delete("/perfis/{pid}", response_model=Mensagem)
+def excluir_perfil(pid: int, ctx: Admin):
+    from sqlalchemy import func
+
+    p = _perfil(ctx, pid)
+    if p.sistema:
+        raise HTTPException(400, "O perfil Administrador padrão não pode ser excluído.")
+    qtd = ctx.db.scalar(select(func.count()).select_from(Usuario).where(Usuario.perfil_acesso_id == p.id)) or 0
+    if qtd:
+        raise HTTPException(400, f"{qtd} profissional(is) usam este perfil: troque o perfil deles antes de excluir.")
+    ctx.auditar("perfil_acesso.excluir", "perfil_acesso", p.id, descricao=p.nome)
+    ctx.db.delete(p)
+    ctx.db.commit()
+    return Mensagem(mensagem="Perfil excluído.")
 
 
 @router.post("/usuarios/{uid}/redefinir-senha", response_model=Mensagem)

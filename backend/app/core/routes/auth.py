@@ -32,7 +32,9 @@ def foto_url(u: Usuario) -> str | None:
 
 
 def me_out(u: Usuario) -> UsuarioMe:
-    return UsuarioMe.model_validate(u).model_copy(update={"foto_url": foto_url(u)})
+    return UsuarioMe.model_validate(u).model_copy(update={
+        "foto_url": foto_url(u), "administrador": u.administrador, "permissoes": sorted(u.permissoes),
+        "perfil_acesso_nome": u.perfil_acesso.nome if u.perfil_acesso else None})
 
 
 def _tokens(u: Usuario) -> TokenOut:
