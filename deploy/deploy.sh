@@ -33,6 +33,8 @@ echo "=== 1/7  Situação atual ($AMB) ==="
 VERSAO_ANTERIOR="$(cat backend/VERSION 2>/dev/null || echo dev)"
 COMMIT_ANTERIOR="$(git rev-parse --short HEAD)"
 echo "    no ar: $VERSAO_ANTERIOR ($COMMIT_ANTERIOR)"
+# o arquivo de exemplo é regerado pelo seed/testes a cada deploy: não conta como alteração manual
+git checkout -q -- backend/exemplos/ 2>/dev/null || true
 if [ -n "$(git status --porcelain -uno)" ]; then
   echo "    ATENÇÃO: arquivos versionados modificados no servidor:"
   git status --short -uno
