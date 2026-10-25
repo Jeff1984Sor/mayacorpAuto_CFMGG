@@ -14,6 +14,7 @@ import {
   Trash2,
   Upload,
   User,
+  UserRound,
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +24,18 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Mono } from "@/components/mayacorp/brand";
+import {
+  ContatosEditor,
+  contarListas,
+  deCliente,
+  EnderecosEditor,
+  erroListas,
+  mascaraFone,
+  paraApi,
+  TelefonesEditor,
+  telefoneVazio,
+  type ListasCliente,
+} from "@/components/clientes/listas";
 import { ContratosDoCliente } from "@/components/faturamento/contratos-cliente";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { Pagination, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
@@ -143,6 +156,15 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   const cep = useCep();
   const cnpj = useCnpj();
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+  const [listas, setListas] = useState<ListasCliente>(() => deCliente(null));
+  const [aba, setAba] = useState("dados");
+  const setLista = <K extends keyof ListasCliente>(k: K, v: ListasCliente[K]) => setListas((o) => ({ ...o, [k]: v }));
+  // telefone vindo da Receita ou da IA entra na lista só se ela estiver vazia
+  const sugerirTelefone = (numero: string | null | undefined) => {
+    if (!numero || listas.telefones.length) return false;
+    setListas((o) => (o.telefones.length ? o : { ...o, telefones: [telefoneVazio(numero)] }));
+    return true;
+  };
 
   // CNPJ digitado → busca na Receita e preenche só o que está vazio
   const preencherPorCnpj = async (valor: string) => {
@@ -153,10 +175,11 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       f.getValues() as Record<string, unknown>,
       {
         nome: d.razao_social, logradouro: d.logradouro, numero: d.numero, complemento: d.complemento,
-        bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep ? fmtCep(d.cep) : null, telefone: d.telefone,
+        bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep ? fmtCep(d.cep) : null,
       },
       (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
     );
+    if (sugerirTelefone(d.telefone)) mudou.push("telefones");
     const emails = f.getValues("emails");
     if (d.email && !emails.includes(d.email)) {
       f.setValue("emails", [...emails, d.email], { shouldDirty: true, shouldValidate: true });
@@ -183,7 +206,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
 
   // ✨ Preencher com IA: aplica no formulário (sem salvar) e destaca o que mudou
   const aplicarIA = (c: Record<string, unknown>) => {
-    const textos = ["tipo", "nome", "cpf_cnpj", "im", "ie", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "telefone", "observacoes"] as const;
+    const textos = ["tipo", "nome", "cpf_cnpj", "im", "ie", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "observacoes"] as const;
     const mudou: string[] = [];
     textos.forEach((k) => {
       const v = c[k];
@@ -195,6 +218,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       f.setValue(k, valor as never, { shouldDirty: true, shouldValidate: true });
       mudou.push(k);
     });
+    if (typeof c.telefone === "string" && sugerirTelefone(c.telefone)) mudou.push("telefones");
     if (Array.isArray(c.emails) && c.emails.length) {
       f.setValue("emails", [...new Set([...f.getValues("emails"), ...(c.emails as string[])])], { shouldDirty: true, shouldValidate: true });
       mudou.push("emails");
@@ -216,11 +240,14 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
           } as Form)
         : vazio,
     );
+    setListas(deCliente(cliente));
+    setAba("dados");
   }, [open, cliente, f]);
 
   const salvar = useMutation({
     mutationFn: (v: Form) => {
-      const body = { ...v, cpf_cnpj: soDigitos(v.cpf_cnpj) || null, cep: soDigitos(v.cep) || null };
+      // o PUT substitui as listas: elas vão sempre, completas
+      const body = { ...v, cpf_cnpj: soDigitos(v.cpf_cnpj) || null, cep: soDigitos(v.cep) || null, ...paraApi(listas) };
       return cliente ? api.put(`/nfse/tomadores/${cliente.id}`, body) : api.post("/nfse/tomadores", body);
     },
     onSuccess: () => {
@@ -231,6 +258,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   });
   const er = f.formState.errors;
   const tipo = f.watch("tipo");
+  const qtd = contarListas(listas);
   const buscarCep = async () => {
     const r = await cep.buscar(f.getValues("cep") ?? "");
     if (r) {
@@ -278,9 +306,13 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       <Field label="E-mails para envio da nota" className="sm:col-span-6" erro={er.emails?.message ?? er.emails?.[0]?.message}>
         <EmailChips campo="emails" value={f.watch("emails")} onChange={(v) => f.setValue("emails", v, { shouldValidate: true })} />
       </Field>
-      <Field label="Telefone" className="sm:col-span-2">
-        <Input {...f.register("telefone")} />
-      </Field>
+      <div className="flex items-center gap-2 border-t pt-4 sm:col-span-6">
+        <span className="grid size-7 place-items-center rounded-lg bg-brand/10 text-info-ink">
+          <MapPin className="size-3.5" />
+        </span>
+        <p className="text-sm font-semibold">Endereço principal</p>
+        <span className="text-xs text-muted-foreground">vai na nota fiscal · outros endereços na aba Endereços</span>
+      </div>
       <Field label="CEP" className="sm:col-span-2">
         <div className="relative">
           <Input {...f.register("cep")} className="num pr-8" onBlur={buscarCep} />
@@ -291,11 +323,11 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
           )}
         </div>
       </Field>
-      <Field label="Número" className="sm:col-span-2">
-        <Input {...f.register("numero")} />
-      </Field>
-      <Field label="Logradouro" className="sm:col-span-4">
+      <Field label="Logradouro" className="sm:col-span-3">
         <Input {...f.register("logradouro")} />
+      </Field>
+      <Field label="Número" className="sm:col-span-1">
+        <Input {...f.register("numero")} />
       </Field>
       <Field label="Complemento" className="sm:col-span-2">
         <Input {...f.register("complemento")} />
@@ -327,30 +359,76 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       titulo={cliente ? cliente.nome : "Novo cliente"}
       formId="form-cliente"
       acaoCabecalho={podeEditar && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
-      descricao={cliente ? "Dados do cliente, contratos e histórico de notas." : undefined}
-      largura="lg"
+      descricao={cliente ? "Dados, endereços, contatos, contratos e histórico de notas." : undefined}
+      largura="xl"
       salvando={salvar.isPending}
       rotuloSalvar={podeEditar ? "Salvar" : "Fechar"}
-      onSubmit={podeEditar ? f.handleSubmit((v) => salvar.mutate(v)) : (e) => (e.preventDefault(), onClose())}
+      onSubmit={
+        podeEditar
+          ? f.handleSubmit(
+              (v) => {
+                const erro = erroListas(listas);
+                if (erro) {
+                  setAba(erro.aba);
+                  toast.error(erro.msg);
+                  return;
+                }
+                salvar.mutate(v);
+              },
+              () => setAba("dados"),
+            )
+          : (e) => (e.preventDefault(), onClose())
+      }
     >
-      {cliente ? (
-        <Tabs defaultValue="dados">
-          <TabsList className="mb-4">
+      <Tabs value={aba} onValueChange={(v) => setAba(String(v))}>
+        <div className="-mx-1 mb-4 overflow-x-auto px-1">
+          <TabsList>
             <TabsTrigger value="dados">Dados</TabsTrigger>
-            {pode("contratos.ver") && <TabsTrigger value="contratos">Contratos</TabsTrigger>}
-            <TabsTrigger value="historico">Histórico</TabsTrigger>
+            {(
+              [
+                ["enderecos", "Endereços", qtd.enderecos],
+                ["contatos", "Contatos", qtd.contatos],
+                ["telefones", "Telefones", qtd.telefones],
+              ] as const
+            ).map(([v, l, n]) => (
+              <TabsTrigger key={v} value={v}>
+                {l}
+                {n > 0 && <span className="rounded-full bg-brand/12 px-1.5 text-[11px] font-semibold text-info-ink tabular-nums">{n}</span>}
+              </TabsTrigger>
+            ))}
+            {cliente && pode("contratos.ver") && <TabsTrigger value="contratos">Contratos</TabsTrigger>}
+            {cliente && <TabsTrigger value="historico">Histórico</TabsTrigger>}
           </TabsList>
-          <TabsContent value="dados">{dados}</TabsContent>
-          <TabsContent value="contratos">
-            <ContratosDoCliente tomadorId={cliente.id} />
-          </TabsContent>
-          <TabsContent value="historico">
-            <Historico id={cliente.id} />
-          </TabsContent>
-        </Tabs>
-      ) : (
-        dados
-      )}
+        </div>
+        <TabsContent value="dados">{dados}</TabsContent>
+        <TabsContent value="enderecos">
+          <EnderecosEditor
+            lista={listas.enderecos}
+            onChange={(l) => setLista("enderecos", l)}
+            podeEditar={podeEditar}
+            principal={() => {
+              const v = f.getValues();
+              return { cep: v.cep ?? "", logradouro: v.logradouro ?? "", numero: v.numero ?? "", complemento: v.complemento ?? "", bairro: v.bairro ?? "", cidade: v.cidade ?? "", uf: v.uf ?? "" };
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="contatos">
+          <ContatosEditor lista={listas.contatos} onChange={(l) => setLista("contatos", l)} podeEditar={podeEditar} />
+        </TabsContent>
+        <TabsContent value="telefones">
+          <TelefonesEditor lista={listas.telefones} onChange={(l) => setLista("telefones", l)} podeEditar={podeEditar} />
+        </TabsContent>
+        {cliente && (
+          <>
+            <TabsContent value="contratos">
+              <ContratosDoCliente tomadorId={cliente.id} />
+            </TabsContent>
+            <TabsContent value="historico">
+              <Historico id={cliente.id} />
+            </TabsContent>
+          </>
+        )}
+      </Tabs>
     </FormDialog>
   );
 }
@@ -480,6 +558,7 @@ export default function ClientesPage() {
                   <th className="px-4 py-2.5 font-medium">Cliente</th>
                   <th className="px-3 py-2.5 font-medium">CPF/CNPJ</th>
                   <th className="hidden px-3 py-2.5 font-medium lg:table-cell">E-mail</th>
+                  <th className="hidden px-3 py-2.5 font-medium xl:table-cell">Telefone</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">Cidade</th>
                   <th className="px-3 py-2.5 text-right font-medium">Notas</th>
                   <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">Acumulado</th>
@@ -487,62 +566,87 @@ export default function ClientesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {lista.itens.map((c) => (
-                  <tr key={c.id} className={linhaClicavel} onClick={() => setEditar(c)}>
-                    <td className="max-w-72 px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-                          {c.tipo === "PF" ? <User className="size-4" /> : <Building className="size-4" />}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 truncate font-medium">
-                            <span className="truncate">{c.nome}</span>
-                            {c.incompleto && (
-                              <Pill tom="warning">
-                                <AlertCircle className="size-3" /> incompleto
-                              </Pill>
+                {lista.itens.map((c) => {
+                  const contato = c.contatos?.find((p) => p.principal) ?? c.contatos?.[0];
+                  const tel = c.telefones?.[0];
+                  return (
+                    <tr key={c.id} className={linhaClicavel} onClick={() => setEditar(c)}>
+                      <td className="max-w-72 px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                            {c.tipo === "PF" ? <User className="size-4" /> : <Building className="size-4" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1.5 truncate font-medium">
+                              <span className="truncate">{c.nome}</span>
+                              {c.incompleto && (
+                                <Pill tom="warning">
+                                  <AlertCircle className="size-3" /> incompleto
+                                </Pill>
+                              )}
+                            </p>
+                            {contato ? (
+                              <p className="flex items-center gap-1 truncate text-[11px] text-muted-foreground" title="Contato principal">
+                                <UserRound className="size-3 shrink-0" />
+                                <span className="truncate">
+                                  {contato.nome}
+                                  {contato.cargo && ` · ${contato.cargo}`}
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-muted-foreground">{c.tipo === "PF" ? "Pessoa física" : c.tipo === "PJ" ? "Pessoa jurídica" : "Exterior"}</p>
                             )}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">{c.tipo === "PF" ? "Pessoa física" : c.tipo === "PJ" ? "Pessoa jurídica" : "Exterior"}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
-                      <Mono>{documento(c.cpf_cnpj)}</Mono>
-                    </td>
-                    <td className="hidden max-w-56 truncate px-3 py-3 text-muted-foreground lg:table-cell">
-                      {c.emails[0] ?? "—"}
-                      {c.emails.length > 1 && <span className="ml-1 text-xs">+{c.emails.length - 1}</span>}
-                    </td>
-                    <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">{c.cidade ? `${c.cidade}/${c.uf}` : "—"}</td>
-                    <td className="px-3 py-3 text-right">
-                      <Mono>{numero(c.qtd_notas)}</Mono>
-                    </td>
-                    <td className="hidden px-3 py-3 text-right whitespace-nowrap sm:table-cell">
-                      <Mono>{moeda(c.valor_acumulado)}</Mono>
-                    </td>
-                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ações" />}>
-                          <MoreHorizontal />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditar(c)}>
-                            <Pencil /> {podeEditar ? "Editar" : "Ver"}
-                          </DropdownMenuItem>
-                          {pode("clientes.excluir") && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>
-                                <Trash2 /> Excluir
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
+                        <Mono>{documento(c.cpf_cnpj)}</Mono>
+                      </td>
+                      <td className="hidden max-w-56 truncate px-3 py-3 text-muted-foreground lg:table-cell">
+                        {c.emails[0] ?? "—"}
+                        {c.emails.length > 1 && <span className="ml-1 text-xs">+{c.emails.length - 1}</span>}
+                      </td>
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-muted-foreground xl:table-cell">
+                        {tel || c.telefone ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Mono>{mascaraFone(tel?.numero ?? c.telefone)}</Mono>
+                            {tel?.ramal && <span className="text-xs">r. {tel.ramal}</span>}
+                            {(c.telefones?.length ?? 0) > 1 && <span className="text-xs">+{c.telefones.length - 1}</span>}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">{c.cidade ? `${c.cidade}/${c.uf}` : "—"}</td>
+                      <td className="px-3 py-3 text-right">
+                        <Mono>{numero(c.qtd_notas)}</Mono>
+                      </td>
+                      <td className="hidden px-3 py-3 text-right whitespace-nowrap sm:table-cell">
+                        <Mono>{moeda(c.valor_acumulado)}</Mono>
+                      </td>
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ações" />}>
+                            <MoreHorizontal />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditar(c)}>
+                              <Pencil /> {podeEditar ? "Editar" : "Ver"}
+                            </DropdownMenuItem>
+                            {pode("clientes.excluir") && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>
+                                  <Trash2 /> Excluir
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

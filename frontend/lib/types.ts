@@ -219,6 +219,11 @@ export interface TomadorOut {
   emails: string[];
   telefone: string | null;
   observacoes: string | null;
+  /** Endereços além do principal (o principal é o que vai na nota). */
+  enderecos: EnderecoCliente[];
+  contatos: ContatoCliente[];
+  /** O 1º é o principal (espelhado em `telefone`). */
+  telefones: TelefoneCliente[];
   incompleto: boolean;
   qtd_notas: number;
   valor_acumulado: Decimal;
@@ -226,6 +231,43 @@ export interface TomadorOut {
 }
 
 export type TomadorIn = Omit<TomadorOut, "id" | "incompleto" | "qtd_notas" | "valor_acumulado" | "criado_em">;
+
+export type TipoEndereco = "cobranca" | "correspondencia" | "entrega" | "filial" | "outro";
+export type TipoTelefone = "comercial" | "celular" | "whatsapp" | "fixo" | "fax" | "outro";
+
+export interface EnderecoCliente {
+  tipo: TipoEndereco;
+  descricao: string | null;
+  cep: string | null;
+  tipo_logradouro: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+}
+
+export interface ContatoCliente {
+  nome: string;
+  cargo: string | null;
+  email: string | null;
+  telefone: string | null;
+  celular: string | null;
+  whatsapp: boolean;
+  /** Entra como destinatário dos e-mails de NFS-e e fatura. */
+  recebe_notas: boolean;
+  /** O servidor mantém exatamente um principal. */
+  principal: boolean;
+  observacao: string | null;
+}
+
+export interface TelefoneCliente {
+  numero: string;
+  tipo: TipoTelefone;
+  ramal: string | null;
+  descricao: string | null;
+}
 
 export interface ParametroFiscalIn {
   emissora_id: number;
