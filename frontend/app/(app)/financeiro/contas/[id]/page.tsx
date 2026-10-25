@@ -70,7 +70,9 @@ export default function ExtratoPage() {
   const cid = Number(id);
   const router = useRouter();
   const qc = useQueryClient();
-  const { isOperador, isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contas_bancarias.editar");
+  const podeExcluir = pode("contas_bancarias.excluir");
   const [periodo, setPeriodo] = useState(mesAtual);
   const [lanc, setLanc] = useState<{ l: LancamentoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<LancamentoOut | null>(null);
@@ -155,7 +157,7 @@ export default function ExtratoPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {isOperador && (
+            {podeEditar && (
               <>
                 <Button onClick={() => setLanc({ l: null })}>
                   <Plus /> Lançamento
@@ -176,21 +178,21 @@ export default function ExtratoPage() {
                 <DropdownMenuItem onClick={() => baixar(`/financeiro/contas/${cid}/modelo.xlsx`, {}, "modelo_extrato.xlsx")}>
                   <Download /> Baixar modelo
                 </DropdownMenuItem>
-                {isOperador && (
+                {podeEditar && (
                   <DropdownMenuItem onClick={() => setImportar(true)}>
                     <Upload /> Importar planilha
                   </DropdownMenuItem>
                 )}
-                {isAdmin && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setEditarConta(true)}>
-                      <Pencil /> Editar conta
-                    </DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onClick={() => setExcluirConta(true)}>
-                      <Trash2 /> Excluir conta
-                    </DropdownMenuItem>
-                  </>
+                {(podeEditar || podeExcluir) && <DropdownMenuSeparator />}
+                {podeEditar && (
+                  <DropdownMenuItem onClick={() => setEditarConta(true)}>
+                    <Pencil /> Editar conta
+                  </DropdownMenuItem>
+                )}
+                {podeExcluir && (
+                  <DropdownMenuItem variant="destructive" onClick={() => setExcluirConta(true)}>
+                    <Trash2 /> Excluir conta
+                  </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -236,7 +238,7 @@ export default function ExtratoPage() {
                   <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     <Receipt className="mx-auto mb-2 size-6 opacity-50" />
                     Nenhum lançamento no período.
-                    {isOperador && (
+                    {podeEditar && (
                       <>
                         {" "}
                         <button type="button" onClick={() => setLanc({ l: null })} className="font-medium text-info-ink hover:underline">
@@ -285,18 +287,22 @@ export default function ExtratoPage() {
                     <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap text-danger-ink tabular-nums">{!ent ? moeda(l.valor) : ""}</td>
                     <td className={cn("px-3 py-2.5 text-right font-mono whitespace-nowrap tabular-nums", toNum(l.saldo) < 0 && "text-danger-ink")}>{moeda(l.saldo)}</td>
                     <td className="px-3 py-2.5">
-                      {isOperador && l.editavel && (
+                      {(podeEditar || podeExcluir) && l.editavel && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${l.descricao}`} className="opacity-60 group-hover:opacity-100" />}>
                             <MoreHorizontal />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setLanc({ l })}>
-                              <Pencil /> Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onClick={() => setExcluir(l)}>
-                              <Trash2 /> Excluir
-                            </DropdownMenuItem>
+                            {podeEditar && (
+                              <DropdownMenuItem onClick={() => setLanc({ l })}>
+                                <Pencil /> Editar
+                              </DropdownMenuItem>
+                            )}
+                            {podeExcluir && (
+                              <DropdownMenuItem variant="destructive" onClick={() => setExcluir(l)}>
+                                <Trash2 /> Excluir
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

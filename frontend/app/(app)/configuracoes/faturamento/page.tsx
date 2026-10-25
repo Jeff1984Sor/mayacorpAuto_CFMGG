@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, BriefcaseBusiness, Check, Copy, Loader2, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BriefcaseBusiness, Check, Copy, Eye, Loader2, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { CargoOut, TabelaOut } from "@/lib/faturamento";
 import { moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -484,8 +485,18 @@ function Tabelas() {
 }
 
 export default function ConfigFaturamentoPage() {
+  const { pode } = useAuth();
+  // consulta sem edição: os controles ficam desligados (cargos dependem de Profissionais)
+  const fat = !pode("cfg_faturamento.editar");
+  const cargos = !pode("cfg_profissionais.editar");
   return (
     <Tabs defaultValue="precos">
+      {fat && (
+        <p className="mb-4 flex items-center gap-2 rounded-xl border border-info/30 bg-info/8 px-3.5 py-2.5 text-sm text-info-ink">
+          <Eye className="size-4 shrink-0" />
+          Seu perfil de acesso permite consultar esta configuração, mas não alterá-la.
+        </p>
+      )}
       <TabsList className="mb-4">
         <TabsTrigger value="precos">Cargos e tabelas de preço</TabsTrigger>
         <TabsTrigger value="areas">Áreas de atuação</TabsTrigger>
@@ -493,15 +504,23 @@ export default function ConfigFaturamentoPage() {
       </TabsList>
       <TabsContent value="precos">
         <div className="grid gap-5 xl:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] xl:items-start">
-          <Cargos />
-          <Tabelas />
+          <fieldset disabled={cargos} className="min-w-0">
+            <Cargos />
+          </fieldset>
+          <fieldset disabled={fat} className="min-w-0">
+            <Tabelas />
+          </fieldset>
         </div>
       </TabsContent>
       <TabsContent value="areas" className="max-w-3xl">
-        <AreasAtuacao />
+        <fieldset disabled={fat} className="min-w-0">
+          <AreasAtuacao />
+        </fieldset>
       </TabsContent>
       <TabsContent value="campos" className="max-w-4xl">
-        <CamposAdicionaisConfig />
+        <fieldset disabled={fat} className="min-w-0">
+          <CamposAdicionaisConfig />
+        </fieldset>
       </TabsContent>
     </Tabs>
   );

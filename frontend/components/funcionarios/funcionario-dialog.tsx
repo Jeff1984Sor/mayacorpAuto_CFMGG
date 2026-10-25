@@ -8,6 +8,7 @@ import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 
 import { Field, NativeSelect } from "@/components/mayacorp/form";
+import { PerfilAcessoSelect, PerfilBadge, usePerfisAcesso } from "@/components/perfis/comum";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
 import { UserAvatar } from "@/components/mayacorp/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -19,14 +20,8 @@ import { useCep } from "@/hooks/use-cep";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CargoOut } from "@/lib/faturamento";
-import type { Perfil, UsuarioMe, UsuarioOut } from "@/lib/types";
+import type { UsuarioMe, UsuarioOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-export const PERFIS: Record<Perfil, { l: string; d: string }> = {
-  admin: { l: "Administrador", d: "Tudo: configurações, certificado, usuários, emissão e cancelamento" },
-  operador: { l: "Operador", d: "Importar, validar, emitir, faturar e cadastrar clientes" },
-  visualizador: { l: "Visualizador", d: "Consultar painel, lotes, notas e faturas" },
-};
 
 const UFS = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ");
 const LOGIN_RE = /^[a-z0-9._-]{3,60}$/;
@@ -85,7 +80,7 @@ interface Form {
   ativo: boolean;
   acesso_sistema: boolean;
   login: string;
-  perfil: Perfil;
+  perfil_acesso_id: number | null;
   modoSenha: "convite" | "senha";
   senha: string;
 }
@@ -108,7 +103,7 @@ const vazio = (): Form => ({
   ativo: true,
   acesso_sistema: true,
   login: "",
-  perfil: "operador",
+  perfil_acesso_id: null,
   modoSenha: "convite",
   senha: "",
 });
@@ -131,7 +126,7 @@ const deUsuario = (u: UsuarioOut): Form => ({
   ativo: u.ativo,
   acesso_sistema: u.acesso_sistema,
   login: u.login ?? "",
-  perfil: u.perfil,
+  perfil_acesso_id: u.perfil_acesso_id,
   modoSenha: "convite",
   senha: "",
 });
@@ -160,8 +155,8 @@ function Secao({ id, icone: I, titulo, descricao, children }: { id: string; icon
 /** Foto: a própria pessoa troca a dela; o administrador troca a de qualquer profissional já cadastrado. */
 function FotoEditor({ usuario, nome, eu }: { usuario: UsuarioOut | null; nome: string; eu: boolean }) {
   const qc = useQueryClient();
-  const { isAdmin } = useAuth();
-  const pode = eu || (isAdmin && !!usuario);
+  const { pode: permite } = useAuth();
+  const pode = eu || (permite("cfg_profissionais.editar") && !!usuario);
   const enviar = useMutation({
     mutationFn: async (f: File) => {
       const fd = new FormData();
@@ -259,8 +254,11 @@ export function FuncionarioDialog({
   usuario: UsuarioOut | null;
 }) {
   const qc = useQueryClient();
-  const { usuario: eu } = useAuth();
+  const { usuario: eu, pode } = useAuth();
   const cepApi = useCep();
+  // a lista de perfis exige "cfg_perfis.ver"; sem ela o perfil só é exibido
+  const verPerfis = pode("cfg_perfis.ver");
+  const perfis = usePerfisAcesso(open && verPerfis);
   const [f, setF] = useState<Form>(vazio);
   const [erros, setErros] = useState<Partial<Record<keyof Form, string>>>({});
   const [enviarConvite, setEnviarConvite] = useState(true);
@@ -282,6 +280,11 @@ export function FuncionarioDialog({
   const souEu = !!usuario && usuario.id === eu?.id;
   const ganhaAcesso = !!usuario && !usuario.acesso_sistema && f.acesso_sistema;
   const cargo = cargos.data?.find((c) => c.id === f.cargo_id);
+  const somenteLeitura = !pode("cfg_profissionais.editar");
+  // novo profissional começa no perfil "Operador" (ou no primeiro sem acesso total)
+  const perfilPadrao = perfis.data?.find((p) => p.nome === "Operador") ?? perfis.data?.find((p) => !p.administrador);
+  const perfilId = f.perfil_acesso_id ?? (usuario ? null : (perfilPadrao?.id ?? null));
+  const perfil = perfis.data?.find((p) => p.id === perfilId);
 
   const buscarCep = async (v: string) => {
     const r = await cepApi.buscar(v);
@@ -335,7 +338,7 @@ export function FuncionarioDialog({
         const body: Record<string, unknown> = { ...dados };
         if (f.acesso_sistema) {
           body.login = n(f.login);
-          if (!souEu) body.perfil = f.perfil;
+          if (!souEu && perfilId && perfilId !== usuario.perfil_acesso_id) body.perfil_acesso_id = perfilId;
         }
         if (!souEu) body.ativo = f.ativo;
         const r = await api.patch<UsuarioOut>(`/config/usuarios/${usuario.id}`, body);
@@ -345,7 +348,9 @@ export function FuncionarioDialog({
       return api.post<UsuarioOut>("/config/usuarios", {
         ...dados,
         login: f.acesso_sistema ? n(f.login) : null,
-        perfil: f.perfil,
+        perfil_acesso_id: perfilId,
+        perfil: "operador", // legado: o servidor usa o perfil de acesso quando vier
+
         senha: f.acesso_sistema && f.modoSenha === "senha" ? f.senha : null,
       });
     },
@@ -392,20 +397,17 @@ export function FuncionarioDialog({
                 <DialogDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span>{cargo?.nome ?? "Sem cargo"}</span>
                   {f.oab && <span className="font-mono text-xs">OAB {f.oab}</span>}
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      f.acesso_sistema ? "bg-success/12 text-success-ink" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {f.acesso_sistema ? PERFIS[f.perfil].l : "Sem acesso"}
-                  </span>
+                  {f.acesso_sistema ? (
+                    <PerfilBadge nome={perfil?.nome ?? usuario?.perfil_acesso_nome} cor={perfil?.cor ?? usuario?.perfil_acesso_cor} className="h-5 text-[11px]" />
+                  ) : (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Sem acesso</span>
+                  )}
                 </DialogDescription>
               </div>
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto border-t bg-muted/30 p-4 sm:p-5">
+          <fieldset disabled={somenteLeitura} className="min-h-0 flex-1 space-y-4 overflow-y-auto border-t bg-muted/30 p-4 sm:p-5">
             <Secao id="func-sec-pessoais" icone={UserRound} titulo="Dados pessoais" descricao="Quem é a pessoa e como falar com ela.">
               <div className="grid gap-4 sm:grid-cols-6">
                 <Field label="Nome completo" obrigatorio htmlFor="func-nome" erro={erros.nome} className="sm:col-span-6">
@@ -547,23 +549,18 @@ export function FuncionarioDialog({
                           placeholder="ex.: cristina"
                         />
                       </Field>
-                      <fieldset className="sm:col-span-2" disabled={souEu}>
-                        <legend className="mb-2 text-sm font-medium">Perfil{souEu && <span className="ml-2 text-xs font-normal text-muted-foreground">(você não altera o seu)</span>}</legend>
-                        <div className="grid gap-2 sm:grid-cols-3">
-                          {(Object.keys(PERFIS) as Perfil[]).map((k) => (
-                            <label
-                              key={k}
-                              className="flex cursor-pointer items-start gap-2.5 rounded-xl border bg-background p-3 transition-colors has-checked:border-brand has-checked:bg-brand/6 has-disabled:cursor-not-allowed"
-                            >
-                              <input type="radio" name="func-perfil" value={k} checked={f.perfil === k} onChange={() => set("perfil", k)} className="mt-1 accent-[var(--brand)]" />
-                              <span>
-                                <span className="block text-sm font-medium">{PERFIS[k].l}</span>
-                                <span className="block text-xs text-muted-foreground">{PERFIS[k].d}</span>
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </fieldset>
+                      <Field
+                        label="Perfil de acesso"
+                        htmlFor="func-perfil"
+                        dica={souEu ? "Você não altera o seu próprio perfil." : (perfil?.descricao ?? "Define o que a pessoa vê e pode fazer. Ajuste em Configurações › Perfis de acesso.")}
+                        className="sm:col-span-2 sm:max-w-md"
+                      >
+                        {verPerfis ? (
+                          <PerfilAcessoSelect id="func-perfil" value={perfilId} onChange={(v) => set("perfil_acesso_id", v)} disabled={souEu} />
+                        ) : (
+                          <PerfilBadge nome={usuario?.perfil_acesso_nome ?? "Operador"} cor={usuario?.perfil_acesso_cor} />
+                        )}
+                      </Field>
 
                       {!usuario && (
                         <fieldset className="sm:col-span-2">
@@ -606,10 +603,10 @@ export function FuncionarioDialog({
                 )}
               </AnimatePresence>
             </Secao>
-          </div>
+          </fieldset>
 
           <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t bg-card px-5 py-3">
-            {usuario && !souEu && (
+            {usuario && !souEu && !somenteLeitura && (
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={f.ativo} onCheckedChange={(v) => set("ativo", v)} aria-label="Profissional ativo" /> Ativo
               </label>
@@ -623,9 +620,11 @@ export function FuncionarioDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={salvar.isPending}>
-                {salvar.isPending && <Loader2 className="animate-spin" />} {rotuloSalvar}
-              </Button>
+              {!somenteLeitura && (
+                <Button type="submit" disabled={salvar.isPending}>
+                  {salvar.isPending && <Loader2 className="animate-spin" />} {rotuloSalvar}
+                </Button>
+              )}
             </div>
           </footer>
         </form>

@@ -29,7 +29,9 @@ import { cn } from "@/lib/utils";
 export default function CasosPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const { isOperador, isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
+  const podeExcluir = pode("casos.excluir");
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 300);
   const [status, setStatus] = useState<"aberto" | "encerrado" | "todos">("aberto");
@@ -71,8 +73,8 @@ export default function CasosPage() {
         migalhas={[{ label: "Cadastros" }, { label: "Casos" }]}
         acoes={
           <>
-            <PlanilhaAcoes recurso="casos" rotulo="casos" podeImportar={isOperador} />
-            {isOperador && (
+            <PlanilhaAcoes recurso="casos" rotulo="casos" podeImportar={pode("casos.importar")} />
+            {podeEditar && (
               <Button onClick={() => setNovo(true)}>
                 <FolderPlus /> Novo caso
               </Button>
@@ -124,7 +126,7 @@ export default function CasosPage() {
             titulo={filtrando ? "Nenhum caso encontrado" : "Nenhum caso ainda"}
             descricao={filtrando ? "Troque a busca, o cliente ou a situação." : "Cada caso pertence a um contrato e recebe horas e despesas."}
             acao={
-              isOperador &&
+              podeEditar &&
               !filtrando && (
                 <Button onClick={() => setNovo(true)}>
                   <FolderPlus /> Novo caso
@@ -189,16 +191,18 @@ export default function CasosPage() {
                       <StatusBadge status={c.status === "aberto" ? "ativo" : "descartado"} label={c.status === "aberto" ? "Aberto" : "Encerrado"} />
                     </td>
                     <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      {isOperador && (
+                      {(podeEditar || podeExcluir) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações do caso ${c.numero}`} />}>
                             <MoreHorizontal />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setEditar(c)}>
-                              <Pencil /> Editar
-                            </DropdownMenuItem>
-                            {isAdmin && (
+                            {podeEditar && (
+                              <DropdownMenuItem onClick={() => setEditar(c)}>
+                                <Pencil /> Editar
+                              </DropdownMenuItem>
+                            )}
+                            {podeExcluir && (
                               <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>
                                 <Trash2 /> Excluir
                               </DropdownMenuItem>

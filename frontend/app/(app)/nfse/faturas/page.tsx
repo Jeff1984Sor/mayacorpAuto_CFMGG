@@ -39,7 +39,8 @@ export default function FaturasPage() {
   const resumo = useQuery({ queryKey: ["faturas-resumo"], queryFn: () => api.get<ResumoFaturas>("/nfse/faturas/resumo") });
   const zip = useZipFaturas();
   const emitir = useEmitirNfse();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmitir = pode("nfse_emissao.emitir");
   const tipo = (lista.filtros.tipo as string | undefined) ?? "";
   const [sel, setSel] = useState<Set<number>>(new Set());
   const situacao = (lista.filtros.situacao as SituacaoFatura | undefined) ?? null;
@@ -189,7 +190,7 @@ export default function FaturasPage() {
                     <td className="hidden px-3 py-3 text-muted-foreground md:table-cell" onClick={(e) => f.pode_emitir_nfse && e.stopPropagation()}>
                       {f.nfse_numero ? (
                         <Mono>{f.nfse_numero}</Mono>
-                      ) : f.pode_emitir_nfse && isOperador ? (
+                      ) : f.pode_emitir_nfse && podeEmitir ? (
                         <Button size="xs" variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>
                           <ReceiptText /> Emitir NFS-e
                         </Button>
@@ -241,7 +242,7 @@ export default function FaturasPage() {
               <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => zip.mutate({ ids: [...sel] })} disabled={zip.isPending}>
                 {zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar PDFs (ZIP)
               </Button>
-              {isOperador && emitiveis.length > 0 && (
+              {podeEmitir && emitiveis.length > 0 && (
                 <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => emitir.mutate(emitiveis)} disabled={emitir.isPending}>
                   {emitir.isPending ? <Loader2 className="animate-spin" /> : <ReceiptText />} Emitir NFS-e ({emitiveis.length})
                 </Button>

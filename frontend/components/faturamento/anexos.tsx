@@ -249,7 +249,8 @@ function ItemGrade({ a, onAbrir, acoes }: { a: AnexoOut; onAbrir: () => void; ac
 
 export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDespesa?: () => void }) {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
   const q = useQuery({ queryKey: ["fat", "anexos", casoId], queryFn: () => api.get<AnexoOut[]>(`/faturamento/casos/${casoId}/anexos`) });
   const [modo, setModo] = useState<"lista" | "grade">("lista");
   const [fila, setFila] = useState<File[]>([]);
@@ -285,7 +286,7 @@ export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDesp
   const dz = useDropzone({
     multiple: true,
     maxSize: MAX,
-    disabled: !isOperador || enviar.isPending,
+    disabled: !podeEditar || enviar.isPending,
     onDrop: (fs) => {
       const ok = fs.filter((f) => ACEITOS.split(",").includes(`.${ext(f.name)}`));
       if (ok.length < fs.length) toast.error(`${fs.length - ok.length} arquivo(s) com tipo não aceito.`);
@@ -299,14 +300,14 @@ export function AnexosCaso({ casoId, onVerDespesa }: { casoId: number; onVerDesp
   const visiveis = aberta ? pastas.filter((p) => p === aberta) : pastas;
   const abrir = (a: AnexoOut) => (previsualiza(a.nome) ? setVer(a) : baixar(`/faturamento/anexos/${a.id}`, { query: { download: true } }, a.nome));
   const acoes = (a: AnexoOut) => (
-    <Acoes a={a} podeEditar={isOperador} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} onVerDespesa={onVerDespesa} onAbrirTarefa={setTarefaId} />
+    <Acoes a={a} podeEditar={podeEditar} onVer={setVer} onEditar={setEditar} onExcluir={setExcluir} onVerDespesa={onVerDespesa} onAbrirTarefa={setTarefaId} />
   );
   const [tarefaId, setTarefaId] = useState<number | null>(null);
   const tarefa = useTarefa(tarefaId);
 
   return (
     <div className="space-y-4">
-      {isOperador && (
+      {podeEditar && (
         <section className="card-surface p-4" aria-label="Enviar arquivos">
           <div
             {...dz.getRootProps()}

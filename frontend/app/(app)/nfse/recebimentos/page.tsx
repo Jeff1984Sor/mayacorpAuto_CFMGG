@@ -84,7 +84,7 @@ function Upload() {
 
 export default function RecebimentosPage() {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const lista = usePaginado<ExtratoOut>("extratos", "/nfse/extratos", {}, 25);
 
   return (
@@ -95,7 +95,7 @@ export default function RecebimentosPage() {
         icone={HandCoins}
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Recebimentos" }]}
       />
-      {isOperador && <Upload />}
+      {pode("nfse_recebimentos.editar") && <Upload />}
 
       <TableCard>
         <div className="flex items-center gap-2 border-b px-4 py-3">

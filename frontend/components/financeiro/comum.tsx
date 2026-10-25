@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useFieldId } from "@/components/ui/field-id";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { CategoriaOut, ConfigFinanceiroOut, ContaOut, FornecedorOut, TipoCategoria } from "@/lib/financeiro";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,8 @@ import { cn } from "@/lib/utils";
 // Todas as chaves começam com "fin": invalidar ["fin"] atualiza o módulo inteiro.
 
 export function useContasBancarias() {
-  return useQuery({ queryKey: ["fin", "contas"], queryFn: () => api.get<ContaOut[]>("/financeiro/contas") });
+  const { pode } = useAuth();
+  return useQuery({ queryKey: ["fin", "contas"], queryFn: () => api.get<ContaOut[]>("/financeiro/contas"), enabled: pode("contas_bancarias.ver") });
 }
 
 export function useCategoriasFin(tipo?: TipoCategoria) {

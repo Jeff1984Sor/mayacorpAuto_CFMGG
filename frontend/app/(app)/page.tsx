@@ -111,10 +111,11 @@ function CardAutomacao({ a, i }: { a: AutomacaoCard; i: number }) {
 }
 
 export default function InicioPage() {
-  const { usuario, isOperador } = useAuth();
+  const { usuario, pode } = useAuth();
   const { nome_exibicao } = useBrand();
+  const verPainel = pode("nfse_notas.ver");
   const hub = useQuery({ queryKey: ["hub"], queryFn: () => api.get<AutomacaoCard[]>("/hub/automacoes") });
-  const painel = useQuery({ queryKey: ["painel"], queryFn: () => api.get<PainelOut>("/nfse/painel") });
+  const painel = useQuery({ queryKey: ["painel"], queryFn: () => api.get<PainelOut>("/nfse/painel"), enabled: verPainel });
   const p = painel.data;
 
   const resumo = [
@@ -146,26 +147,30 @@ export default function InicioPage() {
             <div className="mt-2 max-w-xl text-white/70">
               {p ? (
                 fraseDoMes(p)
-              ) : (
+              ) : verPainel ? (
                 <Skeleton className="h-5 w-80 bg-white/10" />
+              ) : (
+                "Tudo o que o seu perfil libera está no menu ao lado."
               )}
             </div>
             <div className="mt-6 flex flex-wrap gap-2">
-              {isOperador && (
+              {pode("nfse_emissao.emitir") && (
                 <Button render={<Link href="/nfse/nova-emissao" />} className="h-10 bg-white px-4 text-navy hover:bg-white/90">
                   <FileUp /> Nova emissão
                 </Button>
               )}
-              <Button
-                render={<Link href="/nfse" />}
-                variant="outline"
-                className="h-10 border-white/20 bg-white/5 px-4 text-white hover:bg-white/10 hover:text-white"
-              >
-                Ver painel <ArrowRight />
-              </Button>
+              {verPainel && (
+                <Button
+                  render={<Link href="/nfse" />}
+                  variant="outline"
+                  className="h-10 border-white/20 bg-white/5 px-4 text-white hover:bg-white/10 hover:text-white"
+                >
+                  Ver painel <ArrowRight />
+                </Button>
+              )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[400px] lg:grid-cols-2">
+          <div className={cn("grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[400px] lg:grid-cols-2", !verPainel && "hidden")}>
             {resumo.map((r) => (
               <div key={r.l} className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur">
                 <p className="text-[11px] text-white/55">{r.l}</p>

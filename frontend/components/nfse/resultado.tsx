@@ -25,7 +25,7 @@ export function soltarConfete() {
 }
 
 export function Resultado({ lote, onCorrigir }: { lote: LoteDetalhe; onCorrigir?: (r: RpsOut) => void }) {
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const acoes = useAcoesLote(lote.id, lote.numero);
   const zipFaturas = useZipFaturas();
   const rejeitadas = lote.rps.filter((r) => r.status === "rejeitado");
@@ -86,7 +86,7 @@ export function Resultado({ lote, onCorrigir }: { lote: LoteDetalhe; onCorrigir?
           >
             {acoes.zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar ZIP (PDF + XML)
           </Button>
-          {isOperador && (
+          {pode("nfse_notas.enviar_email") && (
             <Button
               onClick={() => acoes.emails.mutate()}
               disabled={acoes.emails.isPending || lote.qtd_emitidas === 0}
@@ -124,7 +124,7 @@ export function Resultado({ lote, onCorrigir }: { lote: LoteDetalhe; onCorrigir?
               </h3>
               <p className="text-sm text-muted-foreground">O que passou já está emitido. Corrija os itens abaixo e reenvie só eles.</p>
             </div>
-            {isOperador && (
+            {pode("nfse_emissao.emitir") && (
               <Button onClick={() => acoes.reprocessar.mutate()} disabled={acoes.reprocessar.isPending}>
                 {acoes.reprocessar.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw />} Reenviar rejeitadas
               </Button>
@@ -147,7 +147,7 @@ export function Resultado({ lote, onCorrigir }: { lote: LoteDetalhe; onCorrigir?
                       <p className="text-sm text-muted-foreground">Rejeitado pela Prefeitura.</p>
                     )}
                   </div>
-                  {isOperador && onCorrigir && (
+                  {pode("nfse_emissao.editar") && onCorrigir && (
                     <Button variant="outline" size="sm" onClick={() => onCorrigir(r)}>
                       <Wrench /> Corrigir
                     </Button>

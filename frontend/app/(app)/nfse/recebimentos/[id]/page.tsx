@@ -214,7 +214,8 @@ function LinhaLancamento({
   onAtualizado: (l: LancamentoOut, msg: string) => void;
   onEscolher: (l: LancamentoOut) => void;
 }) {
-  const { isAdmin, isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("nfse_recebimentos.editar");
   const acao = useMutation({
     mutationFn: ({ tipo }: { tipo: "confirmar" | "ignorar" | "desfazer"; msg: string }) =>
       api.post<LancamentoOut>(`/nfse/extratos/${extratoId}/lancamentos/${l.id}/${tipo}`, tipo === "confirmar" ? {} : undefined),
@@ -288,12 +289,12 @@ function LinhaLancamento({
         )}
       </div>
       <div className="relative flex flex-wrap justify-end gap-1.5">
-        {isOperador && l.status === "sugerido" && l.notas.length > 0 && (
+        {podeEditar && l.status === "sugerido" && l.notas.length > 0 && (
           <Button size="sm" onClick={() => acao.mutate({ tipo: "confirmar", msg: "Baixa confirmada" })} disabled={acao.isPending}>
             {acao.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Confirmar
           </Button>
         )}
-        {isOperador && credito && (l.status === "sugerido" || l.status === "sem_par") && (
+        {podeEditar && credito && (l.status === "sugerido" || l.status === "sem_par") && (
           <>
             <Button size="sm" variant="outline" onClick={() => onEscolher(l)}>
               <ListChecks /> Escolher notas
@@ -303,7 +304,7 @@ function LinhaLancamento({
             </Button>
           </>
         )}
-        {isAdmin && conciliado && (
+        {podeEditar && conciliado && (
           <Button size="sm" variant="ghost" className="text-danger-ink" onClick={() => acao.mutate({ tipo: "desfazer", msg: "Baixa desfeita" })} disabled={acao.isPending}>
             <Undo2 /> Desfazer
           </Button>

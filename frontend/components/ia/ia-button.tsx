@@ -90,6 +90,8 @@ export function IaButton({
   title?: string;
 }) {
   const cfg = useConfigIA();
+  const { pode } = useAuth();
+  if (!pode("ia.usar")) return null;
   if (cfg.data && !cfg.data.ativo)
     return (
       <AvisoIADesativada tamanho={tamanho} className={className}>
@@ -110,10 +112,11 @@ export function IaButton({
   );
 }
 
-/** Para triggers de popover: true se a IA está ativa (ou ainda não sabemos). */
+/** Para triggers de popover: true se a IA está ativa (ou ainda não sabemos). `permitida` = o perfil tem "ia.usar". */
 export function useIAAtiva() {
   const cfg = useConfigIA();
-  return { ativa: !!cfg.data?.ativo, carregando: cfg.isPending };
+  const { pode } = useAuth();
+  return { ativa: !!cfg.data?.ativo, carregando: cfg.isPending, permitida: pode("ia.usar") };
 }
 
 export { AvisoIADesativada };

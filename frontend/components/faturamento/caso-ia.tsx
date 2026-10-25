@@ -409,7 +409,8 @@ export function ResumoCasoSheet({ casoId, titulo, aberto, onOpenChange }: { caso
 
 /** Botão ✨ IA do cabeçalho do caso, com as duas ações. */
 export function CasoIAMenu({ onPreencher, onResumir, podeEditar }: { onPreencher: () => void; onResumir: () => void; podeEditar: boolean }) {
-  const { ativa, carregando } = useIAAtiva();
+  const { ativa, carregando, permitida } = useIAAtiva();
+  if (!permitida) return null;
   if (!carregando && !ativa) return <AvisoIADesativada>IA</AvisoIADesativada>;
   return (
     <DropdownMenu>

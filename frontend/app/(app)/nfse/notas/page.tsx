@@ -44,7 +44,8 @@ import type { FiltroNotas, NfseOut } from "@/lib/types";
 
 export default function NotasPage() {
   const router = useRouter();
-  const { isAdmin, isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmail = pode("nfse_notas.enviar_email");
   const lista = usePaginado<NfseOut>("notas", "/nfse/notas", {}, 25);
   const acoes = useAcoesNota();
   const [sel, setSel] = useState<Map<number, NfseOut>>(new Map());
@@ -238,7 +239,7 @@ export default function NotasPage() {
                     </td>
                     <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
-                      {isOperador && n.status === "emitida" && <BotaoEmailNota nfseId={n.id} numero={n.numero} />}
+                      {podeEmail && n.status === "emitida" && <BotaoEmailNota nfseId={n.id} numero={n.numero} />}
                       <DropdownMenu>
                         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ações" />}>
                           <MoreHorizontal />
@@ -253,7 +254,7 @@ export default function NotasPage() {
                           <DropdownMenuItem onClick={() => acoes.prefeitura(n)}>
                             <ExternalLink /> Abrir na Prefeitura
                           </DropdownMenuItem>
-                          {isAdmin && n.status === "emitida" && (
+                          {pode("nfse_notas.cancelar") && n.status === "emitida" && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem variant="destructive" onClick={() => setCancelar(n)}>
@@ -289,7 +290,7 @@ export default function NotasPage() {
                 <strong className="num">{numero(qtdSel)}</strong> selecionada{qtdSel > 1 ? "s" : ""}
                 {todasDoFiltro && <span className="ml-1 text-white/60">(todas do filtro)</span>}
               </span>
-              {isOperador && (
+              {podeEmail && (
                 <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => setEmailLote(true)}>
                   <Mail /> Enviar por e-mail
                 </Button>

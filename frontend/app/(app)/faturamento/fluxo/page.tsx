@@ -62,7 +62,8 @@ function detalhe(l: Linha) {
 
 export default function FluxoPage() {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmitirNfse = pode("nfse_emissao.emitir");
   const [de, setDe] = useState(menos(90));
   const [ate, setAte] = useState(iso(new Date()));
   const [cliente, setCliente] = useState<ClienteEscolhido[]>([]);
@@ -182,7 +183,7 @@ export default function FluxoPage() {
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="w-10 px-4 py-2.5">
-                    {isOperador && emitiveis.length > 0 && (
+                    {podeEmitirNfse && emitiveis.length > 0 && (
                       <Checkbox
                         checked={todosSel}
                         indeterminate={selValidos.length > 0 && !todosSel}
@@ -204,7 +205,7 @@ export default function FluxoPage() {
               <tbody className="divide-y">
                 {linhas.map((l) => {
                   const st = ROTULO[l.status];
-                  const podeEmitir = l.status === "aguardando_nfse" && isOperador;
+                  const podeEmitir = l.status === "aguardando_nfse" && podeEmitirNfse;
                   return (
                     <tr key={`${l.tipo}-${l.id}`} className={cn(linhaClicavel, sel.has(l.id) && podeEmitir && "bg-brand/5")} onClick={() => abrir(l)}>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>

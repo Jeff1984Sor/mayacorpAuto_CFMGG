@@ -19,7 +19,8 @@ import { ContratoDialog } from "./dialogos";
 /** Aba "Contratos" no cadastro do cliente. */
 export function ContratosDoCliente({ tomadorId }: { tomadorId: number }) {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contratos.editar");
   const [novo, setNovo] = useState(false);
   const q = useQuery({ queryKey: ["fat", "contratos", "cliente", tomadorId], queryFn: () => api.get<ContratoOut[]>("/faturamento/contratos", { tomador_id: tomadorId }) });
   const lista = q.data ?? [];
@@ -33,7 +34,7 @@ export function ContratosDoCliente({ tomadorId }: { tomadorId: number }) {
           <FileSignature className="mx-auto size-7 text-muted-foreground/60" />
           <p className="mt-2 font-medium">Nenhum contrato com este cliente</p>
           <p className="text-sm text-muted-foreground">O contrato define como o cliente é cobrado: valor fixo, mensalidade ou horas.</p>
-          {isOperador && (
+          {podeEditar && (
             <Button type="button" className="mt-4" onClick={() => setNovo(true)}>
               <FilePlus2 /> Novo contrato
             </Button>
@@ -41,7 +42,7 @@ export function ContratosDoCliente({ tomadorId }: { tomadorId: number }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {isOperador && (
+          {podeEditar && (
             <div className="flex justify-end">
               <Button type="button" size="sm" onClick={() => setNovo(true)}>
                 <FilePlus2 /> Novo contrato

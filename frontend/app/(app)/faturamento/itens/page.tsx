@@ -204,7 +204,9 @@ function ResultadoDialog({
 export default function ItensAFaturarPage() {
   const qc = useQueryClient();
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeFaturar = pode("itens_faturar.faturar");
+  const podeRevisar = pode("revisoes.editar");
   const [rascunho, setRascunho] = useState<Filtros>({ aba: "honorarios", de: inicioMes(), ate: fimMes(), clientes: [], tipos: [] });
   const [aplicado, setAplicado] = useState<Filtros | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -508,7 +510,7 @@ export default function ItensAFaturarPage() {
 
       {/* rodapé fixo */}
       <AnimatePresence>
-        {aplicado && selecionados.length > 0 && isOperador && (
+        {aplicado && selecionados.length > 0 && (podeFaturar || podeRevisar) && (
           <motion.div
             initial={{ y: 90, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -521,12 +523,16 @@ export default function ItensAFaturarPage() {
                 <strong className="tabular-nums">{selecionados.length}</strong> item(ns) · <strong className="font-mono">{moeda(totalSel)}</strong>{" "}
                 <span className="text-white/60">em {doc}</span>
               </span>
-              <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => setConfirmarDireto(true)} disabled={faturar.isPending || revisar.isPending}>
-                <Zap /> Faturar direto
-              </Button>
-              <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => revisar.mutate()} disabled={revisar.isPending || faturar.isPending}>
-                {revisar.isPending ? <Loader2 className="animate-spin" /> : <Send />} Enviar para Revisão
-              </Button>
+              {podeFaturar && (
+                <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => setConfirmarDireto(true)} disabled={faturar.isPending || revisar.isPending}>
+                  <Zap /> Faturar direto
+                </Button>
+              )}
+              {podeRevisar && (
+                <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => revisar.mutate()} disabled={revisar.isPending || faturar.isPending}>
+                  {revisar.isPending ? <Loader2 className="animate-spin" /> : <Send />} Enviar para Revisão
+                </Button>
+              )}
             </div>
           </motion.div>
         )}

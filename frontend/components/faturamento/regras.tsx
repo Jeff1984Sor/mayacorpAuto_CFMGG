@@ -86,7 +86,8 @@ function CardRegra({ r, onEditar, onExcluir, podeEditar }: { r: RegraOut; onEdit
 /** Lista de regras de cobrança (do contrato ou de um caso) com criar/editar/excluir. */
 export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?: number; casoId?: number; vazioTexto?: string }) {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contratos.editar");
   const [editar, setEditar] = useState<RegraOut | null>(null);
   const [nova, setNova] = useState(false);
   const [excluir, setExcluir] = useState<RegraOut | null>(null);
@@ -106,7 +107,7 @@ export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?
 
   return (
     <div className="space-y-4">
-      {isOperador && regras.length > 0 && (
+      {podeEditar && regras.length > 0 && (
         <div className="flex justify-end">
           <Button onClick={() => setNova(true)}>
             <CalendarPlus /> Nova regra
@@ -126,7 +127,7 @@ export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?
             titulo="Nenhuma regra de cobrança"
             descricao={vazioTexto ?? "Defina como este contrato é cobrado: valor fixo, mensalidade recorrente ou por hora."}
             acao={
-              isOperador && (
+              podeEditar && (
                 <Button onClick={() => setNova(true)}>
                   <CalendarPlus /> Criar regra
                 </Button>
@@ -137,7 +138,7 @@ export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {regras.map((r) => (
-            <CardRegra key={r.id} r={r} podeEditar={isOperador} onEditar={() => setEditar(r)} onExcluir={() => setExcluir(r)} />
+            <CardRegra key={r.id} r={r} podeEditar={podeEditar} onEditar={() => setEditar(r)} onExcluir={() => setExcluir(r)} />
           ))}
         </div>
       )}

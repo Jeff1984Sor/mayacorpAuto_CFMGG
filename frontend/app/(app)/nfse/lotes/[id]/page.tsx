@@ -96,7 +96,7 @@ export default function LoteDetalhePage() {
   const { id } = useParams<{ id: string }>();
   const loteId = Number(id);
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const [aberto, setAberto] = useState<RpsOut | null>(null);
   const [confirmaReproc, setConfirmaReproc] = useState(false);
 
@@ -140,8 +140,8 @@ export default function LoteDetalhePage() {
         acoes={
           <>
             <ChamarAlguem origemTipo="lote" origemId={l.id} contexto={`o lote #${String(l.numero).padStart(4, "0")}`} />
-            {isOperador && <BotaoAnaliseIA endpoint={`/ia/analise/lote/${l.id}`} contexto={`Lote #${String(l.numero).padStart(4, "0")}`} />}
-            {l.status === "validando" && isOperador && (
+            {pode("ia.usar") && <BotaoAnaliseIA endpoint={`/ia/analise/lote/${l.id}`} contexto={`Lote #${String(l.numero).padStart(4, "0")}`} />}
+            {l.status === "validando" && pode("nfse_emissao.editar") && (
               <Button render={<Link href={`/nfse/nova-emissao?lote=${l.id}`} />}>Continuar conferência</Button>
             )}
             <Button variant="outline" onClick={() => acoes.arquivo.mutate()} disabled={acoes.arquivo.isPending}>
@@ -160,12 +160,12 @@ export default function LoteDetalhePage() {
                 {zipFaturas.isPending ? <Loader2 className="animate-spin" /> : <ReceiptText />} Faturas (ZIP)
               </Button>
             )}
-            {isOperador && l.qtd_emitidas > 0 && (
+            {pode("nfse_notas.enviar_email") && l.qtd_emitidas > 0 && (
               <Button variant="outline" onClick={() => acoes.emails.mutate()} disabled={acoes.emails.isPending}>
                 <Mail /> E-mails
               </Button>
             )}
-            {isOperador && rejeitadas > 0 && loteFinalizado(l.status) && (
+            {pode("nfse_emissao.emitir") && rejeitadas > 0 && loteFinalizado(l.status) && (
               <Button onClick={() => setConfirmaReproc(true)}>
                 <RotateCcw /> Reprocessar rejeitados
               </Button>
@@ -199,7 +199,7 @@ export default function LoteDetalhePage() {
         <RpsTable
           rps={l.rps}
           onAbrir={setAberto}
-          acaoNota={isOperador ? (r) => <BotaoEmailNota nfseId={r.nfse_id!} numero={r.nfse_numero ?? undefined} /> : undefined}
+          acaoNota={pode("nfse_notas.enviar_email") ? (r) => <BotaoEmailNota nfseId={r.nfse_id!} numero={r.nfse_numero ?? undefined} /> : undefined}
         />
         <div className="card-surface h-fit p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -219,7 +219,7 @@ export default function LoteDetalhePage() {
       <RpsEditor
         loteId={loteId}
         rps={aberto}
-        somenteLeitura={!isOperador || !(aberto?.status === "rejeitado" || l.status === "validando")}
+        somenteLeitura={!pode("nfse_emissao.editar") || !(aberto?.status === "rejeitado" || l.status === "validando")}
         onClose={() => setAberto(null)}
         onSaved={() => void q.refetch()}
       />

@@ -32,7 +32,7 @@ export const MODO_INFO: Record<ModoPrefeitura, { rotulo: string; dica: string; c
 /** Selo global do modo de emissão (topbar). */
 export function ModoBadge({ className }: { className?: string }) {
   const { data } = usePrefeitura();
-  const { isAdmin } = useAuth();
+  const { pode } = useAuth();
   if (!data) return null;
   const m = MODO_INFO[data.modo] ?? MODO_INFO.simulado;
   const conteudo = (
@@ -52,7 +52,7 @@ export function ModoBadge({ className }: { className?: string }) {
   );
   return (
     <Tooltip>
-      <TooltipTrigger render={isAdmin ? <Link href="/configuracoes/prefeitura" /> : <span />}>{conteudo}</TooltipTrigger>
+      <TooltipTrigger render={pode("cfg_prefeitura.ver") ? <Link href="/configuracoes/prefeitura" /> : <span />}>{conteudo}</TooltipTrigger>
       <TooltipContent side="bottom">{m.dica}</TooltipContent>
     </Tooltip>
   );

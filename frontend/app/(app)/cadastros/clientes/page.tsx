@@ -138,7 +138,8 @@ function Historico({ id }: { id: number }) {
 
 function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("clientes.editar");
   const cep = useCep();
   const cnpj = useCnpj();
   const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
@@ -241,7 +242,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   };
 
   const dados = (
-    <fieldset disabled={!isOperador} className="grid gap-4 sm:grid-cols-6">
+    <fieldset disabled={!podeEditar} className="grid gap-4 sm:grid-cols-6">
       <Field label="Tipo" className="sm:col-span-2">
         <NativeSelect {...f.register("tipo")}>
           <option value="PJ">Pessoa jurídica</option>
@@ -325,18 +326,18 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       onOpenChange={(o) => !o && onClose()}
       titulo={cliente ? cliente.nome : "Novo cliente"}
       formId="form-cliente"
-      acaoCabecalho={isOperador && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
+      acaoCabecalho={podeEditar && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
       descricao={cliente ? "Dados do cliente, contratos e histórico de notas." : undefined}
       largura="lg"
       salvando={salvar.isPending}
-      rotuloSalvar={isOperador ? "Salvar" : "Fechar"}
-      onSubmit={isOperador ? f.handleSubmit((v) => salvar.mutate(v)) : (e) => (e.preventDefault(), onClose())}
+      rotuloSalvar={podeEditar ? "Salvar" : "Fechar"}
+      onSubmit={podeEditar ? f.handleSubmit((v) => salvar.mutate(v)) : (e) => (e.preventDefault(), onClose())}
     >
       {cliente ? (
         <Tabs defaultValue="dados">
           <TabsList className="mb-4">
             <TabsTrigger value="dados">Dados</TabsTrigger>
-            <TabsTrigger value="contratos">Contratos</TabsTrigger>
+            {pode("contratos.ver") && <TabsTrigger value="contratos">Contratos</TabsTrigger>}
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
           <TabsContent value="dados">{dados}</TabsContent>
@@ -355,7 +356,8 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
 }
 
 export default function ClientesPage() {
-  const { isOperador, isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("clientes.editar");
   const qc = useQueryClient();
   const lista = usePaginado<TomadorOut>("tomadores", "/nfse/tomadores");
   const [editar, setEditar] = useState<TomadorOut | null>(null);
@@ -412,7 +414,7 @@ export default function ClientesPage() {
             <Button variant="outline" onClick={() => exportar.mutate()} disabled={exportar.isPending}>
               <Download /> Exportar
             </Button>
-            {isOperador && (
+            {pode("clientes.importar") && (
               <>
                 <input
                   ref={inputArquivo}
@@ -428,10 +430,12 @@ export default function ClientesPage() {
                 <Button variant="outline" onClick={() => inputArquivo.current?.click()} disabled={importar.isPending}>
                   {importar.isPending ? <Loader2 className="animate-spin" /> : <Upload />} Importar planilha
                 </Button>
-                <Button onClick={() => setNovo(true)}>
-                  <Plus /> Novo cliente
-                </Button>
               </>
+            )}
+            {podeEditar && (
+              <Button onClick={() => setNovo(true)}>
+                <Plus /> Novo cliente
+              </Button>
             )}
           </>
         }
@@ -460,7 +464,7 @@ export default function ClientesPage() {
                 : "Os tomadores entram aqui automaticamente quando você importa o primeiro arquivo."
             }
             acao={
-              isOperador &&
+              podeEditar &&
               !lista.q && (
                 <Button onClick={() => setNovo(true)}>
                   <Plus /> Cadastrar cliente
@@ -524,9 +528,9 @@ export default function ClientesPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => setEditar(c)}>
-                            <Pencil /> {isOperador ? "Editar" : "Ver"}
+                            <Pencil /> {podeEditar ? "Editar" : "Ver"}
                           </DropdownMenuItem>
-                          {isAdmin && (
+                          {pode("clientes.excluir") && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>

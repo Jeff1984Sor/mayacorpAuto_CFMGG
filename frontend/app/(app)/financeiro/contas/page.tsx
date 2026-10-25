@@ -72,7 +72,8 @@ function CartaoConta({ c, i }: { c: ContaOut; i: number }) {
 }
 
 export default function ContasPage() {
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contas_bancarias.editar");
   const contas = useContasBancarias();
   const [transf, setTransf] = useState(false);
   const lista = contas.data ?? [];
@@ -88,7 +89,7 @@ export default function ContasPage() {
         icone={Wallet}
         migalhas={[{ label: "Conta Bancária" }, { label: "Contas" }]}
         acoes={
-          isOperador && (
+          podeEditar && (
             <>
               <Button variant="outline" onClick={() => setTransf(true)} disabled={ativas.length < 2}>
                 <ArrowLeftRight /> Transferência
@@ -117,7 +118,7 @@ export default function ContasPage() {
             titulo="Nenhuma conta cadastrada"
             descricao="Cadastre as contas do escritório para acompanhar saldo, extrato, fluxo de caixa e DRE."
             acao={
-              isOperador && (
+              podeEditar && (
                 <Button render={<Link href="/financeiro/nova-conta" />}>
                   <Plus /> Cadastrar a primeira conta
                 </Button>

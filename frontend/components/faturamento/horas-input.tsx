@@ -8,6 +8,7 @@ import { useFieldId } from "@/components/ui/field-id";
 import { Input } from "@/components/ui/input";
 import { IaButtonVisual } from "@/components/ia/ia-button";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 // ================================================================ horas HH:MM
@@ -123,6 +124,7 @@ export function EnriquecerIA({
   corpo: () => Record<string, unknown>;
   className?: string;
 }) {
+  const { pode } = useAuth();
   const [anterior, setAnterior] = useState<TextoEnriquecivel | null>(null);
   const texto = (valor.descricao || valor.titulo || "").trim();
   const ir = useMutation({
@@ -132,6 +134,7 @@ export function EnriquecerIA({
       onChange({ ...valor, ...(r.titulo !== undefined && valor.titulo !== undefined ? { titulo: r.titulo } : {}), descricao: r.descricao });
     },
   });
+  if (!pode("ia.usar")) return null;
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <IaButtonVisual type="button" tamanho="sm" carregando={ir.isPending} disabled={ir.isPending || texto.length < 2} onClick={() => ir.mutate()} title={texto.length < 2 ? "Escreva algo primeiro" : undefined}>

@@ -69,7 +69,7 @@ export default function FaturaDetalhePage() {
   const { id } = useParams<{ id: string }>();
   const fid = Number(id);
   const qc = useQueryClient();
-  const { isAdmin, isOperador } = useAuth();
+  const { pode } = useAuth();
   const q = useQuery({ queryKey: ["fatura", fid], queryFn: () => api.get<FaturaOut>(`/nfse/faturas/${fid}`) });
   const f = q.data;
   const [editar, setEditar] = useState(false);
@@ -81,7 +81,7 @@ export default function FaturaDetalhePage() {
   const [cancelar, setCancelar] = useState(false);
   const [motivo, setMotivo] = useState("");
   const emitir = useEmitirNfse();
-  const contas = useQuery({ queryKey: ["fin", "contas"], queryFn: () => api.get<ContaOut[]>("/financeiro/contas"), enabled: pagar, meta: { silencioso: true } });
+  const contas = useQuery({ queryKey: ["fin", "contas"], queryFn: () => api.get<ContaOut[]>("/financeiro/contas"), enabled: pagar && pode("contas_bancarias.ver"), meta: { silencioso: true } });
 
   const aplicar = (nova: FaturaOut, msg: string) => {
     qc.setQueryData(["fatura", fid], nova);
@@ -180,7 +180,7 @@ export default function FaturaDetalhePage() {
             <Button variant="outline" onClick={() => baixar(`/nfse/faturas/${fid}/pdf`, {}, `${f.codigo.replace(/\W+/g, "_")}.pdf`)}>
               <Download /> Baixar
             </Button>
-            {isOperador && aberta && (
+            {pode("faturas.baixar") && aberta && (
               <Button
                 onClick={() => {
                   setBaixa({ data: hoje(), valor: "", conta: "" });
@@ -190,17 +190,17 @@ export default function FaturaDetalhePage() {
                 <Banknote /> Registrar pagamento
               </Button>
             )}
-            {isOperador && f.pode_emitir_nfse && (
+            {pode("nfse_emissao.emitir") && f.pode_emitir_nfse && (
               <Button variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>
                 <FileCheck2 /> Emitir NFS-e
               </Button>
             )}
-            {isAdmin && f.origem === "faturamento" && !f.nfse_id && f.status === "aberta" && (
+            {pode("faturas.cancelar") && f.origem === "faturamento" && !f.nfse_id && f.status === "aberta" && (
               <Button variant="ghost" className="text-danger-ink" onClick={() => setCancelar(true)}>
                 <X /> Cancelar fatura
               </Button>
             )}
-            {isAdmin && f.status === "paga" && (
+            {pode("faturas.baixar") && f.status === "paga" && (
               <Button variant="destructive" onClick={() => setDesfazer(true)}>
                 <Undo2 /> Desfazer pagamento
               </Button>
@@ -243,7 +243,7 @@ export default function FaturaDetalhePage() {
                   </div>
                 ))}
               </dl>
-              {isOperador && aberta && (
+              {pode("faturas.editar") && aberta && (
                 <Button
                   variant="outline"
                   size="sm"

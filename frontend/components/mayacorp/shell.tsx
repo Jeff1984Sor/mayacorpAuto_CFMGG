@@ -45,9 +45,11 @@ import { CommandPalette, abrirPaleta } from "./command-palette";
 import { ModoBadge } from "./modo-badge";
 import { TrocarSenhaDialog } from "./trocar-senha-dialog";
 import { UserAvatar } from "./user-avatar";
-import { ativo, navPara, type NavItem } from "./nav";
+import { ativo, itemDaRota, navPara, type NavItem } from "./nav";
+import { SemAcesso } from "./sem-acesso";
 
 const PERFIL_LABEL = { admin: "Administrador", operador: "Operador", visualizador: "Visualizador" } as const;
+const nomePerfil = (u: { perfil_acesso_nome: string | null; perfil: keyof typeof PERFIL_LABEL }) => u.perfil_acesso_nome ?? PERFIL_LABEL[u.perfil];
 
 const nadaAssinar = () => () => {};
 
@@ -195,10 +197,10 @@ function useGruposRecolhidos() {
 }
 
 function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boolean; onNavigate?: () => void; onRecolher?: () => void }) {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const { nome_exibicao } = useBrand();
   const pathname = usePathname();
-  const grupos = navPara(usuario?.perfil, usuario?.equipe_mayacorp);
+  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp);
   const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
@@ -323,7 +325,7 @@ function ThemeToggle() {
 }
 
 function Topbar({ onMenu }: { onMenu: () => void }) {
-  const { usuario, sair } = useAuth();
+  const { usuario, sair, pode } = useAuth();
   const [trocarSenha, setTrocarSenha] = useState(false);
   const router = useRouter();
   const mac = useSyncExternalStore(
@@ -355,8 +357,12 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       <div className="hidden md:block">
         <ThemeToggle />
       </div>
-      <ChatBotao />
-      <MencoesBotao />
+      {pode("comunicador.usar") && (
+        <>
+          <ChatBotao />
+          <MencoesBotao />
+        </>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -367,7 +373,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           <UserAvatar nome={usuario?.nome ?? "?"} fotoUrl={usuario?.foto_url} className="size-8 ring-2 ring-brand/30" textoClassName="text-xs" />
           <div className="hidden text-left leading-tight md:block">
             <p className="max-w-36 truncate text-sm font-medium">{usuario?.nome.split(" ")[0]}</p>
-            <p className="text-[11px] text-muted-foreground">{usuario && PERFIL_LABEL[usuario.perfil]}</p>
+            <p className="max-w-36 truncate text-[11px] text-muted-foreground">{usuario && nomePerfil(usuario)}</p>
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
@@ -389,7 +395,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
             <ModoBadge />
           </div>
           <DropdownMenuItem disabled>
-            <UserRound /> {usuario && PERFIL_LABEL[usuario.perfil]}
+            <UserRound /> <span className="truncate">Seu perfil: {usuario && nomePerfil(usuario)}</span>
             {usuario?.login && <span className="ml-auto font-mono text-[11px]">@{usuario.login}</span>}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push("/minha-conta")}>
@@ -413,6 +419,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [recolhido, alternar] = useRecolhido();
   const [gaveta, setGaveta] = useState(false);
   const pathname = usePathname();
+  const { pode, usuario } = useAuth();
+  // bloqueio leve por página: o servidor já recusa os dados, aqui só trocamos a tela por um aviso amigável
+  const rota = itemDaRota(pathname);
+  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp));
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha a gaveta ao navegar
   useEffect(() => setGaveta(false), [pathname]);
 
@@ -449,10 +459,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Topbar onMenu={() => setGaveta(true)} />
       <CommandPalette />
-      <ComunicadorWidget />
+      {pode("comunicador.usar") && <ComunicadorWidget />}
 
       <main className="min-h-dvh pt-[calc(var(--tb)+var(--faixa))] transition-[padding] duration-200 lg:pl-(--sb)">
-        <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{bloqueada ? <SemAcesso /> : children}</div>
       </main>
     </>
   );

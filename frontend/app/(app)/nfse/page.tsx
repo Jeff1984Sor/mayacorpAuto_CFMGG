@@ -174,7 +174,7 @@ function Saude() {
 }
 
 export default function PainelNfsePage() {
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const q = useQuery({ queryKey: ["painel"], queryFn: () => api.get<PainelOut>("/nfse/painel"), refetchInterval: 30_000 });
   const p = q.data;
   const carregando = q.isPending;
@@ -194,7 +194,7 @@ export default function PainelNfsePage() {
         acoes={
           <>
             <BotaoAnaliseIA endpoint="/ia/analise/painel" contexto="Painel do mês" className="h-9" />
-            {isOperador && (
+            {pode("nfse_emissao.emitir") && (
               <Button render={<Link href="/nfse/nova-emissao" />} className="h-9 brand-gradient px-4 text-white shadow-md shadow-brand/25">
                 <FileUp /> Nova emissão
               </Button>

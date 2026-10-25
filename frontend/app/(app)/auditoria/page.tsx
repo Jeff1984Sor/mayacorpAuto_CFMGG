@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowRight, ChevronDown, ScrollText, ShieldAlert } from "lucide-react";
+import { ArrowRight, ChevronDown, ScrollText } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, useState } from "react";
 
 import { Mono } from "@/components/mayacorp/brand";
 import { Pagination, SearchInput, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
+import { SemAcesso } from "@/components/mayacorp/sem-acesso";
 import { NativeSelect } from "@/components/mayacorp/form";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
@@ -67,17 +68,18 @@ function Diff({ antes, depois }: { antes: Record<string, unknown> | null; depois
 }
 
 export default function AuditoriaPage() {
-  const { isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeVer = pode("auditoria.ver");
   const lista = usePaginado<AuditoriaOut>("auditoria", "/auditoria", {}, 30);
   const [aberto, setAberto] = useState<number | null>(null);
   const usuarios = useQuery({
     queryKey: ["usuarios"],
     queryFn: () => api.get<UsuarioOut[]>("/config/usuarios"),
-    enabled: isAdmin,
+    enabled: podeVer,
     meta: { silencioso: true },
   });
   const fotos = new Map((usuarios.data ?? []).map((u) => [u.nome, u.foto_url]));
-  if (!isAdmin) return <EmptyState icone={ShieldAlert} titulo="Somente administradores" />;
+  if (!podeVer) return <SemAcesso />;
 
   return (
     <div>

@@ -317,7 +317,9 @@ function ConfigPainel({ p, onSalvo }: { p: Projecao; onSalvo: (r: Projecao) => v
 // ---------------------------------------------------------------- página
 export default function ImpostosPage() {
   const qc = useQueryClient();
-  const { isAdmin, isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeConfigurar = pode("impostos.configurar");
+  const podeInformar = pode("impostos.configurar");
   const emissoras = useEmissoras();
   const [emissoraId, setEmissoraId] = useState<number | null>(null);
   const [metodo, setMetodo] = useState("media3");
@@ -684,7 +686,7 @@ export default function ImpostosPage() {
                   Receita informada pelo contador
                 </h2>
                 <p className="mb-3 text-xs text-muted-foreground">Substitui o valor do sistema no mês (ex.: receitas fora das NFS-e emitidas aqui).</p>
-                {isOperador && (
+                {podeInformar && (
                   <form
                     className="grid grid-cols-2 gap-2"
                     onSubmit={(e) => {
@@ -714,7 +716,7 @@ export default function ImpostosPage() {
                         <span className="w-14 font-medium">{rotMes(x.mes)}</span>
                         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{x.observacao}</span>
                         <span className="font-mono">{moeda(x.valor)}</span>
-                        {isOperador && (
+                        {podeInformar && (
                           <Button variant="ghost" size="icon-xs" onClick={() => apagarInf.mutate(x.mes)} aria-label={`Remover receita de ${rotMes(x.mes)}`}>
                             <Trash2 />
                           </Button>
@@ -733,7 +735,7 @@ export default function ImpostosPage() {
             </p>
           )}
 
-          {isAdmin && (
+          {podeConfigurar && (
             <section className="card-surface overflow-hidden">
               <button type="button" onClick={() => setConfigAberta((a) => !a)} aria-expanded={configAberta} className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-accent/30">
                 <Landmark className="size-4 text-info-ink" />

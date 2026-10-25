@@ -100,7 +100,10 @@ function Lancamentos() {
   const pathname = usePathname();
   const sp = useSearchParams();
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contas_pagar.editar");
+  const podePagar = pode("contas_pagar.pagar");
+  const podeExcluir = pode("contas_pagar.excluir");
 
   // filtros moram na URL; sem nenhum parâmetro, abre no mês atual
   const temParams = sp.toString().length > 0;
@@ -214,7 +217,7 @@ function Lancamentos() {
             <Button variant="outline" onClick={() => baixar("/financeiro/contas-pagar/modelo.xlsx", {}, "modelo_contas_a_pagar.xlsx")}>
               <Download /> Modelo
             </Button>
-            {isOperador && (
+            {podeEditar && (
               <>
                 <Button variant="outline" onClick={() => setImportar(true)}>
                   <Upload /> Importar
@@ -280,7 +283,7 @@ function Lancamentos() {
             titulo={filtrando ? "Nenhuma conta com esses filtros" : "Nenhuma conta neste período"}
             descricao={filtrando ? "Troque os filtros ou o período." : "Lance as contas do mês ou importe a planilha do modelo."}
             acao={
-              isOperador && (
+              podeEditar && (
                 <div className="flex gap-2">
                   <Button render={<Link href="/financeiro/pagar/nova" />}>
                     <FilePlus2 /> Nova conta
@@ -367,49 +370,57 @@ function Lancamentos() {
                               <MailCheck className="size-4" />
                             </span>
                           )}
-                          {isOperador && !pago && (
+                          {podePagar && !pago && (
                             <Button size="xs" variant="outline" onClick={() => setPagar(c)}>
                               <Banknote /> Pagar
                             </Button>
                           )}
-                          {isOperador && (
+                          {(podeEditar || podePagar || podeExcluir) && (
                             <DropdownMenu>
                               <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${c.favorecido_nome || c.descricao}`} />}>
                                 <MoreHorizontal />
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-60">
-                                {!pago && (
+                                {!pago && podeEditar && (
                                   <DropdownMenuItem onClick={() => router.push(`/financeiro/pagar/${c.id}`)}>
                                     <Pencil /> Editar
                                   </DropdownMenuItem>
                                 )}
-                                {pago && (
+                                {pago && podePagar && (
                                   <DropdownMenuItem onClick={() => reabrir.mutate(c.id)}>
                                     <Undo2 /> Reabrir (desfazer pagamento)
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => anexar(c.id, "anexo")}>
-                                  <Upload /> {c.tem_anexo ? "Trocar boleto/nota" : "Anexar boleto/nota"}
-                                </DropdownMenuItem>
-                                {c.tem_comprovante ? (
-                                  <DropdownMenuItem onClick={() => abrirArquivo(`/financeiro/contas-pagar/${c.id}/arquivo?tipo=comprovante`)}>
-                                    <Receipt /> Ver comprovante
-                                  </DropdownMenuItem>
-                                ) : (
-                                  <DropdownMenuItem onClick={() => anexar(c.id, "comprovante")}>
-                                    <Receipt /> Anexar comprovante
-                                  </DropdownMenuItem>
+                                {podeEditar && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => anexar(c.id, "anexo")}>
+                                      <Upload /> {c.tem_anexo ? "Trocar boleto/nota" : "Anexar boleto/nota"}
+                                    </DropdownMenuItem>
+                                    {c.tem_comprovante ? (
+                                      <DropdownMenuItem onClick={() => abrirArquivo(`/financeiro/contas-pagar/${c.id}/arquivo?tipo=comprovante`)}>
+                                        <Receipt /> Ver comprovante
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem onClick={() => anexar(c.id, "comprovante")}>
+                                        <Receipt /> Anexar comprovante
+                                      </DropdownMenuItem>
+                                    )}
+                                    {!pago && (
+                                      <DropdownMenuItem onClick={() => agendar.mutate(c.id)}>
+                                        <Send /> {c.agendamento_enviado_em ? `Reenviar aviso (enviado ${data(c.agendamento_enviado_em)})` : "Enviar aviso de agendamento"}
+                                      </DropdownMenuItem>
+                                    )}
+                                  </>
                                 )}
-                                {!pago && (
-                                  <DropdownMenuItem onClick={() => agendar.mutate(c.id)}>
-                                    <Send /> {c.agendamento_enviado_em ? `Reenviar aviso (enviado ${data(c.agendamento_enviado_em)})` : "Enviar aviso de agendamento"}
-                                  </DropdownMenuItem>
+                                {podeExcluir && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>
+                                      <Trash2 /> Excluir
+                                    </DropdownMenuItem>
+                                  </>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onClick={() => setExcluir(c)}>
-                                  <Trash2 /> Excluir
-                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           )}
@@ -465,7 +476,7 @@ function Lancamentos() {
               <span className="text-sm">
                 <strong className="tabular-nums">{sel.size}</strong> selecionada(s) · <strong className="font-mono">{moeda(totalSel)}</strong>
               </span>
-              {isOperador && abertasSel.length > 0 && (
+              {podePagar && abertasSel.length > 0 && (
                 <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => setLote(abertasSel)}>
                   <Banknote /> Pagar selecionadas ({abertasSel.length})
                 </Button>

@@ -95,7 +95,7 @@ function PreviaRelatorio({ nome, planilha, zip }: { nome: string; planilha: bool
 
 export default function AutomacoesPage() {
   const qc = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { pode } = useAuth();
   const { nome_exibicao } = useBrand();
   const q = useQuery({ queryKey: ["automacoes"], queryFn: () => api.get<ConfigAutomacoes>("/config/automacoes") });
   const [c, setC] = useState<ConfigAutomacoes | null>(null);
@@ -135,7 +135,7 @@ export default function AutomacoesPage() {
         titulo="Fatura (Nota de Honorários)"
         descricao="Documento de cobrança com PIX que acompanha cada NFS-e."
         acao={
-          isAdmin && (
+          pode("faturas.editar") && (
             <Button variant="outline" size="sm" onClick={() => setGerar(true)}>
               <Wand2 /> Gerar faturas das notas antigas
             </Button>

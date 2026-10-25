@@ -156,7 +156,8 @@ function BadgePrazo({ a }: { a: AndamentoOut }) {
 
 export function AndamentosCaso({ casoId }: { casoId: number }) {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
   const q = useQuery({ queryKey: ["fat", "andamentos", casoId], queryFn: () => api.get<AndamentoOut[]>(`/faturamento/casos/${casoId}/andamentos`) });
   const [filtro, setFiltro] = useState<TipoAndamento | "pendentes" | null>(null);
   const [dlg, setDlg] = useState<{ a: AndamentoOut | null } | null>(null);
@@ -220,7 +221,7 @@ export function AndamentosCaso({ casoId }: { casoId: number }) {
             </button>
           ))}
         </div>
-        {isOperador && todos.length > 0 && (
+        {podeEditar && todos.length > 0 && (
           <Button className="ml-auto" onClick={() => setDlg({ a: null })}>
             <Plus /> Novo andamento
           </Button>
@@ -236,7 +237,7 @@ export function AndamentosCaso({ casoId }: { casoId: number }) {
             titulo="Nenhum andamento"
             descricao="Registre publicações, decisões, audiências e notas internas do caso. Prazos agora ficam em Tarefas."
             acao={
-              isOperador && (
+              podeEditar && (
                 <Button onClick={() => setDlg({ a: null })}>
                   <Plus /> Registrar o primeiro
                 </Button>
@@ -269,12 +270,12 @@ export function AndamentosCaso({ casoId }: { casoId: number }) {
                             <h4 className={cn("mt-0.5 font-medium", a.concluido && "text-muted-foreground line-through")}>{a.titulo}</h4>
                           </div>
                           <BadgePrazo a={a} />
-                          {isOperador && a.prazo && (
+                          {podeEditar && a.prazo && (
                             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <Checkbox checked={a.concluido} onCheckedChange={() => concluir.mutate(a)} aria-label={`Concluir ${a.titulo}`} /> concluir
                             </label>
                           )}
-                          {isOperador && (
+                          {podeEditar && (
                             <DropdownMenu>
                               <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${a.titulo}`} className="opacity-60 group-hover:opacity-100" />}>
                                 <MoreHorizontal />

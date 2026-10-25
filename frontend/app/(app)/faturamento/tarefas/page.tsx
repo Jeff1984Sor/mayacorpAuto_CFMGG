@@ -384,7 +384,10 @@ function Central() {
   const pathname = usePathname();
   const sp = useSearchParams();
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("tarefas.editar");
+  // sem "Ver as de todos" o servidor só devolve as tarefas da pessoa: filtro de responsável não faz sentido
+  const verTodas = pode("tarefas.ver_todas");
   const profs = useProfissionais();
   const etiquetas = useEtiquetas();
 
@@ -502,7 +505,7 @@ function Central() {
     { k: "atrasadas", l: "Atrasadas", n: r?.atrasadas, icone: AlarmClock, on: f.situacao === "atrasadas", aplicar: { situacao: "atrasadas", status: [] }, cls: "text-danger-ink" },
     { k: "hoje", l: "Hoje", n: r?.hoje, icone: Clock, on: f.situacao === "hoje", aplicar: { situacao: "hoje", status: [] }, cls: "text-warning-ink" },
     { k: "semana", l: "Esta semana", n: r?.semana, icone: CalendarRange, on: f.situacao === "semana", aplicar: { situacao: "semana", status: [] } },
-    { k: "minhas", l: "Minhas", n: r?.minhas, icone: UserRoundCheck, on: f.minhas, aplicar: { minhas: !f.minhas, responsavel_id: "" } },
+    ...(verTodas ? [{ k: "minhas", l: "Minhas", n: r?.minhas, icone: UserRoundCheck, on: f.minhas, aplicar: { minhas: !f.minhas, responsavel_id: "" } }] : []),
     { k: "sem_prazo", l: "Sem prazo", n: r?.sem_prazo, icone: CalendarDays, on: f.situacao === "sem_prazo", aplicar: { situacao: "sem_prazo", status: [] } },
     { k: "concluidas", l: "Concluídas em 7 dias", n: r?.concluidas_7d, icone: CheckCircle2, on: f.status.length === 1 && f.status[0] === "concluida", aplicar: { status: ["concluida"], situacao: "" }, cls: "text-success-ink" },
   ];
@@ -525,7 +528,7 @@ function Central() {
                 { value: "calendario", label: "Calendário" },
               ]}
             />
-            {isOperador && (
+            {podeEditar && (
               <Button onClick={() => setDlg({ t: null })}>
                 <Plus /> Nova tarefa
               </Button>
@@ -534,7 +537,7 @@ function Central() {
         }
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+      <div className={cn("mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4", verTodas ? "xl:grid-cols-7" : "xl:grid-cols-6")}>
         {chips.map((c) => (
           <button
             key={c.k}
@@ -557,15 +560,17 @@ function Central() {
         <Multi rotulo="Situação" valor={f.status} onChange={(v) => setF({ status: v })} opcoes={(Object.keys(STATUS_TAREFA) as StatusTarefa[]).map((k) => ({ v: k, l: STATUS_TAREFA[k].l }))} />
         <Multi rotulo="Prioridade" valor={f.prioridade} onChange={(v) => setF({ prioridade: v })} opcoes={(Object.keys(PRIORIDADE) as PrioridadeTarefa[]).map((k) => ({ v: k, l: PRIORIDADE[k].l, ponto: PRIORIDADE[k].ponto }))} />
         <Multi rotulo="Tipo" valor={f.tipo} onChange={(v) => setF({ tipo: v })} opcoes={(Object.keys(TIPO_TAREFA) as TipoTarefa[]).map((k) => ({ v: k, l: TIPO_TAREFA[k].l }))} />
-        <NativeSelect aria-label="Responsável" value={f.minhas ? "eu" : f.responsavel_id} onChange={(e) => (e.target.value === "eu" ? setF({ minhas: true, responsavel_id: "" }) : setF({ minhas: false, responsavel_id: e.target.value }))} className="h-9 w-44">
-          <option value="">Todos os responsáveis</option>
-          <option value="eu">Minhas</option>
-          {profs.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </NativeSelect>
+        {verTodas && (
+          <NativeSelect aria-label="Responsável" value={f.minhas ? "eu" : f.responsavel_id} onChange={(e) => (e.target.value === "eu" ? setF({ minhas: true, responsavel_id: "" }) : setF({ minhas: false, responsavel_id: e.target.value }))} className="h-9 w-44">
+            <option value="">Todos os responsáveis</option>
+            <option value="eu">Minhas</option>
+            {profs.data?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
         <div className="w-52">
           <ClientesMulti unico id="tar-cliente" valor={cliente} onChange={(v) => setF({ tomador_id: v[0] ? String(v[0].id) : "", cliente_nome: v[0]?.nome ?? "" })} />
         </div>
@@ -622,7 +627,7 @@ function Central() {
                   <Eraser /> Limpar filtros
                 </Button>
               ) : (
-                isOperador && (
+                podeEditar && (
                   <Button onClick={() => setDlg({ t: null })}>
                     <Plus /> Nova tarefa
                   </Button>
@@ -633,16 +638,16 @@ function Central() {
         </div>
       ) : (
         <div className={cn("transition-opacity", q.isFetching && "opacity-70")}>
-          {visao === "lista" && <Lista itens={itens} sel={sel} setSel={setSel} onAbrir={(t) => setDlg({ t })} podeEditar={isOperador} />}
+          {visao === "lista" && <Lista itens={itens} sel={sel} setSel={setSel} onAbrir={(t) => setDlg({ t })} podeEditar={podeEditar} />}
           {visao === "quadro" && (
             <>
               <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox checked={comCanceladas} onCheckedChange={(v) => setComCanceladas(!!v)} aria-label="Mostrar canceladas" /> Mostrar canceladas
               </label>
-              <Quadro itens={itens} onAbrir={(t) => setDlg({ t })} podeEditar={isOperador} comCanceladas={comCanceladas} />
+              <Quadro itens={itens} onAbrir={(t) => setDlg({ t })} podeEditar={podeEditar} comCanceladas={comCanceladas} />
             </>
           )}
-          {visao === "calendario" && <Calendario itens={itens} onAbrir={(t) => setDlg({ t })} onNova={isOperador ? (dia) => setDlg({ t: null, prazo: dia }) : undefined} />}
+          {visao === "calendario" && <Calendario itens={itens} onAbrir={(t) => setDlg({ t })} onNova={podeEditar ? (dia) => setDlg({ t: null, prazo: dia }) : undefined} />}
         </div>
       )}
 
@@ -670,9 +675,11 @@ function Central() {
                 ))}
               </PopoverContent>
             </Popover>
-            <Button size="sm" variant="ghost" className="text-red-300 hover:bg-white/10 hover:text-red-200" onClick={() => setExcluirLote(true)}>
-              <Trash2 /> Excluir
-            </Button>
+            {pode("tarefas.excluir") && (
+              <Button size="sm" variant="ghost" className="text-red-300 hover:bg-white/10 hover:text-red-200" onClick={() => setExcluirLote(true)}>
+                <Trash2 /> Excluir
+              </Button>
+            )}
             <Button size="icon-sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setSel(new Set())} aria-label="Limpar seleção">
               <X />
             </Button>

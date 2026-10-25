@@ -33,7 +33,7 @@ export function CommandPalette() {
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 250);
   const router = useRouter();
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const { setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -63,13 +63,13 @@ export function CommandPalette() {
   const notas = useQuery({
     queryKey: ["paleta-notas", busca],
     queryFn: () => api.get<Pagina<NfseOut>>("/nfse/notas", { q: busca, por_pagina: 5 }),
-    enabled: ativo,
+    enabled: ativo && pode("nfse_notas.ver"),
     meta: { silencioso: true },
   });
   const clientes = useQuery({
     queryKey: ["paleta-clientes", busca],
     queryFn: () => api.get<Pagina<TomadorOut>>("/nfse/tomadores", { q: busca, por_pagina: 5 }),
-    enabled: ativo,
+    enabled: ativo && pode("clientes.ver"),
     meta: { silencioso: true },
   });
 
@@ -109,7 +109,7 @@ export function CommandPalette() {
             </CommandGroup>
           )}
           {!ativo &&
-            navPara(usuario?.perfil, usuario?.equipe_mayacorp).map((g) => (
+            navPara(usuario && pode, usuario?.equipe_mayacorp).map((g) => (
               <CommandGroup key={g.titulo} heading={g.titulo}>
                 {g.itens
                   .filter((i) => !i.emBreve)

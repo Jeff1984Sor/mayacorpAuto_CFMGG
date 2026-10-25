@@ -13,7 +13,11 @@ interface AuthCtx {
   logado: boolean;
   login: (email: string, senha: string) => Promise<UsuarioMe>;
   sair: () => void;
-  pode: (...perfis: Perfil[]) => boolean;
+  /** Permissão do perfil de acesso ("recurso.acao"); o administrador pode tudo. O servidor confere de novo. */
+  pode: (permissao: string) => boolean;
+  /** Perfil de acesso com "Acesso total". */
+  administrador: boolean;
+  /** Legado (admin/operador/visualizador, sincronizado pelo servidor); prefira `pode` em código novo. */
   isAdmin: boolean;
   isOperador: boolean;
 }
@@ -62,7 +66,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AuthCtx>(() => {
     const usuario = me.data;
-    const pode = (...perfis: Perfil[]) => !!usuario && perfis.includes(usuario.perfil);
+    const administrador = !!usuario?.administrador;
+    const permissoes = new Set(usuario?.permissoes ?? []);
+    const pode = (permissao: string) => !!usuario && (administrador || permissoes.has(permissao));
+    const legado = (...perfis: Perfil[]) => !!usuario && perfis.includes(usuario.perfil);
     return {
       usuario,
       carregando: temToken && me.isPending,
@@ -70,8 +77,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       sair,
       pode,
-      isAdmin: pode("admin"),
-      isOperador: pode("admin", "operador"),
+      administrador,
+      isAdmin: legado("admin"),
+      isOperador: legado("admin", "operador"),
     };
   }, [me.data, me.isPending, temToken, login, sair]);
 

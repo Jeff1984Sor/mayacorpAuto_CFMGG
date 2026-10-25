@@ -42,7 +42,7 @@ export function PreencherIA<C extends Record<string, unknown>>({
   linhas?: number;
   rotuloAcao?: string;
 }) {
-  const { ativa, carregando: carregandoCfg } = useIAAtiva();
+  const { ativa, carregando: carregandoCfg, permitida } = useIAAtiva();
   const [aberto, setAberto] = useState(false);
   const [texto, setTexto] = useState("");
   const [resultado, setResultado] = useState<{ qtd: number; avisos: string[] } | null>(null);
@@ -56,6 +56,7 @@ export function PreencherIA<C extends Record<string, unknown>>({
     },
   });
 
+  if (!permitida) return null;
   if (!carregandoCfg && !ativa) return <AvisoIADesativada tamanho={tamanho}>{rotulo}</AvisoIADesativada>;
 
   return (

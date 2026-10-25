@@ -24,6 +24,12 @@ export interface UsuarioMe {
   equipe_mayacorp: boolean;
   /** Preferências de interface salvas no servidor (acompanham o usuário em qualquer computador). */
   preferencias?: { menu_recolhido?: string[] } & Record<string, unknown>;
+  perfil_acesso_id: number | null;
+  perfil_acesso_nome: string | null;
+  /** Perfil de acesso com "Acesso total". */
+  administrador: boolean;
+  /** "recurso.acao" (ver backend/app/core/permissoes.py). Vazio para o administrador. */
+  permissoes: string[];
 }
 
 export interface TokenOut {
@@ -76,6 +82,9 @@ export interface UsuarioOut {
   convite_pendente: boolean;
   ultimo_acesso: string | null;
   online: boolean;
+  perfil_acesso_id: number | null;
+  perfil_acesso_nome: string | null;
+  perfil_acesso_cor: string | null;
   acesso_sistema: boolean;
   cargo_id: number | null;
   cargo_nome: string | null;
@@ -645,4 +654,29 @@ export interface EnvioLoteOut {
   falhas: { nfse_id: number; numero: number; erro: string | null }[];
   sem_email: { nfse_id: number; numero: number; cliente: string }[];
   puladas: number;
+}
+
+export interface PerfilAcessoOut {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  cor: string | null;
+  administrador: boolean;
+  /** Administrador padrão: não pode ser excluído nem perder o acesso total. */
+  sistema: boolean;
+  permissoes: string[];
+  qtd_usuarios: number;
+}
+
+export interface PerfilAcessoIn {
+  nome: string;
+  descricao: string | null;
+  cor: string | null;
+  administrador: boolean;
+  permissoes: string[];
+}
+
+export interface CatalogoPermissoes {
+  grupos: { grupo: string; recursos: { id: string; nome: string; acoes: string[] }[] }[];
+  acoes: Record<string, string>;
 }

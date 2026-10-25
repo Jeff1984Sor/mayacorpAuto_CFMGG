@@ -113,7 +113,7 @@ const PRESETS = [
 // ---------------------------------------------------------------- lançar horas
 function LancarHoras() {
   const qc = useQueryClient();
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const profs = useProfissionais();
   const casos = useCasosSelect();
   const [f, setF] = useState({ caso_id: null as number | null, profissional_id: "", data: hojeIso(), horas: "", descricao: "", faturavel: true });
@@ -172,7 +172,7 @@ function LancarHoras() {
             <CasoCombo id="lh-caso" value={f.caso_id} onChange={(v) => setF({ ...f, caso_id: v })} rotuloVazio="Escolha o caso…" />
           </Field>
           <Field label="Profissional" htmlFor="lh-prof" className="lg:col-span-3">
-            <NativeSelect id="lh-prof" value={f.profissional_id} onChange={(e) => setF({ ...f, profissional_id: e.target.value })}>
+            <NativeSelect id="lh-prof" value={f.profissional_id} disabled={!pode("timesheet.ver_todos")} onChange={(e) => setF({ ...f, profissional_id: e.target.value })}>
               {profs.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
@@ -213,6 +213,7 @@ function LancarHoras() {
 // ---------------------------------------------------------------- editar
 function EditarDialog({ linha, onClose }: { linha: Linha | null; onClose: () => void }) {
   const qc = useQueryClient();
+  const { pode } = useAuth();
   const profs = useProfissionais(!!linha);
   const [f, setF] = useState({ profissional_id: "", data: "", horas: "", descricao: "", faturavel: true });
   const [tentou, setTentou] = useState(false);
@@ -255,7 +256,7 @@ function EditarDialog({ linha, onClose }: { linha: Linha | null; onClose: () => 
     >
       <div className="grid gap-3 sm:grid-cols-6">
         <Field label="Profissional" htmlFor="ed-prof" className="sm:col-span-3">
-          <NativeSelect id="ed-prof" value={f.profissional_id} onChange={(e) => setF({ ...f, profissional_id: e.target.value })}>
+          <NativeSelect id="ed-prof" value={f.profissional_id} disabled={!pode("timesheet.ver_todos")} onChange={(e) => setF({ ...f, profissional_id: e.target.value })}>
             {profs.data?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nome}
@@ -286,7 +287,10 @@ function TimesheetCentral() {
   const pathname = usePathname();
   const sp = useSearchParams();
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeLancar = pode("timesheet.lancar");
+  // sem "Ver as horas de todos" o servidor só devolve as horas da pessoa: o filtro de profissional some
+  const verTodos = pode("timesheet.ver_todos");
   const profs = useProfissionais();
   const padrao = preset("mes");
   const f = {
@@ -400,7 +404,7 @@ function TimesheetCentral() {
         }
       />
 
-      {isOperador && <LancarHoras />}
+      {podeLancar && <LancarHoras />}
 
       <div className="card-surface mb-5 flex flex-wrap items-center gap-2 p-3">
         <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-muted p-0.5">
@@ -419,15 +423,17 @@ function TimesheetCentral() {
         <Input type="date" aria-label="De" value={f.de} onChange={(e) => e.target.value && setF({ de: e.target.value })} className="h-9 w-36" />
         <span className="text-xs text-muted-foreground">até</span>
         <Input type="date" aria-label="Até" value={f.ate} min={f.de} onChange={(e) => e.target.value && setF({ ate: e.target.value })} className="h-9 w-36" />
-        <NativeSelect aria-label="Profissional" value={f.minhas ? "eu" : f.profissional_id} onChange={(e) => (e.target.value === "eu" ? setF({ minhas: true, profissional_id: "" }) : setF({ minhas: false, profissional_id: e.target.value }))} className="h-9 w-44">
-          <option value="">Todos os profissionais</option>
-          <option value="eu">Minhas horas</option>
-          {profs.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </NativeSelect>
+        {verTodos && (
+          <NativeSelect aria-label="Profissional" value={f.minhas ? "eu" : f.profissional_id} onChange={(e) => (e.target.value === "eu" ? setF({ minhas: true, profissional_id: "" }) : setF({ minhas: false, profissional_id: e.target.value }))} className="h-9 w-44">
+            <option value="">Todos os profissionais</option>
+            <option value="eu">Minhas horas</option>
+            {profs.data?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
         <div className="w-52">
           <ClientesMulti unico id="ts-cliente" valor={cliente} onChange={(v) => setF({ tomador_id: v[0] ? String(v[0].id) : "", cliente_nome: v[0]?.nome ?? "" })} />
         </div>
@@ -488,7 +494,7 @@ function TimesheetCentral() {
                 titulo={filtrando ? "Nenhuma hora com esses filtros" : "Nenhuma hora lançada no período"}
                 descricao={filtrando ? "Troque ou limpe os filtros." : "Use o card Lançar horas acima para registrar o tempo do dia."}
                 acao={
-                  isOperador && !filtrando ? (
+                  podeLancar && !filtrando ? (
                     <Button onClick={() => document.getElementById("lh-horas")?.focus()}>
                       <Plus /> Lançar horas
                     </Button>
@@ -644,7 +650,7 @@ function TimesheetCentral() {
                               )}
                             </div>
                             <div className="flex w-16 shrink-0 justify-end gap-0.5">
-                              {isOperador && !x.faturado && (
+                              {podeLancar && !x.faturado && (
                                 <>
                                   <Button variant="ghost" size="icon-sm" aria-label="Editar lançamento" className="opacity-50 group-hover:opacity-100" onClick={() => setEditar(x)}>
                                     <Pencil />

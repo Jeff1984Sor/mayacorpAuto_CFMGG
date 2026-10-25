@@ -1,23 +1,33 @@
 "use client";
 
-import { Settings, ShieldAlert } from "lucide-react";
+import { Eye, Settings } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-import { EmptyState } from "@/components/mayacorp/empty-state";
 import { NAV } from "@/components/mayacorp/nav";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const ABAS = NAV.find((g) => g.titulo === "Configurações")!.itens.filter((i) => i.href.startsWith("/configuracoes"));
+// telas que tratam a edição item a item (listas com filtros e diálogos); nas demais o formulário inteiro fica só leitura
+const EDICAO_PROPRIA = ["/configuracoes/usuarios", "/configuracoes/perfis", "/configuracoes/faturamento", "/configuracoes/ia"];
 
 export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
-  const { isAdmin, usuario } = useAuth();
-  const abas = ABAS.filter((a) => !a.equipe || usuario?.equipe_mayacorp);
+  const { pode, usuario } = useAuth();
+  const abas = ABAS.filter((a) => (!a.permissao || pode(a.permissao)) && (!a.equipe || usuario?.equipe_mayacorp));
   const pathname = usePathname();
-  if (!isAdmin)
-    return <EmptyState icone={ShieldAlert} titulo="Somente administradores" descricao="Peça a um administrador para alterar as configurações." />;
+  const router = useRouter();
+  // /configuracoes vai para a primeira aba que o perfil enxerga
+  const primeira = abas[0]?.href;
+  useEffect(() => {
+    if (pathname === "/configuracoes" && primeira) router.replace(primeira);
+  }, [pathname, primeira, router]);
+  const atual = abas.find((a) => pathname.startsWith(a.href));
+  const soLeitura =
+    !!atual?.permissao && !EDICAO_PROPRIA.includes(atual.href) && !pode(atual.permissao.replace(/\.ver$/, ".editar"));
+  // sem nenhuma aba, o bloqueio da página (AppShell) já mostra "Sem acesso"
   return (
     <div>
       <PageHeader
@@ -45,7 +55,19 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
           );
         })}
       </nav>
-      {children}
+      {soLeitura ? (
+        <>
+          <p className="mb-4 flex items-center gap-2 rounded-xl border border-info/30 bg-info/8 px-3.5 py-2.5 text-sm text-info-ink">
+            <Eye className="size-4 shrink-0" />
+            Seu perfil de acesso permite consultar esta configuração, mas não alterá-la.
+          </p>
+          <fieldset disabled className="min-w-0">
+            {children}
+          </fieldset>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }

@@ -769,7 +769,9 @@ export default function RevisaoPage() {
   const rid = Number(id);
   const qc = useQueryClient();
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("revisoes.editar");
+  const podeAprovar = pode("revisoes.aprovar");
   const chave = ["fat", "revisao", rid];
   const q = useQuery({ queryKey: chave, queryFn: () => api.get<RevisaoOut>(`/faturamento/revisoes/${rid}`) });
   const [destaque, setDestaque] = useState<number | null>(null);
@@ -847,7 +849,7 @@ export default function RevisaoPage() {
     );
 
   const r = q.data;
-  const aberta = r.status === "em_revisao" && isOperador;
+  const aberta = r.status === "em_revisao" && podeEditar;
   const st = STATUS_REVISAO[r.status];
   const doc = documentoDaAba(r.aba);
   const ativos = r.itens.filter((i) => !i.excluido);
@@ -859,7 +861,7 @@ export default function RevisaoPage() {
   const dias = diasDesde(r.criado_em);
 
   return (
-    <div className={cn(aberta && "pb-24")}>
+    <div className={cn(r.status === "em_revisao" && (podeEditar || podeAprovar) && "pb-24")}>
       {/* cabeçalho */}
       <div className="mb-5">
         <Link href="/faturamento/revisoes" className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -1139,18 +1141,22 @@ export default function RevisaoPage() {
       </div>
 
       {/* rodapé de decisão */}
-      {aberta && (
+      {r.status === "em_revisao" && (podeEditar || podeAprovar) && (
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex justify-center pr-24 pl-4 lg:pl-[calc(var(--sb)+1rem)]">
           <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl bg-dark-maya p-2 pl-4 text-white shadow-2xl ring-1 ring-white/10">
             <span className="mr-1 text-sm">
               {doc} de <strong className="font-mono">{moeda(r.total)}</strong>
             </span>
-            <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => setDlg("descartar")}>
-              <XCircle /> Descartar revisão
-            </Button>
-            <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => setDlg("aprovar")} disabled={ativos.length === 0 || toNum(r.total) <= 0}>
-              <Send /> Aprovar e faturar
-            </Button>
+            {podeEditar && (
+              <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => setDlg("descartar")}>
+                <XCircle /> Descartar revisão
+              </Button>
+            )}
+            {podeAprovar && (
+              <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => setDlg("aprovar")} disabled={ativos.length === 0 || toNum(r.total) <= 0}>
+                <Send /> Aprovar e faturar
+              </Button>
+            )}
           </div>
         </div>
       )}

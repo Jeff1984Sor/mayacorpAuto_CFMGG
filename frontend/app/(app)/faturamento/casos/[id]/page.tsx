@@ -60,6 +60,7 @@ function HorasForm({
   idp,
   casoId,
   tentou,
+  fixo,
 }: {
   f: FormHoras;
   set: <K extends keyof FormHoras>(k: K, v: FormHoras[K]) => void;
@@ -67,12 +68,14 @@ function HorasForm({
   idp: string;
   casoId: number;
   tentou: boolean;
+  /** Sem "Ver as horas de todos": a pessoa só lança as próprias horas. */
+  fixo?: boolean;
 }) {
   const prof = profs.data?.find((p) => String(p.id) === f.profissional_id);
   return (
     <div className="grid gap-3 sm:grid-cols-12">
       <Field label="Profissional" htmlFor={`${idp}-prof`} className="sm:col-span-4" dica={prof ? (prof.cargo_nome ?? <span className="text-warning-ink">Sem cargo: sem valor/hora na tabela</span>) : undefined}>
-        <NativeSelect id={`${idp}-prof`} value={f.profissional_id} onChange={(e) => set("profissional_id", e.target.value)}>
+        <NativeSelect id={`${idp}-prof`} value={f.profissional_id} disabled={fixo} onChange={(e) => set("profissional_id", e.target.value)}>
           {profs.data?.map((p) => (
             <option key={p.id} value={p.id}>
               {p.nome}
@@ -121,7 +124,8 @@ const corpoHoras = (f: FormHoras) => ({
 
 function Timesheet({ caso }: { caso: CasoOut }) {
   const qc = useQueryClient();
-  const { usuario, isOperador } = useAuth();
+  const { usuario, pode } = useAuth();
+  const podeLancar = pode("timesheet.lancar");
   const profs = useProfissionais();
   const q = useQuery({ queryKey: ["fat", "timesheet", caso.id], queryFn: () => api.get<TimesheetOut[]>(`/faturamento/casos/${caso.id}/timesheet`) });
   const novo = (): FormHoras => ({ profissional_id: usuario ? String(usuario.id) : "", data: hoje(), horas: "", descricao: "", faturavel: true });
@@ -168,7 +172,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
 
   return (
     <div className="space-y-4">
-      {isOperador && caso.status === "aberto" && (
+      {podeLancar && caso.status === "aberto" && (
         <form
           className="card-surface p-4"
           onSubmit={(e) => {
@@ -182,7 +186,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Timer className="size-4 text-info-ink" /> Lançar horas
           </h3>
-          <HorasForm f={f} set={(k, v) => setF((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-novo" casoId={caso.id} tentou={tentou} />
+          <HorasForm f={f} set={(k, v) => setF((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-novo" casoId={caso.id} tentou={tentou} fixo={!pode("timesheet.ver_todos")} />
           <div className="mt-3 flex justify-end">
             <Button type="submit" disabled={criar.isPending}>
               <Plus /> Lançar
@@ -232,7 +236,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
                       {t.faturado ? <Travado codigo={t.fatura_codigo} /> : t.faturavel ? <Pill tom="warning">a faturar</Pill> : <Pill tom="neutral">não faturável</Pill>}
                     </td>
                     <td className="px-3 py-3">
-                      {isOperador && !t.faturado && (
+                      {podeLancar && !t.faturado && (
                         <div className="flex justify-end gap-0.5">
                           <Button
                             variant="ghost"
@@ -273,7 +277,7 @@ function Timesheet({ caso }: { caso: CasoOut }) {
           salvar.mutate();
         }}
       >
-        <HorasForm f={fe} set={(k, v) => setFe((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-edit" casoId={caso.id} tentou={tentouEd} />
+        <HorasForm f={fe} set={(k, v) => setFe((o) => ({ ...o, [k]: v }))} profs={profs} idp="ts-edit" casoId={caso.id} tentou={tentouEd} fixo={!pode("timesheet.ver_todos")} />
       </FormDialog>
       <ConfirmDialog
         open={!!excluir}
@@ -292,7 +296,8 @@ function Timesheet({ caso }: { caso: CasoOut }) {
 // ================================================================ despesas
 function Despesas({ caso }: { caso: CasoOut }) {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
   const q = useQuery({ queryKey: ["fat", "despesas", caso.id], queryFn: () => api.get<DespesaOut[]>(`/faturamento/casos/${caso.id}/despesas`) });
   const [dlg, setDlg] = useState<{ d: DespesaOut | null } | null>(null);
   const [lote, setLote] = useState(false);
@@ -344,7 +349,7 @@ function Despesas({ caso }: { caso: CasoOut }) {
             titulo="Nenhuma despesa"
             descricao="Custas, cópias e deslocamentos lançados aqui viram Nota de Despesas para o cliente."
             acao={
-              isOperador && (
+              podeEditar && (
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button onClick={() => setLote(true)}>
                     <Sparkles /> Lançar recibos em lote
@@ -366,12 +371,12 @@ function Despesas({ caso }: { caso: CasoOut }) {
             <span>
               A reembolsar <strong className="font-mono text-warning-ink">{moeda(pend)}</strong>
             </span>
-            {isOperador && (
+            {podeEditar && (
               <Button size="sm" variant="outline" className="ml-auto" onClick={() => setLote(true)}>
                 <Sparkles /> Lançar recibos em lote
               </Button>
             )}
-            {isOperador && (
+            {podeEditar && (
               <Button size="sm" onClick={() => setDlg({ d: null })}>
                 <Plus /> Nova despesa
               </Button>
@@ -405,7 +410,7 @@ function Despesas({ caso }: { caso: CasoOut }) {
                         <Button variant="ghost" size="xs" onClick={() => abrirArquivo(`/faturamento/despesas/${d.id}/comprovante`)}>
                           <Paperclip /> Ver
                         </Button>
-                      ) : isOperador && !d.faturado ? (
+                      ) : podeEditar && !d.faturado ? (
                         <Button
                           variant="ghost"
                           size="xs"
@@ -425,7 +430,7 @@ function Despesas({ caso }: { caso: CasoOut }) {
                       {d.faturado ? <Travado codigo={d.fatura_codigo} /> : d.reembolsavel ? <Pill tom="warning">a reembolsar</Pill> : <Pill tom="neutral">do escritório</Pill>}
                     </td>
                     <td className="px-3 py-3">
-                      {isOperador && !d.faturado && (
+                      {podeEditar && !d.faturado && (
                         <div className="flex justify-end gap-0.5">
                           <Button variant="ghost" size="icon-sm" aria-label="Editar despesa" onClick={() => setDlg({ d })}>
                             <Pencil />
@@ -463,7 +468,8 @@ export default function CasoPage() {
   const { id } = useParams<{ id: string }>();
   const cid = Number(id);
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
   const [aba, setAba] = useState("detalhes");
   const [editar, setEditar] = useState(false);
   const [preencher, setPreencher] = useState(false);
@@ -519,8 +525,8 @@ export default function CasoPage() {
             </p>
           </div>
           <div className="flex shrink-0 gap-2">
-            <CasoIAMenu podeEditar={isOperador} onPreencher={() => setPreencher(true)} onResumir={() => setResumo(true)} />
-            {isOperador && (
+            <CasoIAMenu podeEditar={podeEditar} onPreencher={() => setPreencher(true)} onResumir={() => setResumo(true)} />
+            {podeEditar && (
               <Button variant="outline" size="sm" onClick={() => setEditar(true)}>
                 <Pencil /> Editar
               </Button>
@@ -536,10 +542,10 @@ export default function CasoPage() {
             <TabsTrigger value="andamentos">
               Andamentos{c.qtd_andamentos > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_andamentos}</span>}
             </TabsTrigger>
-            <TabsTrigger value="tarefas">
+            <TabsTrigger value="tarefas" className={cn(!pode("tarefas.ver") && "hidden")}>
               Tarefas{c.qtd_tarefas_abertas > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_tarefas_abertas}</span>}
             </TabsTrigger>
-            <TabsTrigger value="timesheet">
+            <TabsTrigger value="timesheet" className={cn(!pode("timesheet.ver") && "hidden")}>
               <Clock /> Timesheet
             </TabsTrigger>
             <TabsTrigger value="despesas">
@@ -552,7 +558,7 @@ export default function CasoPage() {
           </TabsList>
         </div>
         <TabsContent value="detalhes" className="pt-4">
-          <DetalhesCaso caso={c} irPara={setAba} podeEditar={isOperador} onEditar={() => setEditar(true)} />
+          <DetalhesCaso caso={c} irPara={setAba} podeEditar={podeEditar} onEditar={() => setEditar(true)} />
         </TabsContent>
         <TabsContent value="andamentos" className="pt-4">
           <AndamentosCaso casoId={c.id} />

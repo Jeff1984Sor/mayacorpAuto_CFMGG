@@ -31,7 +31,8 @@ function Linha({ l, children }: { l: string; children: React.ReactNode }) {
 
 export default function NotaDetalhePage() {
   const { id } = useParams<{ id: string }>();
-  const { isAdmin, isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmail = pode("nfse_notas.enviar_email");
   const acoes = useAcoesNota();
   const [cancelar, setCancelar] = useState(false);
   const q = useQuery({ queryKey: ["nota", Number(id)], queryFn: () => api.get<NfseDetalhe>(`/nfse/notas/${id}`) });
@@ -70,7 +71,7 @@ export default function NotaDetalhePage() {
         acoes={
           <>
             <ChamarAlguem origemTipo="nfse" origemId={n.id} contexto={`a NFS-e ${n.numero}`} />
-            {isOperador && !cancelada && <BotaoEmailNota nfseId={n.id} numero={n.numero} rotulo="E-mail" />}
+            {podeEmail && !cancelada && <BotaoEmailNota nfseId={n.id} numero={n.numero} rotulo="E-mail" />}
             <Button onClick={() => acoes.pdf(n)}>
               <FileText /> Ver PDF
             </Button>
@@ -80,7 +81,7 @@ export default function NotaDetalhePage() {
             <Button variant="outline" onClick={() => acoes.prefeitura(n)}>
               <ExternalLink /> Prefeitura
             </Button>
-            {isAdmin && !cancelada && (
+            {pode("nfse_notas.cancelar") && !cancelada && (
               <Button variant="destructive" onClick={() => setCancelar(true)}>
                 <Ban /> Cancelar
               </Button>
@@ -147,7 +148,7 @@ export default function NotaDetalhePage() {
                 ))}
               </ul>
             )}
-            {isOperador && !cancelada && (
+            {podeEmail && !cancelada && (
               <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-dashed p-3">
                 <p className="text-sm text-muted-foreground">
                   Envie de novo, para outras pessoas ou com outro texto e anexos.

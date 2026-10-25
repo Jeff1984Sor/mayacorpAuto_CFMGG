@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { Mono } from "@/components/mayacorp/brand";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
+import { SemAcesso } from "@/components/mayacorp/sem-acesso";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { BotaoAnaliseIA } from "@/components/ia/analise-ia";
 import { RaioX, raioXKey } from "@/components/nfse/raio-x";
@@ -326,7 +327,7 @@ function RodapeResumo({
 
 // ---------------------------------------------------------------- página
 export default function NovaEmissaoPage() {
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const router = useRouter();
   const qc = useQueryClient();
   const [loteId, setLoteId] = useState<number | null>(null);
@@ -425,10 +426,7 @@ export default function NovaEmissaoPage() {
     qc.invalidateQueries({ queryKey: ["notas"] });
   });
 
-  if (!isOperador)
-    return (
-      <EmptyState icone={ShieldAlert} titulo="Sem permissão" descricao="Seu perfil é somente leitura. Peça a um operador para emitir." />
-    );
+  if (!pode("nfse_emissao.emitir")) return <SemAcesso />;
 
   const l = lote.data;
 

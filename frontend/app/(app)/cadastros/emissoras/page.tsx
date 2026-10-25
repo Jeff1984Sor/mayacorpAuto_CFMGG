@@ -432,7 +432,8 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
 }
 
 export default function EmissorasPage() {
-  const { isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("cfg_emissoras.editar");
   const qc = useQueryClient();
   const emissoras = useEmissoras();
   const [editar, setEditar] = useState<EmissoraOut | null>(null);
@@ -443,8 +444,8 @@ export default function EmissorasPage() {
     const id = Number(new URLSearchParams(window.location.search).get("id"));
     const e = emissoras.data?.find((x) => x.id === id);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- abre o cadastro vindo de um link
-    if (e && isAdmin) setEditar(e);
-  }, [emissoras.data, isAdmin]);
+    if (e && podeEditar) setEditar(e);
+  }, [emissoras.data, podeEditar]);
 
   const remover = useMutation({
     mutationFn: (id: number) => api.del(`/nfse/emissoras/${id}`),
@@ -463,7 +464,7 @@ export default function EmissorasPage() {
         icone={Building2}
         migalhas={[{ label: "Configurações", href: "/configuracoes" }, { label: "Empresas emissoras" }]}
         acoes={
-          isAdmin && (
+          podeEditar && (
             <Button onClick={() => setNovo(true)}>
               <Plus /> Nova emissora
             </Button>
@@ -482,7 +483,7 @@ export default function EmissorasPage() {
             titulo="Nenhuma emissora cadastrada"
             descricao="Cadastre a CFME com CNPJ, CCM e certificado para começar a emitir."
             acao={
-              isAdmin && (
+              podeEditar && (
                 <Button onClick={() => setNovo(true)}>
                   <Plus /> Cadastrar emissora
                 </Button>
@@ -547,7 +548,7 @@ export default function EmissorasPage() {
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <KeyRound className="size-3.5" /> {e.certificado_id ? "Certificado vinculado" : "Sem certificado"}
                   </span>
-                  {isAdmin && (
+                  {podeEditar && (
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => setEditar(e)}>
                         <Pencil /> Editar

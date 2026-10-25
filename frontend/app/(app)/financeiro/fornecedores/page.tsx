@@ -23,7 +23,9 @@ import { cn } from "@/lib/utils";
 
 export default function FornecedoresPage() {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("fornecedores.editar");
+  const podeExcluir = pode("fornecedores.excluir");
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 300);
   const [ativos, setAtivos] = useState<"sim" | "todos">("sim");
@@ -52,7 +54,7 @@ export default function FornecedoresPage() {
         icone={Truck}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Fornecedores" }]}
         acoes={
-          isOperador && (
+          podeEditar && (
             <Button onClick={() => setDlg({ f: null })}>
               <Plus /> Novo fornecedor
             </Button>
@@ -79,7 +81,7 @@ export default function FornecedoresPage() {
             titulo={busca ? "Nenhum fornecedor encontrado" : "Nenhum fornecedor cadastrado"}
             descricao={busca ? "Troque a busca." : "Cadastre quem o escritório paga para agilizar as contas a pagar."}
             acao={
-              isOperador &&
+              podeEditar &&
               !busca && (
                 <Button onClick={() => setDlg({ f: null })}>
                   <Plus /> Novo fornecedor
@@ -104,7 +106,7 @@ export default function FornecedoresPage() {
               </thead>
               <tbody className="divide-y">
                 {itens.map((f) => (
-                  <tr key={f.id} className={cn(linhaClicavel, !f.ativo && "opacity-60")} onClick={() => isOperador && setDlg({ f })}>
+                  <tr key={f.id} className={cn(linhaClicavel, !f.ativo && "opacity-60")} onClick={() => podeEditar && setDlg({ f })}>
                     <td className="max-w-72 px-4 py-3">
                       <p className="truncate font-medium">{f.nome}</p>
                       <p className="truncate text-[11px] text-muted-foreground">
@@ -125,18 +127,22 @@ export default function FornecedoresPage() {
                       <StatusBadge status={f.ativo ? "ativo" : "descartado"} label={f.ativo ? "Ativo" : "Inativo"} />
                     </td>
                     <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      {isOperador && (
+                      {(podeEditar || podeExcluir) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${f.nome}`} />}>
                             <MoreHorizontal />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setDlg({ f })}>
-                              <Pencil /> Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onClick={() => setExcluir(f)}>
-                              <Trash2 /> Excluir
-                            </DropdownMenuItem>
+                            {podeEditar && (
+                              <DropdownMenuItem onClick={() => setDlg({ f })}>
+                                <Pencil /> Editar
+                              </DropdownMenuItem>
+                            )}
+                            {podeExcluir && (
+                              <DropdownMenuItem variant="destructive" onClick={() => setExcluir(f)}>
+                                <Trash2 /> Excluir
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

@@ -37,13 +37,14 @@ function Kpi({ rotulo, valor, sub, tom }: { rotulo: string; valor: React.ReactNo
 
 function Casos({ contrato }: { contrato: ContratoOut }) {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("casos.editar");
   const [novo, setNovo] = useState(false);
   const q = useQuery({ queryKey: ["fat", "casos", contrato.id], queryFn: () => api.get<CasoOut[]>("/faturamento/casos", { contrato_id: contrato.id }) });
   const casos = q.data ?? [];
   return (
     <div className="space-y-4">
-      {isOperador && casos.length > 0 && (
+      {podeEditar && casos.length > 0 && (
         <div className="flex justify-end">
           <Button onClick={() => setNovo(true)}>
             <FolderPlus /> Novo caso
@@ -59,7 +60,7 @@ function Casos({ contrato }: { contrato: ContratoOut }) {
             titulo="Nenhum caso neste contrato"
             descricao="Casos recebem horas e despesas, e podem ter regra de cobrança própria."
             acao={
-              isOperador && (
+              podeEditar && (
                 <Button onClick={() => setNovo(true)}>
                   <FolderPlus /> Novo caso
                 </Button>
@@ -118,7 +119,8 @@ function Casos({ contrato }: { contrato: ContratoOut }) {
 
 function Faturas({ faturas, carregando }: { faturas: FaturaOut[]; carregando: boolean }) {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmitir = pode("nfse_emissao.emitir");
   const emitir = useEmitirNfse();
   if (carregando) return <Skeleton className="h-40 rounded-2xl" />;
   if (faturas.length === 0)
@@ -161,7 +163,7 @@ function Faturas({ faturas, carregando }: { faturas: FaturaOut[]; carregando: bo
               <td className="px-3 py-3" onClick={(e) => f.pode_emitir_nfse && e.stopPropagation()}>
                 {f.nfse_numero ? (
                   <span className="font-mono">{f.nfse_numero}</span>
-                ) : f.pode_emitir_nfse && isOperador ? (
+                ) : f.pode_emitir_nfse && podeEmitir ? (
                   <Button size="xs" variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>
                     {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Emitir NFS-e
                   </Button>
@@ -188,7 +190,9 @@ export default function ContratoPage() {
   const cid = Number(id);
   const router = useRouter();
   const qc = useQueryClient();
-  const { isOperador, isAdmin } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contratos.editar");
+  const podeExcluir = pode("contratos.excluir");
   const emissoras = useEmissoras();
   const [editar, setEditar] = useState(false);
   const [excluir, setExcluir] = useState(false);
@@ -196,6 +200,7 @@ export default function ContratoPage() {
   const fat = useQuery({
     queryKey: ["faturas", "contrato", cid],
     queryFn: () => api.get<Pagina<FaturaOut>>("/nfse/faturas", { contrato_id: cid, por_pagina: 200 }),
+    enabled: pode("faturas.ver"),
   });
   const remover = useMutation({
     mutationFn: () => api.del<{ mensagem: string }>(`/faturamento/contratos/${cid}`),
@@ -255,12 +260,12 @@ export default function ContratoPage() {
               </p>
               {c.objeto && <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{c.objeto}</p>}
             </div>
-            {isOperador && (
+            {podeEditar && (
               <div className="flex shrink-0 gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditar(true)}>
                   <Pencil /> Editar
                 </Button>
-                {isAdmin && (
+                {podeExcluir && (
                   <Button variant="ghost" size="icon-sm" onClick={() => setExcluir(true)} aria-label="Excluir contrato">
                     <Trash2 />
                   </Button>
@@ -282,7 +287,7 @@ export default function ContratoPage() {
         <TabsList>
           <TabsTrigger value="regras">Regras de cobrança</TabsTrigger>
           <TabsTrigger value="casos">Casos ({c.qtd_casos})</TabsTrigger>
-          <TabsTrigger value="faturas">Faturas ({faturas.length})</TabsTrigger>
+          <TabsTrigger value="faturas" className={cn(!pode("faturas.ver") && "hidden")}>Faturas ({faturas.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="regras" className="pt-4">
           <RegrasCobranca contratoId={c.id} />

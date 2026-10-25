@@ -30,7 +30,8 @@ const STATUS = [
 
 export default function LotesPage() {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEmitir = pode("nfse_emissao.emitir");
   const emissoras = useEmissoras();
   const lista = usePaginado<LoteOut>("lotes", "/nfse/lotes");
   const filtrando = !!lista.q || !!lista.filtros.status || !!lista.filtros.emissora_id;
@@ -43,7 +44,7 @@ export default function LotesPage() {
         icone={Layers}
         migalhas={[{ label: "NFS-e", href: "/nfse" }, { label: "Lotes" }]}
         acoes={
-          isOperador && (
+          podeEmitir && (
             <Button render={<Link href="/nfse/nova-emissao" />}>
               <FileUp /> Nova emissão
             </Button>
@@ -90,7 +91,7 @@ export default function LotesPage() {
             descricao={filtrando ? "Tente outro filtro." : "Cada arquivo importado vira um lote aqui."}
             acao={
               !filtrando &&
-              isOperador && (
+              podeEmitir && (
                 <Button render={<Link href="/nfse/nova-emissao" />}>
                   <FileUp /> Importar primeiro arquivo
                 </Button>

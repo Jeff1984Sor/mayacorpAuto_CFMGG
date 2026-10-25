@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BriefcaseBusiness, KeyRound, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, Users, UserX } from "lucide-react";
+import { BriefcaseBusiness, ChevronRight, KeyRound, ShieldCheck, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, Users, UserX } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { FuncionarioDialog, mascaraTelefone, PERFIS } from "@/components/funcionarios/funcionario-dialog";
+import { FuncionarioDialog, mascaraTelefone } from "@/components/funcionarios/funcionario-dialog";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { SearchInput, Segmented, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
@@ -14,6 +14,7 @@ import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
+import { PerfilBadge, PontoCor, usePerfisAcesso } from "@/components/perfis/comum";
 import { UserAvatar } from "@/components/mayacorp/user-avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,9 +82,11 @@ function Kpi({ rotulo, valor, tom }: { rotulo: string; valor: number; tom?: stri
 
 export default function ProfissionaisPage() {
   const qc = useQueryClient();
-  const { usuario: eu } = useAuth();
+  const { usuario: eu, pode } = useAuth();
+  const editar = pode("cfg_profissionais.editar");
   const [q, setQ] = useState("");
   const [cargoId, setCargoId] = useState<string>("");
+  const [perfilId, setPerfilId] = useState<string>("");
   const [acesso, setAcesso] = useState<FiltroAcesso>("todos");
   const [inativos, setInativos] = useState(false);
   const [dialogo, setDialogo] = useState<{ u: UsuarioOut | null } | null>(null);
@@ -91,6 +94,7 @@ export default function ProfissionaisPage() {
   const [desativar, setDesativar] = useState<UsuarioOut | null>(null);
   const lista = useQuery({ queryKey: ["usuarios"], queryFn: () => api.get<UsuarioOut[]>("/config/usuarios"), refetchInterval: 60_000 });
   const cargos = useQuery({ queryKey: ["cargos"], queryFn: () => api.get<CargoOut[]>("/config/cargos") });
+  const perfis = usePerfisAcesso(pode("cfg_perfis.ver"));
 
   const patch = useMutation({
     mutationFn: ({ id, ...body }: { id: number; ativo?: boolean }) => api.patch(`/config/usuarios/${id}`, body),
@@ -112,6 +116,7 @@ export default function ProfissionaisPage() {
     (u) =>
       (inativos || u.ativo) &&
       (!cargoId || (cargoId === "sem" ? !u.cargo_id : String(u.cargo_id) === cargoId)) &&
+      (!perfilId || (u.acesso_sistema && String(u.perfil_acesso_id) === perfilId)) &&
       (acesso === "todos" || (acesso === "com" ? u.acesso_sistema : !u.acesso_sistema)) &&
       (!termo ||
         u.nome.toLowerCase().includes(termo) ||
@@ -122,7 +127,7 @@ export default function ProfissionaisPage() {
   );
   const ativos = todos.filter((u) => u.ativo);
   const online = ativos.filter((u) => u.online);
-  const filtrando = !!(termo || cargoId || acesso !== "todos");
+  const filtrando = !!(termo || cargoId || perfilId || acesso !== "todos");
 
   return (
     <div className="space-y-4">
@@ -174,6 +179,16 @@ export default function ProfissionaisPage() {
                 </option>
               ))}
             </NativeSelect>
+            {(perfis.data?.length ?? 0) > 0 && (
+              <NativeSelect aria-label="Filtrar por perfil de acesso" value={perfilId} onChange={(e) => setPerfilId(e.target.value)} className="h-9 sm:w-48">
+                <option value="">Todos os perfis</option>
+                {perfis.data?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
             <Segmented<FiltroAcesso>
               value={acesso}
               onChange={setAcesso}
@@ -187,9 +202,11 @@ export default function ProfissionaisPage() {
               <input type="checkbox" checked={inativos} onChange={(e) => setInativos(e.target.checked)} className="accent-[var(--brand)]" /> Mostrar inativos
             </label>
           </div>
-          <Button onClick={() => setDialogo({ u: null })}>
-            <UserPlus /> Novo profissional
-          </Button>
+          {editar && (
+            <Button onClick={() => setDialogo({ u: null })}>
+              <UserPlus /> Novo profissional
+            </Button>
+          )}
         </Toolbar>
         {lista.isPending ? (
           <TableSkeleton colunas={6} />
@@ -205,15 +222,18 @@ export default function ProfissionaisPage() {
                   onClick={() => {
                     setQ("");
                     setCargoId("");
+                    setPerfilId("");
                     setAcesso("todos");
                   }}
                 >
                   Limpar filtros
                 </Button>
               ) : (
-                <Button onClick={() => setDialogo({ u: null })}>
-                  <UserPlus /> Novo profissional
-                </Button>
+                editar && (
+                  <Button onClick={() => setDialogo({ u: null })}>
+                    <UserPlus /> Novo profissional
+                  </Button>
+                )
               )
             }
           />
@@ -226,7 +246,7 @@ export default function ProfissionaisPage() {
                   <th className="px-3 py-2.5 font-medium">Cargo</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">Login</th>
                   <th className="hidden px-3 py-2.5 font-medium lg:table-cell">E-mail</th>
-                  <th className="px-3 py-2.5 font-medium">Acesso</th>
+                  <th className="px-3 py-2.5 font-medium">Perfil de acesso</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">Último acesso</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="w-12 px-3 py-2.5" />
@@ -262,7 +282,7 @@ export default function ProfissionaisPage() {
                       {!u.acesso_sistema ? (
                         <Pill tom="neutral">Sem acesso</Pill>
                       ) : (
-                        <Pill tom={u.perfil === "admin" ? "brand" : u.perfil === "operador" ? "info" : "neutral"}>{PERFIS[u.perfil].l}</Pill>
+                        <PerfilBadge nome={u.perfil_acesso_nome} cor={u.perfil_acesso_cor} />
                       )}
                     </td>
                     <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">
@@ -287,9 +307,9 @@ export default function ProfissionaisPage() {
                             <DropdownMenuLabel>{u.nome}</DropdownMenuLabel>
                           </DropdownMenuGroup>
                           <DropdownMenuItem onClick={() => setDialogo({ u })}>
-                            <Pencil /> Editar cadastro
+                            <Pencil /> {editar ? "Editar cadastro" : "Ver cadastro"}
                           </DropdownMenuItem>
-                          {u.id !== eu?.id && (
+                          {u.id !== eu?.id && editar && (
                             <>
                               {u.acesso_sistema && (
                                 <>
@@ -324,18 +344,42 @@ export default function ProfissionaisPage() {
         )}
       </TableCard>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {Object.entries(PERFIS).map(([k, p]) => (
-          <div key={k} className="rounded-2xl border bg-card p-4">
-            <p className="text-sm font-semibold">{p.l}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{p.d}</p>
+      {(perfis.data?.length ?? 0) > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {perfis.data?.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPerfilId(perfilId === String(p.id) ? "" : String(p.id))}
+              className={cn(
+                "group rounded-2xl border bg-card p-4 text-left transition-colors hover:border-brand/40",
+                perfilId === String(p.id) && "border-brand/60 bg-brand/5",
+              )}
+              title="Filtrar a lista por este perfil"
+            >
+              <p className="flex items-center gap-2 text-sm font-semibold">
+                <PontoCor cor={p.cor} />
+                <span className="truncate">{p.nome}</span>
+                {p.administrador && <ShieldCheck className="size-3.5 text-info-ink" aria-label="Acesso total" />}
+                <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">{p.qtd_usuarios}</span>
+              </p>
+              {p.descricao && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{p.descricao}</p>}
+            </button>
+          ))}
+          <div className="rounded-2xl border border-dashed bg-card p-4">
+            <p className="text-sm font-semibold">Sem acesso</p>
+            <p className="mt-1 text-xs text-muted-foreground">Não entra no sistema. Aparece como profissional no timesheet e nas revisões.</p>
           </div>
-        ))}
-        <div className="rounded-2xl border border-dashed bg-card p-4">
-          <p className="text-sm font-semibold">Sem acesso</p>
-          <p className="mt-1 text-xs text-muted-foreground">Não entra no sistema. Aparece como profissional no timesheet e nas revisões.</p>
+          {pode("cfg_perfis.ver") && (
+            <Link
+              href="/configuracoes/perfis"
+              className="flex items-center gap-2 rounded-2xl border border-dashed bg-card p-4 text-sm font-medium text-info-ink transition-colors hover:border-brand/40"
+            >
+              <ShieldCheck className="size-4" /> Gerenciar perfis de acesso <ChevronRight className="ml-auto size-4" />
+            </Link>
+          )}
         </div>
-      </div>
+      )}
 
       <FuncionarioDialog open={!!dialogo} onOpenChange={(o) => !o && setDialogo(null)} usuario={dialogo?.u ?? null} />
       <DefinirSenhaDialog usuario={senhaDe} onClose={() => setSenhaDe(null)} />

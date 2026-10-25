@@ -291,7 +291,8 @@ export function TarefaDialog({
   onSalvo?: (t: TarefaOut) => void;
 }) {
   const qc = useQueryClient();
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
+  const podeEditar = pode("tarefas.editar");
   const profs = useProfissionais(open);
   const [f, setF] = useState<TarefaIn>(() => vazia(casoId ?? null, null));
   const [fila, setFila] = useState<File[]>([]);
@@ -373,19 +374,21 @@ export function TarefaDialog({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      titulo={tarefa ? "Editar tarefa" : "Nova tarefa"}
+      titulo={!podeEditar ? "Tarefa" : tarefa ? "Editar tarefa" : "Nova tarefa"}
       largura="xl"
       salvando={salvar.isPending}
+      rotuloSalvar={podeEditar ? "Salvar" : "Fechar"}
       onSubmit={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (!podeEditar) return onOpenChange(false);
         setTentou(true);
         if (f.titulo.trim().length < 2) return toast.error("Informe o título da tarefa.");
         if (erroHora) return toast.error(erroHora);
         salvar.mutate();
       }}
     >
-      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
+      <fieldset disabled={!podeEditar} className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
         <div className="space-y-4">
           <Field label="Título" obrigatorio htmlFor="tar-titulo" erro={tentou && f.titulo.trim().length < 2 ? "Informe o título." : undefined}>
             <Input id="tar-titulo" value={f.titulo} onChange={(e) => set("titulo", e.target.value)} maxLength={200} autoFocus placeholder="ex.: Protocolar contestação" />
@@ -521,7 +524,7 @@ export function TarefaDialog({
             </p>
           )}
         </aside>
-      </div>
+      </fieldset>
       <ConfirmDialog
         open={!!excluirAnexo}
         onOpenChange={(o) => !o && setExcluirAnexo(null)}
@@ -625,7 +628,8 @@ export function TarefaLinha({
 // ================================================================ aba "Tarefas" do caso
 export function TarefasCaso({ casoId }: { casoId: number }) {
   const qc = useQueryClient();
-  const { isOperador, usuario } = useAuth();
+  const { usuario, pode } = useAuth();
+  const podeEditar = pode("tarefas.editar");
   const q = useQuery({ queryKey: ["fat", "tarefas", "caso", casoId], queryFn: () => api.get<TarefasListaOut>("/faturamento/tarefas", { caso_id: casoId }) });
   const [rapida, setRapida] = useState({ titulo: "", prazo: "", descricao: "" });
   const [dlg, setDlg] = useState<{ t: TarefaOut | null } | null>(null);
@@ -654,7 +658,7 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
 
   return (
     <div className="space-y-4">
-      {isOperador && (
+      {podeEditar && (
         <form
           className="card-surface flex flex-wrap items-center gap-2 p-3"
           onSubmit={(e) => {
@@ -704,7 +708,7 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
           ) : (
             <ul className="divide-y">
               {abertas.map((t) => (
-                <TarefaMenuLinha key={t.id} t={t} podeEditar={isOperador} onAbrir={() => setDlg({ t })} onExcluir={() => setExcluir(t)} />
+                <TarefaMenuLinha key={t.id} t={t} podeEditar={podeEditar} onAbrir={() => setDlg({ t })} onExcluir={() => setExcluir(t)} />
               ))}
             </ul>
           )}
@@ -716,7 +720,7 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
               {verConcluidas && (
                 <ul className="divide-y border-t">
                   {fechadas.map((t) => (
-                    <TarefaMenuLinha key={t.id} t={t} podeEditar={isOperador} onAbrir={() => setDlg({ t })} onExcluir={() => setExcluir(t)} />
+                    <TarefaMenuLinha key={t.id} t={t} podeEditar={podeEditar} onAbrir={() => setDlg({ t })} onExcluir={() => setExcluir(t)} />
                   ))}
                 </ul>
               )}
@@ -741,6 +745,7 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
 
 function TarefaMenuLinha({ t, podeEditar, onAbrir, onExcluir }: { t: TarefaOut; podeEditar: boolean; onAbrir: () => void; onExcluir: () => void }) {
   const status = useMudarStatus();
+  const podeExcluir = useAuth().pode("tarefas.excluir");
   return (
     <TarefaLinha
       t={t}
@@ -767,10 +772,14 @@ function TarefaMenuLinha({ t, podeEditar, onAbrir, onExcluir }: { t: TarefaOut; 
                   <X /> Cancelar tarefa
                 </DropdownMenuItem>
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={onExcluir}>
-                <Trash2 /> Excluir
-              </DropdownMenuItem>
+              {podeExcluir && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={onExcluir}>
+                    <Trash2 /> Excluir
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )

@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 
 export default function ContratosPage() {
   const router = useRouter();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("contratos.editar");
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 300);
   const [ativos, setAtivos] = useState<"sim" | "todos">("sim");
@@ -43,8 +44,8 @@ export default function ContratosPage() {
         migalhas={[{ label: "Cadastros" }, { label: "Contratos" }]}
         acoes={
           <>
-            <PlanilhaAcoes recurso="contratos" rotulo="contratos" podeImportar={isOperador} />
-            {isOperador && (
+            <PlanilhaAcoes recurso="contratos" rotulo="contratos" podeImportar={pode("contratos.importar")} />
+            {podeEditar && (
               <Button onClick={() => setNovo(true)}>
                 <FilePlus2 /> Novo contrato
               </Button>
@@ -77,7 +78,7 @@ export default function ContratosPage() {
             titulo={filtrando ? "Nenhum contrato encontrado" : "Nenhum contrato ainda"}
             descricao={filtrando ? "Troque a busca ou o cliente." : "Crie o primeiro contrato e defina como o cliente é cobrado."}
             acao={
-              isOperador &&
+              podeEditar &&
               !filtrando && (
                 <Button onClick={() => setNovo(true)}>
                   <FilePlus2 /> Novo contrato

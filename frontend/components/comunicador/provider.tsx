@@ -88,7 +88,9 @@ export function atualizarConversa(qc: ReturnType<typeof useQueryClient>, m: Msg,
 }
 
 export function ComunicadorProvider({ children }: { children: React.ReactNode }) {
-  const { usuario, logado } = useAuth();
+  const { usuario, logado: entrou, pode } = useAuth();
+  // sem a permissão do Comunicador não há conexão nem contadores (o servidor recusaria com 403)
+  const logado = entrou && pode("comunicador.usar");
   const qc = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();

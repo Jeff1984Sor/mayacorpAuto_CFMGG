@@ -95,7 +95,7 @@ function Carregando() {
 }
 
 export default function DashboardPage() {
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
   const q = useQuery({
     queryKey: ["dashboard-faturamento"],
     queryFn: () => api.get<DashboardOut>("/dashboard/faturamento"),
@@ -276,10 +276,12 @@ export default function DashboardPage() {
             descricao="Faturamento, recebimentos, atrasos e a previsão de caixa aparecem aqui assim que a primeira NH ou ND for gerada."
             acao={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button render={<Link href="/faturamento/itens" />}>
-                  <ListChecks /> Ver itens a faturar
-                </Button>
-                {isOperador && (
+                {pode("itens_faturar.ver") && (
+                  <Button render={<Link href="/faturamento/itens" />}>
+                    <ListChecks /> Ver itens a faturar
+                  </Button>
+                )}
+                {pode("nfse_emissao.emitir") && (
                   <Button variant="outline" render={<Link href="/nfse/nova-emissao" />}>
                     <FileUp /> Nova emissão
                   </Button>

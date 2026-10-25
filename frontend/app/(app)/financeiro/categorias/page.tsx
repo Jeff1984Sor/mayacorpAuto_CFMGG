@@ -297,7 +297,8 @@ function Bloco({
 
 export default function CategoriasPage() {
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
+  const { pode } = useAuth();
+  const podeEditar = pode("categorias_fin.editar");
   const q = useCategoriasFin();
   const [busca, setBusca] = useState("");
   const [selecao, setSelecao] = useState(false);
@@ -328,7 +329,7 @@ export default function CategoriasPage() {
     },
   });
   const nSel = sel.cats.size + sel.subs.size;
-  const props = { selecao, sel, marcar, podeEditar: isOperador };
+  const props = { selecao, sel, marcar, podeEditar: podeEditar };
 
   return (
     <div>
@@ -339,7 +340,7 @@ export default function CategoriasPage() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SearchInput value={busca} onChange={setBusca} placeholder="Buscar categoria ou subcategoria" className="sm:w-80" />
-        {isOperador && (
+        {podeEditar && (
           <div className="ml-auto flex items-center gap-2">
             {selecao && (
               <Button variant="destructive" size="sm" disabled={!nSel || lote.isPending} onClick={() => lote.mutate()}>
