@@ -164,3 +164,18 @@ def test_ler_recibo(cliente, ia_falsa):  # noqa: F811
     assert r.status_code == 200, r.text
     assert r.json()["campos"] == {"data": "2026-10-20", "tipo": "deslocamento", "descricao": "Uber até o fórum", "valor": "32.90"}
     assert cliente.post("/api/faturamento/ia/ler-recibo", headers=h, files={"arquivo": ("x.exe", b"MZ")}).status_code == 400
+
+
+def test_assistente_resolve_nome_no_lugar_do_id(cliente, ia_falsa):  # noqa: F811
+    h = _login(cliente)
+    cats = cliente.get("/api/financeiro/categorias", headers=h).json()
+    cat = next(c for c in cats if c["tipo"] == "despesa")
+    r = cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "criar_conta_pagar", "parametros": {
+        "descricao": "Conta de energia elétrica", "valor": 350.9, "data_vencimento": "2026-11-10",
+        "categoria_id": cat["nome"], "fornecedor_id": "Enel Distribuição"}})
+    assert r.status_code == 200, r.text
+    conta = cliente.get("/api/financeiro/contas-pagar", headers=h, params={"q": "energia elétrica"}).json()["itens"][0]
+    assert conta["favorecido_nome"] == "Enel Distribuição" and conta["categoria_id"] == cat["id"] and conta["valor"] == "350.90"
+    r = cliente.post("/api/ia/assistente/executar", headers=h, json={"tipo": "criar_conta_pagar", "parametros": {
+        "descricao": "x", "valor": 1, "data_vencimento": "2026-11-10", "categoria_id": "Categoria que não existe"}})
+    assert r.status_code == 400 and "Não encontrei" in r.json()["detail"]

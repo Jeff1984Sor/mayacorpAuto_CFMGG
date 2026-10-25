@@ -120,7 +120,9 @@ def _referencias(ctx, tela: str) -> dict:
 SISTEMA = (
     "Você é o assistente do MayaJus, sistema de gestão de um escritório de advocacia brasileiro (casos, faturamento, "
     "financeiro, NFS-e). Converse em português do Brasil, curto e direto, citando números e nomes da tela. "
-    "Use SOMENTE os dados fornecidos (tela + referências); se faltar informação, diga o que falta. Nunca invente ids. "
+    "Use SOMENTE os dados fornecidos (tela + referências); se faltar informação, diga o que falta. Nunca invente ids: "
+    "campos terminados em _id levam o NÚMERO id das referências; fornecedor que não está nas referências vai em "
+    "'favorecido' (texto), sem fornecedor_id. "
     "Quando o usuário pedir para FAZER algo, proponha ações do catálogo com parâmetros completos (ids das referências, "
     "datas AAAA-MM-DD, valores numéricos) e um rótulo claro do que será feito; o usuário confirma antes. "
     "Se faltar um dado obrigatório (ex.: categoria), pergunte em vez de propor. Para perguntas, não proponha ações. "
@@ -157,6 +159,45 @@ def _limpo(p: dict, *permitidos: str) -> dict:
     return {k: v for k, v in p.items() if k in permitidos and v not in (None, "")}
 
 
+def _como_id(v) -> int | None:
+    try:
+        return int(str(v).strip().lstrip("#"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolver_ids(ctx, p: dict) -> dict:
+    """A IA às vezes manda o nome no lugar do id ("Enel", "Energia elétrica"): procura pelo nome no cadastro."""
+    from sqlalchemy import func
+
+    from app.modules.financas.models import CategoriaFinanceira, ContaBancaria, Fornecedor, Subcategoria
+
+    p = dict(p)
+    for campo, modelo in (("fornecedor_id", Fornecedor), ("categoria_id", CategoriaFinanceira), ("conta_bancaria_id", ContaBancaria)):
+        v = p.get(campo)
+        if v in (None, "") or _como_id(v) is not None:
+            continue
+        achado = ctx.db.scalar(select(modelo.id).where(modelo.tenant_id == ctx.tenant_id,
+                                                       func.lower(modelo.nome) == str(v).strip().lower()))
+        if achado:
+            p[campo] = achado
+        elif campo == "fornecedor_id":  # fornecedor não cadastrado: vai como favorecido (texto)
+            p.pop(campo)
+            p.setdefault("favorecido", str(v).strip()[:200])
+        else:
+            raise HTTPException(400, f"Não encontrei “{v}” no cadastro ({campo.replace('_id', '').replace('_', ' ')}).")
+    sub = p.get("subcategoria_id")
+    if sub not in (None, "") and _como_id(sub) is None:
+        cat = _como_id(p.get("categoria_id"))
+        achado = ctx.db.scalar(select(Subcategoria.id).where(Subcategoria.categoria_id == cat,
+                                                             func.lower(Subcategoria.nome) == str(sub).strip().lower())) if cat else None
+        if achado:
+            p["subcategoria_id"] = achado
+        else:
+            p.pop("subcategoria_id")
+    return p
+
+
 @router.post("/executar")
 def executar(dados: ExecutarIn, ctx: Operador):
     """Executa uma ação proposta (depois do clique do usuário), pelas rotas normais do sistema."""
@@ -167,7 +208,7 @@ def executar(dados: ExecutarIn, ctx: Operador):
     from app.modules.rpa_nfse import routes as nfse
     from app.modules.rpa_nfse.schemas import TomadorIn
 
-    p, t = dados.parametros or {}, dados.tipo
+    p, t = _resolver_ids(ctx, dados.parametros or {}), dados.tipo
     try:
         if t == "navegar":
             rota = str(p.get("rota") or "")

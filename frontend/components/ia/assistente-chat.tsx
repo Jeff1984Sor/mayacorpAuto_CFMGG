@@ -23,19 +23,41 @@ interface Msg {
   acoes?: (Acao & { estado?: "feita" | "ignorada" | "erro"; resultado?: string })[];
 }
 
+const MAX_GUARDADAS = 40;
+
+/** Conversa guardada no navegador, por usuário e por tela: fechar o painel (ou recarregar) não perde o histórico. */
+function chaveConversa(usuarioId: number | undefined, tela: string) {
+  return `mayajus:assistente:${usuarioId ?? "anon"}:${tela}`;
+}
+function lerConversa(chave: string): Msg[] {
+  try {
+    const bruto = typeof window !== "undefined" ? window.localStorage.getItem(chave) : null;
+    return bruto ? (JSON.parse(bruto) as Msg[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 const SUGESTOES = ["O que precisa da minha atenção aqui?", "Resuma em 3 pontos", "Quais os próximos passos?"];
 
 /** Conversa com o assistente sobre a tela atual; ações propostas só rodam com "Executar". */
 export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titulo: string; conteudo: () => string }) {
   const router = useRouter();
   const qc = useQueryClient();
-  const { isOperador } = useAuth();
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const { isOperador, usuario } = useAuth();
+  const chave = chaveConversa(usuario?.id, tela);
+  const [msgs, setMsgs] = useState<Msg[]>(() => lerConversa(chave));
   const [texto, setTexto] = useState("");
   const fim = useRef<HTMLDivElement>(null);
   useEffect(() => {
     fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgs]);
+    try {
+      if (msgs.length) window.localStorage.setItem(chave, JSON.stringify(msgs.slice(-MAX_GUARDADAS)));
+      else window.localStorage.removeItem(chave);
+    } catch {
+      /* navegador sem armazenamento (aba anônima etc.): a conversa vale só enquanto o painel está aberto */
+    }
+  }, [msgs, chave]);
 
   const enviar = useMutation({
     mutationFn: (historico: Msg[]) =>
@@ -76,6 +98,15 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
       <div className="space-y-3 px-5 pt-4">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
           <Sparkles className="size-3.5 text-info-ink" /> Converse com o assistente
+          {msgs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMsgs([])}
+              className="ml-auto rounded-md px-1.5 py-0.5 text-[11px] font-medium tracking-normal normal-case text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              Nova conversa
+            </button>
+          )}
         </p>
         {msgs.length === 0 && (
           <div className="flex flex-wrap gap-1.5">
