@@ -11,7 +11,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app.core.config import BASE_DIR
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.models import ConfigNotificacao, Identidade, Perfil, Tenant, Usuario
 from app.core.security import hash_senha
@@ -59,8 +59,9 @@ def _detalhes(qtd: int, inicio: int, com_erros: bool) -> list[dict]:
 
 
 def gerar_exemplo() -> Path:
-    destino = BASE_DIR / "exemplos" / "lello_rps_exemplo.txt"
-    destino.parent.mkdir(exist_ok=True)
+    # vai para o storage (não para a pasta do código): as datas mudam a cada geração e sujariam o git do servidor
+    destino = Path(settings.storage_dir) / "exemplos" / "lello_rps_exemplo.txt"
+    destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_bytes(parser_txt.gerar_arquivo(CCM, _detalhes(120, 2001, com_erros=True)))
     return destino
 
@@ -92,7 +93,6 @@ def main() -> None:
         print("Base pronta (cliente CFME, identidade e configurações), sem dados de teste.")
         print("Crie o primeiro acesso: python -m app.criar_usuario --login ... --nome ... --email ... --perfil admin")
         return
-    from app.core.config import settings
 
     if settings.ambiente != "dev":
         sys.exit("Dados de demonstração só no ambiente dev. No servidor use: python -m app.seed --somente-base")

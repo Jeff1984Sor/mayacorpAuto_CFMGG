@@ -45,7 +45,7 @@ uv run python -m app.criar_usuario --login admin --nome "Seu nome" --email voce@
 
 Depois disso, usuários, senhas, certificado, identidade, SMTP e modo da Prefeitura são geridos em **Configurações**.
 
-Arquivo para testar o upload: `backend/exemplos/lello_rps_exemplo.txt` (120 RPS, sendo 2 com erro de propósito e 1 tomador novo).
+Arquivo para testar o upload: `backend/exemplos/lello_rps_exemplo.txt` (o seed gera um atualizado em `storage/exemplos/`) (120 RPS, sendo 2 com erro de propósito e 1 tomador novo).
 
 ### Modos da Prefeitura (Configurações › Prefeitura)
 
