@@ -137,3 +137,26 @@ def test_admin_troca_foto_de_outro_profissional(cliente):
     u = next(x for x in cliente.get("/api/config/usuarios", headers=h).json() if x["id"] == outro["id"])
     assert u["foto_url"]
     assert cliente.delete(f"/api/auth/usuarios/{outro['id']}/foto", headers=h).status_code == 200
+
+
+def test_cliente_com_varios_enderecos_contatos_e_telefones(cliente):
+    h = _login(cliente)
+    corpo = {"tipo": "PJ", "nome": "Cliente Multi", "logradouro": "Rua A", "numero": "1", "cidade": "São Paulo", "uf": "SP",
+             "emails": ["fin@multi.com.br"],
+             "enderecos": [{"tipo": "cobranca", "descricao": "Financeiro", "cep": "01310-100", "logradouro": "Av. Paulista",
+                            "numero": "1000", "cidade": "São Paulo", "uf": "SP"},
+                           {"tipo": "filial", "descricao": "Filial Campinas", "cidade": "Campinas", "uf": "SP"}],
+             "contatos": [{"nome": "Maria Souza", "cargo": "Síndica", "email": "maria@multi.com.br", "celular": "(11) 99999-0000",
+                           "whatsapp": True, "recebe_notas": True},
+                          {"nome": "João Lima", "cargo": "Contador", "email": "joao@multi.com.br", "principal": True}],
+             "telefones": [{"numero": "(11) 3333-4444", "tipo": "comercial", "ramal": "21"}, {"numero": "11988887777", "tipo": "whatsapp"}]}
+    r = cliente.post("/api/nfse/tomadores", headers=h, json=corpo)
+    assert r.status_code == 200, r.text
+    t = r.json()
+    assert len(t["enderecos"]) == 2 and t["enderecos"][0]["cep"] == "01310100"
+    assert t["telefone"] == "1133334444" and t["telefones"][1]["tipo"] == "whatsapp"
+    assert [c["principal"] for c in t["contatos"]] == [False, True] and t["contatos"][0]["celular"] == "11999990000"
+    corpo["contatos"][1]["principal"] = False
+    t = cliente.put(f"/api/nfse/tomadores/{t['id']}", headers=h, json=corpo).json()
+    assert t["contatos"][0]["principal"] is True  # sempre há um principal
+    assert cliente.post("/api/nfse/tomadores", headers=h, json={**corpo, "nome": "X", "enderecos": [{"tipo": "inexistente"}]}).status_code == 422

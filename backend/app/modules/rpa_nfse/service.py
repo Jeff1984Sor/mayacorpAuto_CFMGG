@@ -465,6 +465,9 @@ def assinatura_email(db: Session, tenant_id: int) -> str:
 def emails_do_cliente(nota: Nfse) -> list[str]:
     tom = (nota.rps.dados_json or {}).get("tomador", {})
     emails = list(nota.tomador.emails or []) if nota.tomador else []
+    if nota.tomador:  # pessoas de contato marcadas como "recebe as notas"
+        emails += [c["email"] for c in nota.tomador.contatos or [] if c.get("recebe_notas") and c.get("email")]
+    emails = list(dict.fromkeys(e.lower() for e in emails))
     return emails or ([tom["email"]] if tom.get("email") else [])
 
 

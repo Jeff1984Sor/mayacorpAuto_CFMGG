@@ -282,10 +282,24 @@ def _validar_tomador(dados: TomadorIn) -> None:
         raise HTTPException(400, "Pessoa jurídica precisa de CNPJ (14 dígitos).")
 
 
+def _dados_tomador(dados: TomadorIn) -> dict:
+    """Listas viram JSON; o telefone principal acompanha o 1º da lista; só um contato principal."""
+    d = dados.model_dump(mode="json")
+    if d["telefones"]:
+        d["telefone"] = d["telefones"][0]["numero"]
+    if d["contatos"]:
+        if not any(c["principal"] for c in d["contatos"]):
+            d["contatos"][0]["principal"] = True
+        visto = False
+        for c in d["contatos"]:
+            c["principal"], visto = (c["principal"] and not visto), visto or c["principal"]
+    return d
+
+
 @router.post("/tomadores", response_model=TomadorOut)
 def criar_tomador(dados: TomadorIn, ctx: Operador):
     _validar_tomador(dados)
-    t = Tomador(tenant_id=ctx.tenant_id, **dados.model_dump())
+    t = Tomador(tenant_id=ctx.tenant_id, **_dados_tomador(dados))
     ctx.db.add(t)
     try:
         ctx.db.flush()
@@ -378,7 +392,7 @@ def salvar_tomador(tid: int, dados: TomadorIn, ctx: Operador):
     t = _do_tenant(ctx, Tomador, tid)
     _validar_tomador(dados)
     antes = audit.snapshot(t)
-    for k, v in dados.model_dump().items():
+    for k, v in _dados_tomador(dados).items():
         setattr(t, k, v)
     try:
         ctx.db.flush()

@@ -74,6 +74,48 @@ class EmissoraOut(Schema):
 
 
 # ---------- Tomador ----------
+def _so_digitos(v):
+    return "".join(c for c in str(v or "") if c.isdigit()) or None
+
+
+class EnderecoIn(BaseModel):
+    tipo: str = Field(default="cobranca", pattern="^(cobranca|correspondencia|entrega|filial|outro)$")
+    descricao: str | None = Field(default=None, max_length=80)  # ex.: "Filial Campinas"
+    cep: str | None = None
+    tipo_logradouro: str | None = Field(default=None, max_length=3)
+    logradouro: str | None = Field(default=None, max_length=150)
+    numero: str | None = Field(default=None, max_length=10)
+    complemento: str | None = Field(default=None, max_length=60)
+    bairro: str | None = Field(default=None, max_length=80)
+    cidade: str | None = Field(default=None, max_length=80)
+    uf: str | None = Field(default=None, max_length=2)
+
+    _cep = field_validator("cep")(_so_digitos)
+
+
+class ContatoIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=150)
+    cargo: str | None = Field(default=None, max_length=100)  # função / departamento
+    email: EmailStr | None = None
+    telefone: str | None = Field(default=None, max_length=20)
+    celular: str | None = Field(default=None, max_length=20)
+    whatsapp: bool = False
+    recebe_notas: bool = False  # entra como destinatário dos e-mails de NFS-e/fatura
+    principal: bool = False
+    observacao: str | None = Field(default=None, max_length=300)
+
+    _tel = field_validator("telefone", "celular")(_so_digitos)
+
+
+class TelefoneIn(BaseModel):
+    numero: str = Field(min_length=8, max_length=20)
+    tipo: str = Field(default="comercial", pattern="^(comercial|celular|whatsapp|fixo|fax|outro)$")
+    ramal: str | None = Field(default=None, max_length=10)
+    descricao: str | None = Field(default=None, max_length=60)  # ex.: "Financeiro"
+
+    _num = field_validator("numero")(lambda v: _so_digitos(v) or v)
+
+
 class TomadorIn(BaseModel):
     tipo: str = Field(pattern="^(PF|PJ|EX)$")
     nome: str = Field(min_length=2)
@@ -91,6 +133,9 @@ class TomadorIn(BaseModel):
     emails: list[EmailStr] = []
     telefone: str | None = None
     observacoes: str | None = None
+    enderecos: list[EnderecoIn] = []
+    contatos: list[ContatoIn] = []
+    telefones: list[TelefoneIn] = []
 
     _d = field_validator("cpf_cnpj", "cep", "im")(_digitos)
 
@@ -113,6 +158,9 @@ class TomadorOut(Schema):
     emails: list[str]
     telefone: str | None
     observacoes: str | None
+    enderecos: list[dict[str, Any]] = []
+    contatos: list[dict[str, Any]] = []
+    telefones: list[dict[str, Any]] = []
     incompleto: bool = False
     qtd_notas: int = 0
     valor_acumulado: Decimal = Decimal(0)

@@ -144,7 +144,11 @@ class Tomador(Base, Timestamped):
     uf: Mapped[str | None] = mapped_column(String(2))
     cep: Mapped[str | None] = mapped_column(String(8))
     emails: Mapped[list[str]] = mapped_column(JSON, default=list)
-    telefone: Mapped[str | None] = mapped_column(String(20))
+    telefone: Mapped[str | None] = mapped_column(String(20))  # principal (o 1º da lista de telefones)
+    # além do endereço principal (o que vai na NFS-e): cobrança, correspondência, filiais...
+    enderecos: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    contatos: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # pessoas de contato
+    telefones: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     observacoes: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)
