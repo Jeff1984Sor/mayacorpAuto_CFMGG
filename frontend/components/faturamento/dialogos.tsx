@@ -479,6 +479,7 @@ export function CasoDialog({
   const instancias = useInstancias(open);
   const escolherContrato = !contratoId && !caso;
   const [contrato, setContrato] = useState<number | null>(null);
+  const [cliente, setCliente] = useState<number | null>(null);
   const [ia, setIa] = useState(false);
   const contratos = useQuery({
     queryKey: ["fat", "contratos", "ativos-select"],
@@ -486,6 +487,20 @@ export function CasoDialog({
       api.get<ContratoOut[]>("/faturamento/contratos", { ativos: true }),
     enabled: open && escolherContrato,
   });
+  // cliente primeiro: a lista sai dos contratos ativos (só faz sentido escolher quem tem contrato)
+  const clientes = Array.from(
+    new Map(
+      (contratos.data ?? [])
+        .filter((c) => c.tomador_id != null)
+        .map((c) => [c.tomador_id as number, c.tomador_nome] as const),
+    ),
+  ).sort((x, y) => x[1].localeCompare(y[1], "pt-BR"));
+  const contratosDoCliente = (contratos.data ?? []).filter((c) => c.tomador_id === cliente);
+  const escolherCliente = (id: number | null) => {
+    setCliente(id);
+    const doCliente = (contratos.data ?? []).filter((c) => c.tomador_id === id);
+    setContrato(doCliente.length === 1 ? doCliente[0].id : null);
+  };
   const [f, setF] = useState<CasoIn>(vazioCaso);
 
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o formulário ao abrir */
@@ -493,6 +508,8 @@ export function CasoDialog({
     if (!open) return;
     if (!caso) {
       setF(vazioCaso());
+      setCliente(null);
+      setContrato(null);
       return;
     }
     const base = casoParaIn(caso);
@@ -569,6 +586,8 @@ export function CasoDialog({
         onSubmit={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (escolherContrato && !cliente)
+            return toast.error("Escolha o cliente do caso.");
           if (escolherContrato && !contrato)
             return toast.error("Escolha o contrato do caso.");
           if (f.titulo.trim().length < 2)
@@ -584,27 +603,39 @@ export function CasoDialog({
         <div className="space-y-4">
           <SecaoForm titulo="Identificação">
             {escolherContrato && (
-              <Field
-                label="Contrato"
-                obrigatorio
-                htmlFor="caso-contrato"
-                className="sm:col-span-6"
-              >
-                <NativeSelect
-                  id="caso-contrato"
-                  value={contrato ?? ""}
-                  onChange={(e) =>
-                    setContrato(e.target.value ? Number(e.target.value) : null)
-                  }
-                >
-                  <option value="">Escolha o contrato…</option>
-                  {contratos.data?.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.numero} {c.nome} — {c.tomador_nome}
+              <>
+                <Field label="Cliente" obrigatorio htmlFor="caso-cliente" className="sm:col-span-3">
+                  <NativeSelect
+                    id="caso-cliente"
+                    value={cliente ?? ""}
+                    onChange={(e) => escolherCliente(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">{contratos.isLoading ? "Carregando…" : "Escolha o cliente…"}</option>
+                    {clientes.map(([id, nome]) => (
+                      <option key={id} value={id}>
+                        {nome}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-3">
+                  <NativeSelect
+                    id="caso-contrato"
+                    value={contrato ?? ""}
+                    disabled={!cliente}
+                    onChange={(e) => setContrato(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">
+                      {!cliente ? "Escolha o cliente primeiro" : contratosDoCliente.length ? "Escolha o contrato…" : "Cliente sem contrato ativo"}
                     </option>
-                  ))}
-                </NativeSelect>
-              </Field>
+                    {contratosDoCliente.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.numero} {c.nome}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              </>
             )}
             {(!f.tipo || ehJudicial(f.tipo) || !!f.numero_processo) && (
               <CnjCaso
