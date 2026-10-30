@@ -483,3 +483,40 @@ def test_rbac_e_sigilo(cliente, trib):  # noqa: F811
     # revogar o termo apaga o certificado
     r = cliente.post("/api/tribunais/eu/termo/revogar", headers=h)
     assert r.json()["certificado"] is None and r.json()["termo"] is None
+
+
+def test_proxy_no_brasil_busca_intimacoes_sozinho(cliente, trib, monkeypatch):  # noqa: F811
+    from app.core.db import SessionLocal
+    from app.modules.tribunais import service
+    from app.modules.tribunais.models import Varredura
+
+    h = _login(cliente)
+    eu = _preparar_advogado(cliente, h)
+    n = cnj.formatar(cnj.montar(777, 2025, 5, "02", "0001"))
+    paginas = []
+
+    def djen(base, numero, uf, pagina, inicio=None, fim=None, timeout=30.0):
+        paginas.append((base, numero, uf, pagina, inicio))
+        return {"count": 1, "items": [_djen(n, "Autor Proxy", "Ré Proxy", data=str(date.today()))] if pagina == 1 else []}
+
+    monkeypatch.setattr(fontes, "djen_buscar", djen)
+    with SessionLocal() as db:
+        service.plataforma(db).djen_proxy_url = "https://proxy-br.exemplo/djen-segredo/api/v1"
+        db.commit()
+    try:
+        r = cliente.post("/api/tribunais/varreduras", headers=h, json={"advogado_id": eu["usuario_id"], "so_novas": True})
+        assert r.json()["coleta"] == "servidor" and r.json()["status"] == "concluida", r.json()
+        assert paginas[0][0].startswith("https://proxy-br.exemplo/") and paginas[0][1:3] == ("123456", "SP")
+        with SessionLocal() as db:  # rotina diária: já houve varredura hoje → não repete
+            assert service.agendar_intimacoes_diarias(db) == 0
+            db.query(Varredura).filter_by(advogado_id=eu["usuario_id"]).update({"iniciada_em": datetime.now(UTC) - timedelta(days=2)})
+            db.commit()
+            assert service.agendar_intimacoes_diarias(db) >= 1
+            db.commit()
+        jobs.rodar_fila()
+        v = cliente.get("/api/tribunais/varreduras", headers=h).json()[0]
+        assert v["status"] == "concluida" and v["total_encontrados"] == 1 and v["data_inicio"]
+    finally:
+        with SessionLocal() as db:
+            service.plataforma(db).djen_proxy_url = None
+            db.commit()

@@ -400,10 +400,7 @@ def nova_varredura(dados: VarreduraIn, ctx: Ctx):
     adv = _advogado(ctx, dados.advogado_id)
     inicio, fim = dados.data_inicio, dados.data_fim
     if dados.so_novas and not inicio:  # intimações novas: desde a última varredura concluída (com 1 dia de folga)
-        ult = ctx.db.scalar(select(Varredura).where(Varredura.advogado_id == adv.id, Varredura.status.in_(("concluida", "parcial")))
-                            .order_by(Varredura.id.desc()))
-        inicio = (ult.concluida_em.date() - timedelta(days=1)) if ult and ult.concluida_em else date.today() - timedelta(days=7)
-        fim = fim or date.today()
+        inicio, fim = service.inicio_intimacoes_novas(ctx.db, adv.id), fim or date.today()
     if inicio and fim and inicio > fim:
         raise HTTPException(400, "A data inicial é depois da final.")
     try:
@@ -418,6 +415,7 @@ def nova_varredura(dados: VarreduraIn, ctx: Ctx):
     ctx.db.commit()
     if v.coleta == "servidor":
         jobs.disparar()
+        ctx.db.refresh(v)
     return varredura_out(ctx, v)
 
 

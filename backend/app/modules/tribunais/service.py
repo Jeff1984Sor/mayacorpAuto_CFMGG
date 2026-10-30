@@ -126,13 +126,13 @@ def clientes(db: Session, tenant_id: int) -> list[Tomador]:
 
 
 # ------------------------------------------------------------------------------------------------------ varredura
-def iniciar_varredura(db: Session, tenant_id: int, advogado: Usuario, disparada_por: Usuario, *, data_inicio: date | None = None,
+def iniciar_varredura(db: Session, tenant_id: int, advogado: Usuario, disparada_por: Usuario | None, *, data_inicio: date | None = None,
                       data_fim: date | None = None, tribunais_alvo: list[str] | None = None) -> Varredura:
     oabs = oabs_do_advogado(db, advogado)
     if not oabs:
         raise ErroIntegracao(f"{advogado.nome} não tem OAB cadastrada. Cadastre em Tribunais › Advogados.")
     plat = plataforma(db)
-    v = Varredura(tenant_id=tenant_id, advogado_id=advogado.id, disparada_por_id=disparada_por.id, inscricoes_oab=oabs,
+    v = Varredura(tenant_id=tenant_id, advogado_id=advogado.id, disparada_por_id=disparada_por.id if disparada_por else None, inscricoes_oab=oabs,
                   fontes=["djen"], tribunais_alvo=[t.upper() for t in tribunais_alvo or []], data_inicio=data_inicio,
                   data_fim=data_fim, coleta="servidor" if plat.djen_proxy_url else "navegador", status="rodando",
                   iniciada_em=agora(), resumo_por_tribunal={})
@@ -207,6 +207,33 @@ def ingerir_comunicacoes(db: Session, v: Varredura, brutos: list[dict]) -> dict:
     db.flush()
     return {"novos": novos, "total_encontrados": v.total_encontrados, "total_comunicacoes": v.total_comunicacoes,
             "intimacoes_registradas": intimacoes}
+
+
+def inicio_intimacoes_novas(db: Session, advogado_id: int) -> date:
+    """Desde a última varredura concluída do advogado (1 dia de folga) ou dos últimos 7 dias."""
+    ult = db.scalar(select(Varredura).where(Varredura.advogado_id == advogado_id, Varredura.status.in_(("concluida", "parcial")))
+                    .order_by(Varredura.id.desc()))
+    return (ult.concluida_em.date() - timedelta(days=1)) if ult and ult.concluida_em else date.today() - timedelta(days=7)
+
+
+def agendar_intimacoes_diarias(db: Session) -> int:
+    """Com proxy no Brasil, o servidor busca sozinho as intimações novas de cada advogado com OAB (1x por dia)."""
+    from app.modules.tribunais import jobs
+
+    if not plataforma(db).djen_proxy_url:
+        return 0
+    n = 0
+    ids = set(db.scalars(select(InscricaoOab.usuario_id))) | set(db.scalars(select(Usuario.id).where(Usuario.oab.is_not(None))))
+    for u in db.scalars(select(Usuario).where(Usuario.id.in_(ids or {0}), Usuario.ativo.is_(True))):
+        hoje = db.scalar(select(Varredura.id).where(Varredura.advogado_id == u.id, Varredura.iniciada_em >= datetime.combine(
+            date.today(), time(0), tzinfo=UTC)))
+        if hoje or not oabs_do_advogado(db, u):
+            continue
+        v = iniciar_varredura(db, u.tenant_id, u, None, data_inicio=inicio_intimacoes_novas(db, u.id), data_fim=date.today())
+        jobs.enfileirar(db, u.tenant_id, "varredura", v.id)
+        n += 1
+    db.flush()
+    return n
 
 
 def resumo_partes(partes: list[dict]) -> str | None:

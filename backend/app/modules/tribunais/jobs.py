@@ -226,6 +226,7 @@ def rotina_diaria() -> None:
     with SessionLocal() as db:
         for p in service.pendentes_de_sincronizar(db):
             enfileirar(db, p.tenant_id, "sincronizar", p.id, tribunal_id=p.tribunal_id)
+        service.agendar_intimacoes_diarias(db)  # só com proxy do DJEN no Brasil
         hoje = date.today()
         for c in db.scalars(select(CertificadoAdvogado).where(CertificadoAdvogado.removido_em.is_(None))):
             dias = (c.valido_ate.date() - hoje).days
