@@ -434,10 +434,10 @@ function TimesheetCentral() {
             ))}
           </NativeSelect>
         )}
-        <div className="w-52">
+        <div className={cn("w-52", !pode("clientes.ver") && "hidden")}>
           <ClientesMulti unico id="ts-cliente" valor={cliente} onChange={(v) => setF({ tomador_id: v[0] ? String(v[0].id) : "", cliente_nome: v[0]?.nome ?? "" })} />
         </div>
-        <div className="w-56">
+        <div className={cn("w-56", !pode("casos.ver") && "hidden")}>
           <CasoCombo id="ts-filtro-caso" value={f.caso_id ? Number(f.caso_id) : null} onChange={(v) => setF({ caso_id: v ? String(v) : "" })} rotuloVazio="Todos os casos" />
         </div>
         <NativeSelect aria-label="Faturável" value={f.faturavel} onChange={(e) => setF({ faturavel: e.target.value })} className="h-9 w-36">

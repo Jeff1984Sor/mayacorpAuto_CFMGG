@@ -13,11 +13,13 @@ import {
   Gavel,
   Landmark,
   Loader2,
+  Lock,
   MoreHorizontal,
   Paperclip,
   Pencil,
   Phone,
   Plus,
+  RotateCcw,
   Search,
   Shapes,
   Trash2,
@@ -41,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFieldId } from "@/components/ui/field-id";
 import { abrirArquivo, api, baixar } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -96,18 +99,41 @@ export function useEtiquetas(enabled = true) {
 }
 
 export function useCasosSelect(enabled = true) {
-  return useQuery({ queryKey: ["fat", "casos", "select"], queryFn: () => api.get<CasoOut[]>("/faturamento/casos"), enabled, staleTime: 60_000 });
+  // sem "casos.ver" a lista viria 403: o combo fica vazio
+  const { pode } = useAuth();
+  return useQuery({ queryKey: ["fat", "casos", "select"], queryFn: () => api.get<CasoOut[]>("/faturamento/casos"), enabled: enabled && pode("casos.ver"), staleTime: 60_000 });
 }
 
 export function useMudarStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: StatusTarefa }) => api.patch<TarefaOut>(`/faturamento/tarefas/${id}/status`, { status }),
-    onSuccess: (t) => {
+    mutationFn: ({ id, status }: { id: number; status: StatusTarefa; reabrindo?: boolean }) => api.patch<TarefaOut>(`/faturamento/tarefas/${id}/status`, { status }),
+    onSuccess: (t, v) => {
       qc.invalidateQueries({ queryKey: ["fat"] });
       if (t.status === "concluida") toast.success("Tarefa concluída", { description: t.titulo });
+      else if (v.reabrindo) toast.success("Tarefa reaberta", { description: t.titulo });
     },
   });
+}
+
+export const DICA_TRAVA = "Só perfis com 'Reabrir concluídas' podem reabrir";
+
+/** Tarefa concluída só reabre ou muda com "tarefas.reabrir" (o servidor recusa com 403). */
+export function useTravaConcluida() {
+  const { pode } = useAuth();
+  const podeReabrir = pode("tarefas.reabrir");
+  return { podeReabrir, travada: (t: Pick<TarefaOut, "status"> | null | undefined) => t?.status === "concluida" && !podeReabrir };
+}
+
+export function CadeadoConcluida({ className }: { className?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span tabIndex={0} aria-label={DICA_TRAVA} className={cn("inline-grid place-items-center text-muted-foreground", className)} />}>
+        <Lock className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipContent>{DICA_TRAVA}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 const sem = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -292,7 +318,11 @@ export function TarefaDialog({
 }) {
   const qc = useQueryClient();
   const { usuario, pode } = useAuth();
-  const podeEditar = pode("tarefas.editar");
+  const { travada, podeReabrir } = useTravaConcluida();
+  // concluída sem "Reabrir concluídas" abre só para consulta
+  const trancada = travada(tarefa);
+  const podeEditar = pode("tarefas.editar") && !trancada;
+  const status = useMudarStatus();
   const profs = useProfissionais(open);
   const [f, setF] = useState<TarefaIn>(() => vazia(casoId ?? null, null));
   const [fila, setFila] = useState<File[]>([]);
@@ -377,6 +407,25 @@ export function TarefaDialog({
       titulo={!podeEditar ? "Tarefa" : tarefa ? "Editar tarefa" : "Nova tarefa"}
       largura="xl"
       salvando={salvar.isPending}
+      rodapeExtra={
+        tarefa?.status === "concluida" &&
+        (podeReabrir && pode("tarefas.editar") ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={status.isPending}
+            onClick={() => status.mutate({ id: tarefa.id, status: "a_fazer", reabrindo: true }, { onSuccess: () => onOpenChange(false) })}
+          >
+            <RotateCcw /> Reabrir tarefa
+          </Button>
+        ) : (
+          trancada && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Lock className="size-3.5" /> Concluída. {DICA_TRAVA}.
+            </span>
+          )
+        ))
+      }
       rotuloSalvar={podeEditar ? "Salvar" : "Fechar"}
       onSubmit={(e) => {
         e.preventDefault();
@@ -558,9 +607,11 @@ export function TarefaLinha({
   acoes?: React.ReactNode;
 }) {
   const status = useMudarStatus();
+  const { travada } = useTravaConcluida();
   const T = TIPO_TAREFA[t.tipo];
   const prazo = rotuloPrazo(t);
   const feita = t.status === "concluida";
+  const trancada = travada(t);
   return (
     <li className={cn("group flex items-start gap-3 px-3 py-2.5 transition-colors hover:bg-accent/30", selecionada && "bg-brand/[0.05]", !aberta(t) && "opacity-70")}>
       {onSelecionar && (
@@ -568,9 +619,10 @@ export function TarefaLinha({
       )}
       <button
         type="button"
-        disabled={!podeEditar || status.isPending || t.status === "cancelada"}
-        onClick={() => status.mutate({ id: t.id, status: feita ? "a_fazer" : "concluida" })}
+        disabled={!podeEditar || trancada || status.isPending || t.status === "cancelada"}
+        onClick={() => status.mutate({ id: t.id, status: feita ? "a_fazer" : "concluida", reabrindo: feita })}
         aria-label={feita ? `Reabrir ${t.titulo}` : `Concluir ${t.titulo}`}
+        title={trancada ? DICA_TRAVA : undefined}
         className={cn(
           "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2 transition",
           feita ? "border-success bg-success text-white" : "border-muted-foreground/40 hover:border-success hover:bg-success/10",
@@ -583,6 +635,7 @@ export function TarefaLinha({
           <span className={cn("size-2 shrink-0 rounded-full", PRIORIDADE[t.prioridade].ponto)} title={`Prioridade ${PRIORIDADE[t.prioridade].l}`} />
           <T.icone className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0">{t.titulo}</span>
+          {trancada && podeEditar && <CadeadoConcluida />}
           {t.status === "em_andamento" && <span className="rounded-full bg-brand/12 px-1.5 text-[10px] font-semibold text-info-ink">em andamento</span>}
         </p>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -746,6 +799,8 @@ export function TarefasCaso({ casoId }: { casoId: number }) {
 function TarefaMenuLinha({ t, podeEditar, onAbrir, onExcluir }: { t: TarefaOut; podeEditar: boolean; onAbrir: () => void; onExcluir: () => void }) {
   const status = useMudarStatus();
   const podeExcluir = useAuth().pode("tarefas.excluir");
+  const { travada, podeReabrir } = useTravaConcluida();
+  const trancada = travada(t);
   return (
     <TarefaLinha
       t={t}
@@ -760,14 +815,24 @@ function TarefaMenuLinha({ t, podeEditar, onAbrir, onExcluir }: { t: TarefaOut; 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={onAbrir}>
-                <Pencil /> Editar
+                {trancada ? <Eye /> : <Pencil />} {trancada ? "Ver" : "Editar"}
               </DropdownMenuItem>
+              {t.status === "concluida" && podeReabrir && (
+                <DropdownMenuItem onClick={() => status.mutate({ id: t.id, status: "a_fazer", reabrindo: true })}>
+                  <RotateCcw /> Reabrir tarefa
+                </DropdownMenuItem>
+              )}
+              {trancada && (
+                <DropdownMenuItem disabled title={DICA_TRAVA}>
+                  <Lock /> Reabrir tarefa
+                </DropdownMenuItem>
+              )}
               {t.status !== "em_andamento" && aberta(t) && (
                 <DropdownMenuItem onClick={() => status.mutate({ id: t.id, status: "em_andamento" })}>
                   <Gavel /> Marcar em andamento
                 </DropdownMenuItem>
               )}
-              {t.status !== "cancelada" && (
+              {t.status !== "cancelada" && !trancada && (
                 <DropdownMenuItem onClick={() => status.mutate({ id: t.id, status: "cancelada" })}>
                   <X /> Cancelar tarefa
                 </DropdownMenuItem>

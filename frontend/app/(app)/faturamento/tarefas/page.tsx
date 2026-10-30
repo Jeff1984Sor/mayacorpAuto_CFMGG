@@ -30,7 +30,9 @@ import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/c
 import { useProfissionais } from "@/components/faturamento/dialogos";
 import {
   aberta,
+  CadeadoConcluida,
   CasoCombo,
+  DICA_TRAVA,
   PRIORIDADE,
   rotuloPrazo,
   STATUS_TAREFA,
@@ -39,6 +41,7 @@ import {
   TIPO_TAREFA,
   useEtiquetas,
   useMudarStatus,
+  useTravaConcluida,
 } from "@/components/faturamento/tarefas";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { SearchInput, Segmented } from "@/components/mayacorp/data-table";
@@ -205,6 +208,7 @@ function Lista({
 const COLUNAS: StatusTarefa[] = ["a_fazer", "em_andamento", "concluida", "cancelada"];
 function Quadro({ itens, onAbrir, podeEditar, comCanceladas }: { itens: TarefaOut[]; onAbrir: (t: TarefaOut) => void; podeEditar: boolean; comCanceladas: boolean }) {
   const status = useMudarStatus();
+  const { travada } = useTravaConcluida();
   const [arrastando, setArrastando] = useState<number | null>(null);
   const [sobre, setSobre] = useState<StatusTarefa | null>(null);
   const cols = COLUNAS.filter((c) => c !== "cancelada" || comCanceladas);
@@ -225,7 +229,7 @@ function Quadro({ itens, onAbrir, podeEditar, comCanceladas }: { itens: TarefaOu
               onDragLeave={() => setSobre((s) => (s === c ? null : s))}
               onDrop={() => {
                 const t = itens.find((x) => x.id === arrastando);
-                if (t && t.status !== c) status.mutate({ id: t.id, status: c });
+                if (t && t.status !== c && !travada(t)) status.mutate({ id: t.id, status: c, reabrindo: t.status === "concluida" });
                 setArrastando(null);
                 setSobre(null);
               }}
@@ -243,12 +247,13 @@ function Quadro({ itens, onAbrir, podeEditar, comCanceladas }: { itens: TarefaOu
                     <motion.li key={t.id} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}>
                       <button
                         type="button"
-                        draggable={podeEditar}
+                        draggable={podeEditar && !travada(t)}
                         onDragStart={() => setArrastando(t.id)}
                         onDragEnd={() => setArrastando(null)}
                         onClick={() => onAbrir(t)}
                         className={cn(
-                          "w-full cursor-grab rounded-xl border bg-card p-3 text-left shadow-xs transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing",
+                          "w-full rounded-xl border bg-card p-3 text-left shadow-xs transition hover:-translate-y-0.5 hover:shadow-md",
+                          podeEditar && !travada(t) ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                           t.atrasada && aberta(t) && "border-danger/40",
                           arrastando === t.id && "opacity-50",
                         )}
@@ -256,6 +261,7 @@ function Quadro({ itens, onAbrir, podeEditar, comCanceladas }: { itens: TarefaOu
                         <div className="flex items-start gap-2">
                           <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", PRIORIDADE[t.prioridade].ponto)} />
                           <p className={cn("min-w-0 flex-1 text-sm font-medium", t.status === "concluida" && "text-muted-foreground line-through")}>{t.titulo}</p>
+                          {podeEditar && travada(t) && <CadeadoConcluida className="mt-0.5" />}
                           <T.icone className="size-3.5 shrink-0 text-muted-foreground" />
                         </div>
                         {t.caso_id && (
@@ -471,9 +477,18 @@ function Central() {
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [excluirLote, setExcluirLote] = useState(false);
   const selecionadas = itens.filter((t) => sel.has(t.id));
+  const { travada } = useTravaConcluida();
   const lote = useMutation({
     mutationFn: async (acao: { tipo: "concluir" } | { tipo: "responsavel"; id: number | null } | { tipo: "excluir" }) => {
+      let feitas = 0;
+      let puladas = 0;
       for (const t of selecionadas) {
+        // concluídas: não há o que concluir, e sem "Reabrir concluídas" não dá para alterar
+        if (acao.tipo !== "excluir" && t.status === "concluida" && (acao.tipo === "concluir" || travada(t))) {
+          puladas += acao.tipo === "concluir" ? 0 : 1;
+          continue;
+        }
+        feitas++;
         if (acao.tipo === "concluir") await api.patch(`/faturamento/tarefas/${t.id}/status`, { status: "concluida" });
         else if (acao.tipo === "excluir") await api.del(`/faturamento/tarefas/${t.id}`);
         else
@@ -490,10 +505,12 @@ function Central() {
             etiquetas: t.etiquetas,
           });
       }
-      return acao.tipo;
+      return { tipo: acao.tipo, feitas, puladas };
     },
-    onSuccess: (tipo) => {
-      toast.success(`${selecionadas.length} tarefa(s) ${tipo === "concluir" ? "concluída(s)" : tipo === "excluir" ? "excluída(s)" : "reatribuída(s)"}`);
+    onSuccess: ({ tipo, feitas, puladas }) => {
+      toast.success(`${feitas} tarefa(s) ${tipo === "concluir" ? "concluída(s)" : tipo === "excluir" ? "excluída(s)" : "reatribuída(s)"}`, {
+        description: puladas ? `${puladas} concluída(s) ficaram de fora: ${DICA_TRAVA.toLowerCase()}.` : undefined,
+      });
       setSel(new Set());
       setExcluirLote(false);
       qc.invalidateQueries({ queryKey: ["fat"] });
@@ -571,10 +588,10 @@ function Central() {
             ))}
           </NativeSelect>
         )}
-        <div className="w-52">
+        <div className={cn("w-52", !pode("clientes.ver") && "hidden")}>
           <ClientesMulti unico id="tar-cliente" valor={cliente} onChange={(v) => setF({ tomador_id: v[0] ? String(v[0].id) : "", cliente_nome: v[0]?.nome ?? "" })} />
         </div>
-        <div className="w-56">
+        <div className={cn("w-56", !pode("casos.ver") && "hidden")}>
           <CasoCombo id="tar-filtro-caso" value={f.caso_id ? Number(f.caso_id) : null} onChange={(v) => setF({ caso_id: v ? String(v) : "", sem_caso: false })} rotuloVazio="Todos os casos" />
         </div>
         <label className="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm">
