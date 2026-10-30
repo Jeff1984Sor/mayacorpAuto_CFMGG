@@ -520,3 +520,59 @@ def test_proxy_no_brasil_busca_intimacoes_sozinho(cliente, trib, monkeypatch):  
         with SessionLocal() as db:
             service.plataforma(db).djen_proxy_url = None
             db.commit()
+
+
+def test_caso_so_com_numero_cnj(cliente, trib, monkeypatch):  # noqa: F811
+    from app.core.db import SessionLocal
+    from app.modules.tribunais import caso as caso_mod
+    from app.modules.tribunais import service
+    from app.modules.tribunais.models import DocumentoAutos, Processo
+
+    h = _login(cliente)
+    _preparar_advogado(cliente, h)
+    n = cnj.formatar(cnj.montar(31337, 2025, 5, "15", "0001"))  # TRT15 (Campinas)
+    trib[cnj.so_digitos(n)] = _datajud(n)
+    trib[cnj.so_digitos(n)][0]["_source"]["orgaoJulgador"]["nome"] = "2ª Vara do Trabalho de Campinas"
+    monkeypatch.setattr(fontes, "djen_por_processo", lambda base, numero, max_paginas=10: [
+        fontes.djen_item(_djen(n, "Maria Operária", "Indústria Capa Ltda", texto="Cite-se."))])
+    with SessionLocal() as db:
+        service.plataforma(db).djen_proxy_url = "https://proxy-br.exemplo/s/api/v1"
+        db.commit()
+    try:
+        cli = cliente.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Indústria Capa Ltda", "cpf_cnpj": "73914625000132",
+                                                                   "logradouro": "Rua X", "numero": "1", "bairro": "Centro", "cidade": "Campinas",
+                                                                   "uf": "SP", "cep": "13010000", "emails": ["a@capa.com.br"]}).json()
+        assert "id" in cli, cli
+        ct = cliente.post("/api/faturamento/contratos", headers=h, json={"tomador_id": cli["id"], "nome": "Trabalhista Capa"}).json()
+        r = cliente.get(f"/api/tribunais/capa?numero={n}&contrato_id={ct['id']}", headers=h)
+        assert r.status_code == 200, r.text
+        c = r.json()
+        assert c["tribunal"] == "TRT15" and c["tipo"] == "judicial_trabalhista" and c["instancia"] == "primeira"
+        assert c["comarca"] == "Campinas" and c["vara"] == "2ª Vara do Trabalho de Campinas" and c["data_distribuicao"] == "2025-02-10"
+        assert c["polo"] == "passivo" and c["parte_contraria"] == "Maria Operária" and c["titulo"].startswith("Ação Trabalhista")
+        assert cliente.get("/api/tribunais/capa?numero=0000000-00.0000.0.00.0000", headers=h).status_code == 400
+
+        r = cliente.post(f"/api/faturamento/contratos/{ct['id']}/casos", headers=h, json={
+            "titulo": c["titulo"], "numero_processo": n, "tipo": c["tipo"], "tribunal": c["tribunal"], "vara": c["vara"],
+            "comarca": c["comarca"], "instancia": c["instancia"], "polo": c["polo"], "parte_contraria": c["parte_contraria"],
+            "data_distribuicao": c["data_distribuicao"]})
+        assert r.status_code == 201, r.text
+        caso_id = r.json()["id"]
+        ands = cliente.get(f"/api/faturamento/casos/{caso_id}/andamentos", headers=h).json()
+        assert len(ands) == 3  # 2 do DataJud + a citação do DJEN, por trás
+        proc = cliente.get(f"/api/tribunais/casos/{caso_id}/processo", headers=h).json()
+        assert proc["numero_formatado"] == n and proc["caso_id"] == caso_id
+        with SessionLocal() as db:  # autos baixados (MNI) aparecem nos anexos do caso
+            p = db.get(Processo, proc["id"])
+            d = DocumentoAutos(processo_id=p.id, id_documento_tribunal="1", tipo_documento_nome="Petição inicial", mimetype="application/pdf")
+            p.documentos.append(d)
+            db.flush()
+            service.salvar_documento(d, p.tenant_id, _pdf("inicial"))
+            assert caso_mod.anexar_autos(db, p) == 1 and caso_mod.anexar_autos(db, p) == 0
+            db.commit()
+        anexos = cliente.get(f"/api/faturamento/casos/{caso_id}/anexos", headers=h).json()
+        assert any(a["categoria"] == "Autos do processo" for a in anexos)
+    finally:
+        with SessionLocal() as db:
+            service.plataforma(db).djen_proxy_url = None
+            db.commit()

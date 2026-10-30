@@ -555,6 +555,24 @@ def importar_numero(dados: ImportarNumeroIn, ctx: Ctx):
     return processo_detalhe(ctx, p)
 
 
+@router.get("/capa")
+def capa(ctx: Ctx, numero: str = Query(min_length=20, max_length=25), contrato_id: int | None = None):
+    """Ficha do caso: só o número CNJ → tribunal, tipo, instância, vara, comarca, classe, partes, polo e parte contrária."""
+    from app.modules.tribunais import caso as caso_mod
+
+    nomes = []
+    if contrato_id:
+        contrato = ctx.db.get(Contrato, contrato_id)
+        if contrato and contrato.tenant_id == ctx.tenant_id and contrato.tomador:
+            nomes = [contrato.tomador.nome]
+    try:
+        out = caso_mod.capa(ctx.db, ctx.tenant_id, numero, nomes)
+    except service.ErroIntegracao as e:
+        _erro(e)
+    ctx.db.commit()
+    return out
+
+
 @router.get("/processos/{pid}")
 def ler_processo(pid: int, ctx: Ctx):
     return processo_detalhe(ctx, _processo(ctx, pid))
@@ -793,8 +811,12 @@ def ligar_caso(pid: int, dados: LigarCasoIn, ctx: Ctx):
 def painel(ctx: Ctx):
     db, t = ctx.db, ctx.tenant_id
     base = select(func.count()).select_from(Processo).where(Processo.tenant_id == t)
-    intim = db.scalar(select(func.count()).select_from(Movimentacao).join(Processo).where(
-        Processo.tenant_id == t, Movimentacao.e_intimacao.is_(True), Movimentacao.lida_pelo_usuario.is_(False))) or 0
+    q_intim = select(func.count()).select_from(Movimentacao).join(Processo).where(
+        Processo.tenant_id == t, Movimentacao.e_intimacao.is_(True), Movimentacao.lida_pelo_usuario.is_(False))
+    if not ctx.pode("trib_processos.ver_sigilosos"):
+        q_intim = q_intim.where(or_(Processo.nivel_sigilo == 0, Processo.responsavel_interno_id == ctx.usuario.id,
+                                    Processo.advogado_id == ctx.usuario.id))
+    intim = db.scalar(q_intim) or 0
     por_status = dict(db.execute(select(Protocolo.status, func.count()).where(Protocolo.tenant_id == t).group_by(Protocolo.status)).all())
     por_tribunal = [{"tribunal": s, "processos": n} for s, n in db.execute(
         select(Tribunal.sigla, func.count()).select_from(Processo).join(Tribunal, Tribunal.id == Processo.tribunal_id)
@@ -853,10 +875,39 @@ def fila(ctx: Ctx, status: str | None = None, limite: int = Query(100, le=500)):
     sel = select(Job).where(Job.tenant_id == ctx.tenant_id)
     if status:
         sel = sel.where(Job.status == status)
-    return [{"id": j.id, "tipo": j.tipo, "referencia_id": j.referencia_id, "prioridade": j.prioridade, "status": j.status,
+    return [{"id": j.id, "tipo": j.tipo, "referencia_id": j.referencia_id, "referencia": _referencia_job(ctx, j),
+             "prioridade": j.prioridade, "status": j.status,
              "tentativas": j.tentativas, "max_tentativas": j.max_tentativas, "proxima_tentativa_em": _dt(j.proxima_tentativa_em),
              "erro": j.erro, "criado_em": _dt(j.criado_em), "concluido_em": _dt(j.concluido_em)}
             for j in ctx.db.scalars(sel.order_by(Job.id.desc()).limit(limite))]
+
+
+def _referencia_job(ctx, j: Job) -> str | None:
+    from app.modules.faturamento.models import Caso as CasoM
+    from app.modules.tribunais.models import RetornoProtocolo, Sistema
+
+    if j.tipo in ("sincronizar", "baixar_documentos"):
+        p = ctx.db.get(Processo, j.referencia_id)
+        return p.numero_formatado if p else None
+    if j.tipo == "importar_processo":
+        e = ctx.db.get(Encontrado, j.referencia_id)
+        return cnj.formatar(e.numero_cnj) if e else None
+    if j.tipo in ("protocolar", "verificar_protocolo"):
+        p = ctx.db.get(Protocolo, j.referencia_id)
+        return f"Protocolo #{p.id} · {p.titulo or p.tipo}" if p else None
+    if j.tipo == "notificar":
+        r = ctx.db.get(RetornoProtocolo, j.referencia_id)
+        return f"Aviso do protocolo #{r.protocolo_id}" if r else None
+    if j.tipo == "varredura":
+        v = ctx.db.get(Varredura, j.referencia_id)
+        return f"Busca pela OAB de {_nome(ctx, v.advogado_id)}" if v else None
+    if j.tipo == "importar_caso":
+        c = ctx.db.get(CasoM, j.referencia_id)
+        return f"Caso #{c.numero} · {c.numero_processo}" if c else None
+    if j.tipo == "health_check":
+        s = ctx.db.get(Sistema, j.referencia_id)
+        return f"{s.tribunal.sigla} {s.sistema}" if s else None
+    return None
 
 
 @router.post("/jobs/{jid}/reprocessar")

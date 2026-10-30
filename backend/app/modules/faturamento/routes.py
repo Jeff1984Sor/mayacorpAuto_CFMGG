@@ -332,7 +332,10 @@ def criar_caso(cid: int, dados: CasoIn, ctx: Operador):
     ctx.db.add(c)
     ctx.db.flush()
     ctx.auditar("faturamento.caso.criar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
+    disparar = _buscar_no_tribunal(ctx, c)
     ctx.db.commit()
+    if disparar:
+        disparar()
     ctx.db.refresh(c)
     return _caso_out(ctx, c)
 
@@ -346,11 +349,25 @@ def ler_caso(cid: int, ctx: Ctx):
 def alterar_caso(cid: int, dados: CasoIn, ctx: Operador):
     c = _get(ctx, Caso, cid, "Caso")
     _validar_caso(ctx, dados)
+    numero_antes = c.numero_processo
     for k, v in dados.model_dump().items():
         setattr(c, k, v)
     ctx.auditar("faturamento.caso.alterar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
+    disparar = _buscar_no_tribunal(ctx, c) if c.numero_processo != numero_antes else None
     ctx.db.commit()
+    if disparar:
+        disparar()
     return _caso_out(ctx, c)
+
+
+def _buscar_no_tribunal(ctx, c: Caso):
+    """Caso com número CNJ válido: capa, andamentos e autos vêm do tribunal por trás (fila). Devolve o disparo."""
+    from app.modules.tribunais import cnj, jobs
+
+    if not (c.numero_processo and cnj.valido(c.numero_processo)):
+        return None
+    jobs.enfileirar(ctx.db, ctx.tenant_id, "importar_caso", c.id, criado_por_id=ctx.usuario.id, max_tentativas=8)
+    return jobs.disparar
 
 
 @router.delete("/casos/{cid}", response_model=Mensagem)

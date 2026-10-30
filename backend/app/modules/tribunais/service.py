@@ -206,7 +206,7 @@ def ingerir_comunicacoes(db: Session, v: Varredura, brutos: list[dict]) -> dict:
     v.resumo_por_tribunal = dict(sorted(resumo.items(), key=lambda kv: -kv[1]))
     db.flush()
     return {"novos": novos, "total_encontrados": v.total_encontrados, "total_comunicacoes": v.total_comunicacoes,
-            "intimacoes_registradas": intimacoes}
+            "intimacoes_registradas": intimacoes, "resumo_por_tribunal": v.resumo_por_tribunal}
 
 
 def inicio_intimacoes_novas(db: Session, advogado_id: int) -> date:

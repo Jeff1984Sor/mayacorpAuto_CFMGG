@@ -18,7 +18,7 @@ from app.modules.tribunais.models import CertificadoAdvogado, Encontrado, Job, S
 
 log = logging.getLogger(__name__)
 
-PRIORIDADE = {"protocolar": 100, "verificar_protocolo": 90, "notificar": 80, "varredura": 60, "importar_processo": 50,
+PRIORIDADE = {"protocolar": 100, "verificar_protocolo": 90, "notificar": 80, "varredura": 60, "importar_processo": 50, "importar_caso": 55,
               "sincronizar": 40, "baixar_documentos": 20, "health_check": 5}
 FALAM_COM_TRIBUNAL = {"protocolar", "verificar_protocolo", "baixar_documentos"}  # usam o sistema do tribunal (rate limit)
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tribunais")
@@ -110,7 +110,20 @@ def _executar(db: Session, j: Job) -> None:
 
         p = db.get(Processo, j.referencia_id)
         if p and p.advogado_id:
+            from app.modules.tribunais import caso as caso_mod
+
             baixar_documentos(db, p, j.criado_por_id)
+            caso_mod.anexar_autos(db, p)
+    elif j.tipo == "importar_caso":
+        from app.modules.faturamento.models import Caso
+        from app.modules.tribunais import caso as caso_mod
+
+        c = db.get(Caso, j.referencia_id)
+        if c and c.numero_processo:
+            try:
+                caso_mod.importar_para_caso(db, c)
+            except service.ErroIntegracao as ex:  # ainda não está no DataJud: a fila tenta de novo (backoff)
+                raise RuntimeError(str(ex)) from ex
     elif j.tipo == "health_check":
         from app.modules.tribunais import adaptadores
 

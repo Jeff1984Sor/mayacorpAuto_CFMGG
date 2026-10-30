@@ -59,6 +59,28 @@ def djen_buscar(base_url: str, numero_oab: str, uf_oab: str, pagina: int, inicio
     raise FonteIndisponivel("DJEN: limite de requisições excedido. Tente de novo em alguns minutos.")
 
 
+def djen_por_processo(base_url: str, numero_cnj: str, max_paginas: int = 10) -> list[dict]:
+    """Todas as comunicações de um processo (já convertidas por djen_item)."""
+    url = base_url.rstrip("/") + "/comunicacao"
+    out: list[dict] = []
+    for pagina in range(1, max_paginas + 1):
+        try:
+            r = httpx.get(url, params={"numeroProcesso": cnj.so_digitos(numero_cnj), "pagina": pagina, "itensPorPagina": 100},
+                          timeout=30.0, headers={"User-Agent": _UA, "Accept": "application/json"})
+        except httpx.HTTPError as e:
+            raise FonteIndisponivel(f"DJEN indisponível: {e}") from e
+        if r.status_code == 403 and "country" in r.text.lower():
+            raise ForaDoBrasil("O DJEN só responde a acessos do Brasil.")
+        if r.status_code >= 400:
+            raise FonteIndisponivel(f"DJEN respondeu HTTP {r.status_code}.")
+        dados = r.json()
+        itens = dados.get("items") or []
+        out += [x for x in (djen_item(i) for i in itens) if x]
+        if len(itens) < 100 or pagina * 100 >= int(dados.get("count") or 0):
+            break
+    return out
+
+
 def _polo(p: str | None) -> str:
     return {"A": "ativo", "P": "passivo"}.get((p or "").upper()[:1], "outro")
 
@@ -157,6 +179,7 @@ def datajud_processo(hits: list[dict]) -> dict | None:
         "numero_cnj": cnj.so_digitos(atual.get("numeroProcesso")),
         "tribunal": (atual.get("tribunal") or "").upper(),
         "grau": cnj.GRAU_DATAJUD.get(str(atual.get("grau") or "").upper(), "1g"),
+        "grau_datajud": str(atual.get("grau") or "").upper(),
         "graus": sorted({cnj.GRAU_DATAJUD.get(str(s.get("grau") or "").upper(), "1g") for s in fontes}),
         "sistema": cnj.sistema_do_nome((atual.get("sistema") or {}).get("nome")),
         "classe_codigo_cnj": classe.get("codigo"),
@@ -170,7 +193,7 @@ def datajud_processo(hits: list[dict]) -> dict | None:
         "formato": (atual.get("formato") or {}).get("nome"),
         "atualizado_em": _data(atual.get("dataHoraUltimaAtualizacao")),
     }
-    capa["hash_dados"] = hashlib.sha256(json.dumps({k: v for k, v in capa.items() if k != "atualizado_em"}, sort_keys=True,
+    capa["hash_dados"] = hashlib.sha256(json.dumps({k: v for k, v in capa.items() if k not in ("atualizado_em", "grau_datajud")}, sort_keys=True,
                                                    default=str).encode()).hexdigest()
     return {"capa": capa, "movimentos": sorted(movs, key=lambda m: m["data_hora"])}
 
