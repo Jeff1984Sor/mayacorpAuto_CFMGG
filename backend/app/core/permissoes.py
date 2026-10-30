@@ -146,7 +146,8 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("*", r"/tribunais/(plataforma|sistemas|tabelas|planos|pesos|faixas-setup|rotina-diaria|config/plano)(/|$)", LIVRE),  # EquipeMayaCorp na rota
     ("*", r"/tribunais/(tribunais/\d+/sistemas)$", LIVRE),
     ("GET", r"/tribunais/capa$", "casos.editar"),
-    ("GET", r"/tribunais/advogados(/candidatos)?$", "trib_processos.ver"),
+    ("GET", r"/tribunais/advogados/candidatos$", LIVRE),  # só nome e OAB: quem protocola escolhe o advogado
+    ("GET", r"/tribunais/advogados$", "trib_processos.ver"),
     ("POST", r"/tribunais/cobranca/ajuste$", LIVRE),  # EquipeMayaCorp na rota
     ("POST", r"/tribunais/cobranca/estorno$", "cfg_tribunais.editar"),  # + administrador na rota
     ("*", r"/tribunais/cobranca", "cfg_tribunais.ver"),

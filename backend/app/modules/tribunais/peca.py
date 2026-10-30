@@ -185,5 +185,6 @@ def prompt_redigir(prot, briefing: str) -> str:
     return (f"Tipo: {prot.tipo}. Classe: {c.get('classe_nome') or '-'}. Tribunal: {prot.tribunal.sigla}. Partes: {partes or '-'}.\n"
             f"Tutela de urgência: {'sim' if c.get('tutela_urgencia') else 'não'}. Valor da causa: {c.get('valor_causa') or '-'}.\n"
             f"Relato do advogado:\n{briefing}\n\n"
-            'Devolva {"enderecamento": str, "fatos": str (parágrafos separados por \\n), "fundamentos_juridicos": str, '
-            '"pedidos": [str], "pedido_tutela": str ou null, "provas": [str]}')
+            'Devolva {"enderecamento": str, "abertura": str ou null (só petição intermediária: o parágrafo de abertura), '
+            '"fatos": str (parágrafos separados por \\n), "fundamentos_juridicos": str, "pedidos": [str], '
+            '"pedido_tutela": str ou null, "provas": [str], "local": str ou null (cidade do foro)}')

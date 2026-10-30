@@ -585,6 +585,7 @@ class Custa(Base, Timestamped):
     comprovante_ref: Mapped[str | None] = mapped_column(String(500))
     guia_ref: Mapped[str | None] = mapped_column(String(500))
     pago_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    reembolsar_cliente: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # paga → despesa do caso
     despesa_id: Mapped[int | None] = mapped_column(ForeignKey("fat_despesa.id", ondelete="SET NULL"))  # reembolso do cliente
 
     protocolo: Mapped[Protocolo] = relationship(back_populates="custas")

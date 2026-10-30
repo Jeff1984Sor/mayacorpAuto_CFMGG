@@ -363,7 +363,8 @@ def advogados(ctx: Ctx):
 @router.get("/advogados/candidatos")
 def candidatos(ctx: Ctx):
     """Todos os profissionais (para cadastrar OAB de quem ainda não tem)."""
-    return [{"id": u.id, "nome": u.nome, "cpf": u.cpf, "oab": u.oab, "oabs": service.oabs_do_advogado(ctx.db, u)}
+    return [{"id": u.id, "nome": u.nome, "oab": u.oab, "oabs": service.oabs_do_advogado(ctx.db, u),
+             "tem_certificado": bool(service.certificado_ativo(ctx.db, u.id))}
             for u in ctx.db.scalars(select(Usuario).where(Usuario.tenant_id == ctx.tenant_id, Usuario.ativo.is_(True)).order_by(Usuario.nome))]
 
 

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 
 from app.core import ia
+from app.core.config import settings
 from app.core.db import agora
 from app.core.deps import Ctx
 from app.core.models import Usuario
@@ -50,7 +51,7 @@ def custa_out(c: Custa) -> dict:
             "base_calculo": str(c.base_calculo) if c.base_calculo is not None else None, "numero_guia": c.numero_guia,
             "linha_digitavel": c.linha_digitavel, "codigo_barras": c.codigo_barras, "vencimento": _dt(c.vencimento),
             "pagador_nome": c.pagador_nome, "pagador_documento": c.pagador_documento, "status": c.status, "pago_em": _dt(c.pago_em),
-            "tem_comprovante": bool(c.comprovante_ref), "despesa_id": c.despesa_id}
+            "tem_comprovante": bool(c.comprovante_ref), "reembolsar_cliente": c.reembolsar_cliente, "despesa_id": c.despesa_id}
 
 
 def retorno_out(ctx, r: RetornoProtocolo) -> dict:
@@ -80,6 +81,8 @@ def protocolo_out(ctx, p: Protocolo, com_validacao: bool = True) -> dict:
         "criado_por": _nome(ctx, p.criado_por_id), "enviado_por": _nome(ctx, p.enviado_por_id), "tentativas": p.tentativas,
         "simulado": p.simulado, "ultimo_erro": p.ultimo_erro, "criado_em": _dt(p.criado_em), "atualizado_em": _dt(p.atualizado_em),
         "hash_conteudo": prot_mod.hash_conteudo(p),
+        "modo": service.config(ctx.db, ctx.tenant_id).modo, "modo_real_disponivel": settings.ambiente == "prod",
+        "modo_efetivo": "real" if prot_mod._modo_real(ctx.db, ctx.tenant_id) else "simulado",
         "aprovacao": {"id": aprov.id, "advogado": _nome(ctx, aprov.advogado_id), "aprovado_em": _dt(aprov.aprovado_em), "ip": aprov.ip,
                       "hash": aprov.hash_conteudo_aprovado} if aprov else None,
         "aprovacoes_invalidadas": sum(1 for a in p.aprovacoes if a.invalidada_em),
@@ -324,7 +327,8 @@ def ia_redigir(pid: int, dados: RedigirIn, ctx: Ctx):
         raise HTTPException(400, str(e)) from e
     ctx.auditar("tribunais.protocolo.ia", "trb_protocolo", p.id, descricao="Rascunho da peça por IA")
     ctx.db.commit()
-    return {k: r.get(k) for k in ("enderecamento", "fatos", "fundamentos_juridicos", "pedidos", "pedido_tutela", "provas")}
+    return {k: r.get(k) for k in ("enderecamento", "abertura", "fatos", "fundamentos_juridicos", "pedidos", "pedido_tutela", "provas",
+                                  "local")}
 
 
 # ---------------------------------------------------------------------------------------------- custas
@@ -339,7 +343,7 @@ def _lancar_despesa(ctx, p: Protocolo, c: Custa) -> None:
     """Reembolso: a custa paga vira despesa do caso (sai na Nota de Despesas, nunca na NFS-e)."""
     from app.modules.faturamento.models import TipoDespesa
 
-    if c.despesa_id or not p.caso_id or c.status != "paga":
+    if c.despesa_id or not c.reembolsar_cliente or not p.caso_id or c.status != "paga":
         return
     d = Despesa(tenant_id=ctx.tenant_id, caso_id=p.caso_id, data=(c.pago_em or agora()).date(), tipo=TipoDespesa.custas,
                 descricao=f"{c.tipo_guia} {c.numero_guia} — {c.tipo_custa.replace('_', ' ')}"[:300], valor=Decimal(c.valor),
@@ -352,11 +356,10 @@ def _lancar_despesa(ctx, p: Protocolo, c: Custa) -> None:
 @router.post("/protocolos/{pid}/custas", status_code=201)
 def criar_custa(pid: int, dados: CustaIn, ctx: Ctx):
     p = _protocolo(ctx, pid)
-    c = Custa(protocolo_id=p.id, tribunal_id=p.tribunal_id, **dados.model_dump(exclude={"reembolsar_cliente"}))
+    c = Custa(protocolo_id=p.id, tribunal_id=p.tribunal_id, **dados.model_dump())
     p.custas.append(c)
     ctx.db.flush()
-    if dados.reembolsar_cliente:
-        _lancar_despesa(ctx, p, c)
+    _lancar_despesa(ctx, p, c)
     ctx.auditar("tribunais.custa.criar", "trb_protocolo", p.id, descricao=f"{c.tipo_guia} {c.numero_guia} R$ {c.valor}")
     ctx.db.commit()
     return protocolo_out(ctx, p)
@@ -366,12 +369,11 @@ def criar_custa(pid: int, dados: CustaIn, ctx: Ctx):
 def alterar_custa(pid: int, cid: int, dados: CustaIn, ctx: Ctx):
     p = _protocolo(ctx, pid)
     c = _custa(p, cid)
-    for k, v in dados.model_dump(exclude={"reembolsar_cliente"}).items():
+    for k, v in dados.model_dump().items():
         setattr(c, k, v)
     if c.status == "paga" and not c.pago_em:
         c.pago_em = agora()
-    if dados.reembolsar_cliente:
-        _lancar_despesa(ctx, p, c)
+    _lancar_despesa(ctx, p, c)
     ctx.db.commit()
     return protocolo_out(ctx, p)
 
@@ -396,6 +398,7 @@ async def comprovante_custa(pid: int, cid: int, ctx: Ctx, arquivo: UploadFile = 
         raise HTTPException(400, "Arquivo vazio.")
     c.comprovante_ref = service.guardar(ctx.tenant_id, f"protocolos/{p.id}/custas", f"{c.id}-{arquivo.filename or 'comprovante.pdf'}", dados)
     c.status, c.pago_em = "paga", pago_em or c.pago_em or agora()
+    _lancar_despesa(ctx, p, c)
     ctx.auditar("tribunais.custa.comprovante", "trb_protocolo", p.id, descricao=f"{c.tipo_guia} {c.numero_guia} paga")
     ctx.db.commit()
     return protocolo_out(ctx, p)
