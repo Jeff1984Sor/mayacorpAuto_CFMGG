@@ -1,4 +1,4 @@
-"""Worker de produção (systemd `mayacorp-worker`): processa a fila de lotes e as rotinas diárias.
+"""Worker de produção (systemd `mayacorp-worker`): processa a fila de lotes, a fila dos tribunais e as rotinas diárias.
 
 A fila mora no próprio banco (lote.status = na_fila), então não depende de broker: se o worker
 reiniciar, retoma de onde parou. Rodar: `python -m app.worker`.
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.core.db import SessionLocal
 from app.modules.rpa_nfse import service, tasks
 from app.modules.rpa_nfse.models import Lote, StatusLote
+from app.modules.tribunais import jobs as tribunais_jobs
 
 log = logging.getLogger("worker")
 _parar = False
@@ -31,6 +32,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _sinal)
     with SessionLocal() as db:
         service.liberar_presos(db)
+    tribunais_jobs.liberar_presos()
     ultimo_diario: date | None = None
     log.info("Worker iniciado")
     while not _parar:
@@ -41,8 +43,16 @@ def main() -> None:
                 break
             log.info("Processando lote %s", lote_id)
             tasks._rodar(lote_id)
+        try:  # fila dos tribunais (varredura, importação, protocolo, avisos)
+            tribunais_jobs.rodar_fila(limite=20)
+        except Exception:
+            log.exception("Fila dos tribunais falhou")
         if ultimo_diario != date.today():
             tasks.alertar_certificados()
+            try:
+                tribunais_jobs.rotina_diaria()
+            except Exception:
+                log.exception("Rotina diária dos tribunais falhou")
             ultimo_diario = date.today()
         time.sleep(3)
     log.info("Worker encerrado")

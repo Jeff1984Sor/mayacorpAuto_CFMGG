@@ -11,6 +11,7 @@ ROTULO_ACAO = {
     "ver_todas": "Ver as de todos", "lancar": "Lançar horas", "ver_todos": "Ver as horas de todos", "faturar": "Faturar",
     "aprovar": "Aprovar e faturar", "baixar": "Dar baixa (pagamento)", "cancelar": "Cancelar", "configurar": "Configurar",
     "pagar": "Pagar / reabrir", "emitir": "Emitir NFS-e", "enviar_email": "Enviar por e-mail", "reabrir": "Reabrir concluídas",
+    "protocolar": "Aprovar e protocolar", "ver_sigilosos": "Ver processos sigilosos",
 }
 
 CATALOGO: list[dict] = [
@@ -45,6 +46,11 @@ CATALOGO: list[dict] = [
         {"id": "nfse_notas", "nome": "Notas emitidas e painel", "acoes": ["ver", "cancelar", "enviar_email"]},
         {"id": "nfse_recebimentos", "nome": "Recebimentos (extratos e baixas)", "acoes": ["ver", "editar"]},
     ]},
+    {"grupo": "Tribunais", "recursos": [
+        {"id": "trib_processos", "nome": "Processos dos tribunais (varredura pela OAB, importação, intimações, vínculos)",
+         "acoes": ["ver", "editar", "importar", "excluir", "ver_sigilosos"]},
+        {"id": "trib_protocolos", "nome": "Protocolo de petições (inicial e intermediária)", "acoes": ["ver", "editar", "protocolar"]},
+    ]},
     {"grupo": "Configurações", "recursos": [
         {"id": "cfg_identidade", "nome": "Identidade (nome, logo, cor)", "acoes": ["ver", "editar"]},
         {"id": "cfg_profissionais", "nome": "Profissionais e cargos", "acoes": ["ver", "editar"]},
@@ -57,6 +63,7 @@ CATALOGO: list[dict] = [
         {"id": "cfg_financeiro", "nome": "Financeiro (conta de recebimento etc.)", "acoes": ["ver", "editar"]},
         {"id": "cfg_notificacoes", "nome": "Notificações e e-mail", "acoes": ["ver", "editar"]},
         {"id": "cfg_automacoes", "nome": "Automações (baixa automática, relatórios)", "acoes": ["ver", "editar"]},
+        {"id": "cfg_tribunais", "nome": "Tribunais (modo, advogados e OABs, avisos de protocolo, consumo)", "acoes": ["ver", "editar"]},
         {"id": "auditoria", "nome": "Auditoria", "acoes": ["ver"]},
     ]},
 ]
@@ -72,6 +79,7 @@ _CADASTROS = ("clientes", "contratos", "casos", "tarefas", "timesheet")
 _FATURAMENTO = ("itens_faturar", "revisoes", "faturas", "relatorio_faturamento", "impostos", "dashboard")
 _FINANCEIRO = ("contas_bancarias", "contas_pagar", "categorias_fin", "fornecedores", "relatorios_fin")
 _NFSE = ("nfse_emissao", "nfse_notas", "nfse_recebimentos")
+_TRIBUNAIS = ("trib_processos", "trib_protocolos")
 _CONFIG = tuple(r["id"] for g in CATALOGO if g["grupo"] == "Configurações" for r in g["recursos"])
 
 # perfis criados de saída em todo escritório (o administrador edita/duplica à vontade)
@@ -80,11 +88,12 @@ PERFIS_PADRAO: list[dict] = [
      "administrador": True, "sistema": True, "permissoes": []},
     {"nome": "Operador", "descricao": "Usa todo o sistema; não altera configurações.", "cor": "#7C8FFF", "administrador": False,
      "sistema": False, "permissoes": sorted(TODAS - _todas_de(*_CONFIG) | _todas_de(*_CONFIG, acoes=("ver",))
-                                            - {"auditoria.ver", "tarefas.reabrir"})},
+                                            - {"auditoria.ver", "tarefas.reabrir", "trib_processos.ver_sigilosos"})},
     {"nome": "Advogado", "descricao": "Casos, tarefas e timesheet; sem financeiro.", "cor": "#1A8F5E", "administrador": False,
      "sistema": False, "permissoes": sorted(
          _todas_de(*_CADASTROS) - {"clientes.excluir", "contratos.excluir", "casos.excluir", "tarefas.ver_todas", "timesheet.ver_todos",
                                    "tarefas.reabrir"}
+         | _todas_de(*_TRIBUNAIS) - {"trib_processos.excluir", "trib_processos.ver_sigilosos"}
          | {"comunicador.usar", "ia.usar", "clientes.ver", "contratos.ver"})},
     {"nome": "Financeiro", "descricao": "Faturamento, financeiro e NFS-e; cadastros só para consulta.", "cor": "#F5A623",
      "administrador": False, "sistema": False, "permissoes": sorted(
@@ -131,6 +140,23 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("DELETE", r"/faturamento/casos/\d+$", "casos.excluir"),
     ("*", r"/faturamento/(casos|anexos|andamentos|despesas)", "casos.editar"),
     ("*", r"/faturamento/tarefas", "tarefas.*"),
+    # tribunais
+    ("*", r"/tribunais/eu(/|$)", LIVRE),  # o próprio advogado: OAB, certificado, termo, preferências
+    ("GET", r"/tribunais/(tribunais|tabelas|protocolos/tipos-documento)(/|$)", LIVRE),
+    ("*", r"/tribunais/(plataforma|sistemas|tabelas|planos|pesos|faixas-setup|rotina-diaria|config/plano)(/|$)", LIVRE),  # EquipeMayaCorp na rota
+    ("*", r"/tribunais/(tribunais/\d+/sistemas)$", LIVRE),
+    ("POST", r"/tribunais/cobranca/ajuste$", LIVRE),  # EquipeMayaCorp na rota
+    ("POST", r"/tribunais/cobranca/estorno$", "cfg_tribunais.editar"),  # + administrador na rota
+    ("*", r"/tribunais/cobranca", "cfg_tribunais.ver"),
+    ("*", r"/tribunais/(config|notificacoes|advogados|uso-certificado)(/|$)", "cfg_tribunais.*e"),
+    ("POST", r"/tribunais/protocolos/\d+/(aprovar|enviar|registrar-retorno)$", "trib_protocolos.protocolar"),
+    ("POST", r"/tribunais/protocolos/\d+/ia-redigir$", "ia.usar"),
+    ("*", r"/tribunais/(protocolos|retornos)(/|$)", "trib_protocolos.*e"),
+    ("GET", r"/tribunais/casos/\d+/processo$", "casos.ver"),
+    ("GET", r"/tribunais/varreduras", "trib_processos.ver"),
+    ("*", r"/tribunais/(varreduras|processos/importar$)", "trib_processos.importar"),
+    ("DELETE", r"/tribunais/processos/\d+$", "trib_processos.excluir"),
+    ("*", r"/tribunais/(processos|movimentacoes|vinculos|documentos|alertas|painel|jobs)(/|$)", "trib_processos.*e"),
     # faturamento
     ("GET", r"/faturamento/itens-a-faturar$", "itens_faturar.ver"),
     ("*", r"/faturamento/faturar$", "itens_faturar.faturar"),

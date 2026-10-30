@@ -7,6 +7,7 @@ import app.comunicador.models  # noqa: F401
 import app.modules.faturamento.models  # noqa: F401
 import app.modules.financas.models  # noqa: F401
 import app.modules.rpa_nfse.models  # noqa: F401
+import app.modules.tribunais.models  # noqa: F401
 from app.core.config import settings
 from app.core.db import Base, engine
 

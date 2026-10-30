@@ -16,6 +16,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.1",
     "pydantic>=2",
     "pydantic-settings>=2.16.1",
+    "pyhanko>=0.29",
     "pyjwt>=2.15.1",
     "pypdf>=6.21.2",
     "python-multipart>=0.0.32",

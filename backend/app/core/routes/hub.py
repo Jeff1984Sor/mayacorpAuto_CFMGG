@@ -25,7 +25,17 @@ def automacoes(ctx: Ctx):
         AutomacaoCard(slug="nfse", nome="Emissor de NFS-e em Lote",
                       descricao="Arquivo da Lello → notas no layout 2 (ISS + IBS + CBS), assinadas e transmitidas.",
                       icone="receipt", status="ativo", href="/nfse", metrica=f"{notas_mes} notas no mês"),
+        _card_tribunais(ctx),
         AutomacaoCard(slug="porto", nome="Upload Porto Seguro",
                       descricao="Robô de envio de arquivos ao portal da Porto Seguro.",
                       icone="upload", status="planejado", href=None, metrica="Em breve"),
     ]
+
+
+def _card_tribunais(ctx) -> AutomacaoCard:
+    from app.modules.tribunais.models import Processo
+
+    n = ctx.db.scalar(select(func.count()).select_from(Processo).where(Processo.tenant_id == ctx.tenant_id, Processo.monitorar.is_(True))) or 0
+    return AutomacaoCard(slug="tribunais", nome="Integração com Tribunais",
+                         descricao="Processos pela OAB (DJEN + DataJud), intimações e protocolo de petições com o certificado do advogado.",
+                         icone="scale", status="ativo", href="/tribunais", metrica=f"{n} processos monitorados")
