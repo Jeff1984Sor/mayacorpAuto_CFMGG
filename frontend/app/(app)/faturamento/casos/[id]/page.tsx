@@ -17,6 +17,7 @@ import { DespesaDialog, LancarRecibosDialog } from "@/components/faturamento/des
 import { EnriquecerIA, erroHoras, HorasInput, minutosDe } from "@/components/faturamento/horas-input";
 import { TarefasCaso } from "@/components/faturamento/tarefas";
 import { RegrasCobranca } from "@/components/faturamento/regras";
+import { ProcessoDoCaso } from "@/components/tribunais/processo-do-caso";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
@@ -534,6 +535,8 @@ export default function CasoPage() {
           </div>
         </div>
       </div>
+
+      <ProcessoDoCaso casoId={c.id} numeroProcesso={c.numero_processo} />
 
       <Tabs value={aba} onValueChange={(v) => setAba(String(v))}>
         <div className="-mx-1 overflow-x-auto px-1">

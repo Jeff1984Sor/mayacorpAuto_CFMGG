@@ -28,6 +28,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api } from "@/lib/api";
 import { IaButton } from "@/components/ia/ia-button";
+import { CnjCaso } from "@/components/tribunais/cnj-caso";
+import { marcarImportacaoDoCaso } from "@/lib/tribunais";
 import {
   type CampoOut,
   type CasoIn,
@@ -533,6 +535,14 @@ export function CasoDialog({
     },
     onSuccess: (c) => {
       toast.success(caso ? "Caso atualizado" : `Caso #${c.numero} criado`);
+      const cnj = (c.numero_processo ?? "").replace(/\D/g, "");
+      const antes = (caso?.numero_processo ?? "").replace(/\D/g, "");
+      if (cnj.length === 20 && cnj !== antes) {
+        marcarImportacaoDoCaso(c.id);
+        toast.info("Andamentos e arquivos do processo estão sendo baixados do tribunal", {
+          description: "Eles aparecem no caso em alguns instantes.",
+        });
+      }
       qc.invalidateQueries({ queryKey: ["fat"] });
       onSalvo?.(c);
       onOpenChange(false);
@@ -595,6 +605,15 @@ export function CasoDialog({
                   ))}
                 </NativeSelect>
               </Field>
+            )}
+            {(!f.tipo || ehJudicial(f.tipo) || !!f.numero_processo) && (
+              <CnjCaso
+                valor={f.numero_processo}
+                onChange={(v) => set("numero_processo", v)}
+                contratoId={contratoId ?? contrato ?? caso?.contrato_id}
+                form={f}
+                onAplicar={(patch) => setF((o) => ({ ...o, ...patch }))}
+              />
             )}
             <Field
               label="Título"
@@ -799,19 +818,6 @@ export function CasoDialog({
                   comarca={f.comarca}
                   tipo={f.tipo}
                   onChange={(v) => set("vara", v)}
-                />
-              </Field>
-              <Field
-                label="Nº do processo"
-                htmlFor="caso-processo"
-                className="sm:col-span-3"
-              >
-                <Input
-                  id="caso-processo"
-                  value={f.numero_processo ?? ""}
-                  onChange={(e) => set("numero_processo", e.target.value)}
-                  className="font-mono"
-                  placeholder="0000000-00.0000.0.00.0000"
                 />
               </Field>
               <Field label="Polo" htmlFor="caso-polo" className="sm:col-span-3">

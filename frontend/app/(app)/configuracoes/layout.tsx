@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 const ABAS = NAV.find((g) => g.titulo === "Configurações")!.itens.filter((i) => i.href.startsWith("/configuracoes"));
 // telas que tratam a edição item a item (listas com filtros e diálogos); nas demais o formulário inteiro fica só leitura
-const EDICAO_PROPRIA = ["/configuracoes/usuarios", "/configuracoes/perfis", "/configuracoes/faturamento", "/configuracoes/ia"];
+const EDICAO_PROPRIA = ["/configuracoes/usuarios", "/configuracoes/perfis", "/configuracoes/faturamento", "/configuracoes/ia", "/configuracoes/tribunais"];
 
 export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
   const { pode, usuario } = useAuth();

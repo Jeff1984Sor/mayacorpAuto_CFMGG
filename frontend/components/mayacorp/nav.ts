@@ -43,6 +43,11 @@ import {
   UsersRound,
   ShieldCheck,
   Workflow,
+  Scale,
+  Gavel,
+  ScanSearch,
+  Stamp,
+  BadgeCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -128,6 +133,16 @@ export const NAV: NavGrupo[] = [
     ],
   },
   {
+    titulo: "Tribunais",
+    itens: [
+      { label: "Painel", href: "/tribunais", icone: Scale, permissao: "trib_processos.ver", exato: true, atalho: "G T" },
+      { label: "Processos", href: "/tribunais/processos", icone: Gavel, permissao: "trib_processos.ver" },
+      { label: "Buscar pela OAB", href: "/tribunais/varredura", icone: ScanSearch, permissao: "trib_processos.importar" },
+      { label: "Protocolos", href: "/tribunais/protocolos", icone: Stamp, permissao: "trib_protocolos.ver" },
+      { label: "Meu certificado e OAB", href: "/tribunais/meu-certificado", icone: BadgeCheck },
+    ],
+  },
+  {
     titulo: "Próximos robôs",
     itens: [{ label: "Porto Seguro", href: "#", icone: Truck, emBreve: true }],
   },
@@ -146,6 +161,7 @@ export const NAV: NavGrupo[] = [
       { label: "Financeiro", href: "/configuracoes/financeiro", icone: PiggyBank, permissao: "cfg_financeiro.ver" },
       { label: "Parâmetros fiscais", href: "/configuracoes/parametros-fiscais", icone: Percent, permissao: "cfg_parametros.ver" },
       { label: "Notificações e e-mail", href: "/configuracoes/notificacoes", icone: Mail, permissao: "cfg_notificacoes.ver" },
+      { label: "Tribunais", href: "/configuracoes/tribunais", icone: Scale, permissao: "cfg_tribunais.ver" },
       { label: "Auditoria", href: "/auditoria", icone: ScrollText, permissao: "auditoria.ver" },
     ],
   },
@@ -154,6 +170,7 @@ export const NAV: NavGrupo[] = [
 export const ICONE_AUTOMACAO: Record<string, LucideIcon> = {
   nfse: FileCheck2,
   porto: Truck,
+  tribunais: Scale,
   fingerprint: Fingerprint,
 };
 
