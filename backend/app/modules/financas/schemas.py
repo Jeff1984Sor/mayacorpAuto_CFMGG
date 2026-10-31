@@ -309,6 +309,9 @@ class ConfigImpostosIn(BaseModel):
     iss_modo: str = Field(default="percentual", pattern="^(percentual|fixo)$")
     iss_fixo_mensal: Decimal = Decimal(0)
     dia_vencimento: int = Field(default=25, ge=1, le=31)
+    aliq_cbs: Decimal = Field(default=Decimal("8.80"), ge=0, le=100)
+    aliq_ibs: Decimal = Field(default=Decimal("17.70"), ge=0, le=100)
+    reducao_ibs_cbs: Decimal = Field(default=Decimal("30.00"), ge=0, le=100)
 
 
 class ReceitaInformadaIn(BaseModel):

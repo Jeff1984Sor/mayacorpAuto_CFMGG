@@ -266,6 +266,10 @@ class ConfigImpostos(Base, Timestamped):
     iss_modo: Mapped[str] = mapped_column(String(10), default="percentual")  # percentual | fixo (sociedade uniprofissional)
     iss_fixo_mensal: Mapped[Decimal] = mapped_column(Dinheiro, default=Decimal(0))
     dia_vencimento: Mapped[int] = mapped_column(Integer, default=25)
+    # Reforma tributária: alíquotas de referência ainda não fixadas pelo Senado (estimativas) e a redução da advocacia
+    aliq_cbs: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("8.80"), server_default="8.80")
+    aliq_ibs: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("17.70"), server_default="17.70")
+    reducao_ibs_cbs: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("30.00"), server_default="30.00")
 
 
 class ReceitaInformada(Base, Timestamped):

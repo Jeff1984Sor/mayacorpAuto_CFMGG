@@ -3,6 +3,7 @@ recebimento de fatura no extrato, fluxo, DRE, projeções e impostos."""
 
 import io
 from datetime import date, timedelta
+from decimal import Decimal
 
 from openpyxl import Workbook, load_workbook
 
@@ -195,6 +196,16 @@ def test_projecao_de_impostos(cliente):  # noqa: F811
     tri = [x for x in p["linhas"] if x["mes"].endswith(("-03", "-06", "-09", "-12"))]
     assert all("IRPJ" in x["impostos"] for x in tri)
     assert all("IRPJ" not in x["impostos"] for x in p["linhas"] if x not in tri)
+    # reforma tributária: 2026 = teste (CBS/IBS só informativos); 2027 = CBS no lugar de PIS/COFINS
+    for x in p["linhas"]:
+        ano = int(x["mes"][:4])
+        if ano == 2026:
+            assert "PIS" in x["impostos"] and "CBS" not in x["impostos"] and "CBS" in x["informativos"]
+        elif ano in (2027, 2028):
+            assert "PIS" not in x["impostos"] and "CBS" in x["impostos"] and "ISS" in x["impostos"]
+    from app.modules.financas import impostos as imp
+
+    assert imp.reforma(2030)["iss"] == Decimal("0.8") and imp.reforma(2033)["iss"] == 0
     assert cliente.delete(f"{F}/impostos/{eid}/receitas-informadas/{mes_passado}", headers=h).status_code == 200
 
 

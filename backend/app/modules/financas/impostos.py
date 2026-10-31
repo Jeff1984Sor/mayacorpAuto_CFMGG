@@ -1,5 +1,8 @@
 """Projeção de impostos por empresa emissora: Simples Nacional (DAS) ou Lucro Presumido (PIS, COFINS, ISS, IRPJ, CSLL).
 
+Reforma tributária (EC 132/2023, LC 214/2025): a CBS substitui PIS/COFINS em 2027 e o IBS substitui o ISS de 2029 a 2033.
+O mês projetado usa as regras do ano dele (ver `reforma`).
+
 É uma estimativa para planejar o caixa. O valor oficial é o apurado pelo contador (PGDAS / DCTF).
 Receita = NFS-e emitidas (competência: data de emissão; caixa: data do pagamento). Notas de Despesas (reembolso) não
 entram. O mês corrente soma também as faturas de honorários que ainda vão virar NFS-e.
@@ -26,6 +29,37 @@ TABELAS_SIMPLES = {
     "V": [(180000, 15.5, 0), (360000, 18, 4500), (720000, 19.5, 9900), (1800000, 20.5, 17100), (3600000, 23, 62100),
           (4800000, 30.5, 540000)],
 }
+
+
+# ISS que ainda vale no ano (o IBS ocupa o resto): EC 132, art. 128
+FATOR_ISS = {2029: Decimal("0.9"), 2030: Decimal("0.8"), 2031: Decimal("0.7"), 2032: Decimal("0.6")}
+
+
+def reforma(ano: int) -> dict:
+    """Regras do ano na transição. `teste`: 2026, CBS 0,9% e IBS 0,1% compensados com PIS/COFINS (sem custo)."""
+    if ano < 2026:
+        return {"fase": "antes", "pis_cofins": True, "iss": Decimal(1)}
+    if ano == 2026:
+        return {"fase": "teste", "pis_cofins": True, "iss": Decimal(1)}
+    if ano <= 2028:  # CBS cheia (referência − 0,1 ponto) e IBS de 0,1%
+        return {"fase": "cbs", "pis_cofins": False, "iss": Decimal(1)}
+    iss = FATOR_ISS.get(ano, Decimal(0))
+    return {"fase": "ibs" if iss else "final", "pis_cofins": False, "iss": iss}
+
+
+def _ibs_cbs(cfg: ConfigImpostos, ano: int, rec: Decimal) -> tuple[dict, dict]:
+    """(impostos que somam, informativos) de CBS e IBS no ano."""
+    r = reforma(ano)
+    if r["fase"] == "antes":
+        return {}, {}
+    if r["fase"] == "teste":
+        return {}, {"CBS": q2(rec * Decimal("0.9") / 100), "IBS": q2(rec * Decimal("0.1") / 100)}
+    fator = (100 - cfg.reducao_ibs_cbs) / 100  # advocacia: profissão regulamentada (LC 214, art. 127)
+    if r["fase"] == "cbs":
+        cbs, ibs = cfg.aliq_cbs - Decimal("0.1"), Decimal("0.1")
+    else:
+        cbs, ibs = cfg.aliq_cbs, cfg.aliq_ibs * (1 - r["iss"])
+    return {"CBS": q2(rec * cbs * fator / 100), "IBS": q2(rec * ibs * fator / 100)}, {}
 
 
 def faixas_padrao(anexo: str) -> list[dict]:
@@ -146,7 +180,7 @@ def projecao(db: Session, tenant_id: int, emissora, *, metodo: str = "media3", e
             ef, n, f = efetiva_simples(rbt12, cfg.faixas)
             das = q2(rec * ef / 100)
             linha.update({"rbt12": rbt12, "faixa": n, "aliquota_nominal": Decimal(str(f["aliquota"])), "aliquota_efetiva": ef,
-                          "impostos": {"DAS": das}, "total_impostos": das, "vencimento": _vencimento(m, cfg.dia_vencimento_das),
+                          "impostos": {"DAS": das}, "informativos": {}, "total_impostos": das, "vencimento": _vencimento(m, cfg.dia_vencimento_das),
                           "mudou_faixa": faixa_anterior is not None and n != faixa_anterior})
             faixa_anterior = n
         else:
@@ -185,7 +219,22 @@ def projecao(db: Session, tenant_id: int, emissora, *, metodo: str = "media3", e
                       if cfg.regime == "simples" and cfg.anexo == "IV" else "")
             + ("No Lucro Real, PIS e COFINS são não cumulativos (os créditos reduzem o valor) e IRPJ/CSLL dependem do lucro "
                "apurado, por isso não entram na projeção. " if cfg.regime == "real" else "")
+            + _aviso_reforma(cfg)
             + "Valores estimados: o oficial é o apurado pelo contador."}
+
+
+def _pct(d: Decimal) -> str:
+    return f"{Decimal(d).quantize(Decimal('0.01')):f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def _aviso_reforma(cfg: ConfigImpostos) -> str:
+    if cfg.regime == "simples":
+        return ("Reforma tributária: no Simples, a partir de 2027 a CBS e o IBS entram dentro do DAS, no lugar de PIS/COFINS "
+                "e ISS, sem guia nova. ")
+    return ("Reforma tributária: em 2026 a CBS (0,9%) e o IBS (0,1%) são só teste, compensados com PIS/COFINS (aparecem "
+            "em cinza e não somam). Em 2027 a CBS substitui PIS e COFINS; de 2029 a 2032 o ISS cai 10% ao ano e o IBS "
+            f"ocupa o lugar, até 2033. As alíquotas de referência ainda não foram fixadas: usamos CBS {_pct(cfg.aliq_cbs)}% "
+            f"e IBS {_pct(cfg.aliq_ibs)}%, com redução de {_pct(cfg.reducao_ibs_cbs)}% para advocacia (ajuste na configuração). ")
 
 
 def _estimativa(metodo: str, mes: date, receita: dict[str, Decimal], base_media) -> Decimal:
@@ -197,10 +246,16 @@ def _estimativa(metodo: str, mes: date, receita: dict[str, Decimal], base_media)
 
 def _presumido(cfg: ConfigImpostos, emissora, mes: date, rec: Decimal, receita: dict[str, Decimal]) -> dict:
     real = cfg.regime == "real"
-    pis = q2(rec * (cfg.aliq_pis_real if real else cfg.aliq_pis) / 100)
-    cofins = q2(rec * (cfg.aliq_cofins_real if real else cfg.aliq_cofins) / 100)
-    iss = q2(cfg.iss_fixo_mensal) if cfg.iss_modo == "fixo" else q2(rec * (emissora.aliquota_iss or 0))
-    impostos = {"PIS": pis, "COFINS": cofins, "ISS": iss}
+    regras = reforma(mes.year)
+    impostos: dict[str, Decimal] = {}
+    if regras["pis_cofins"]:
+        impostos["PIS"] = q2(rec * (cfg.aliq_pis_real if real else cfg.aliq_pis) / 100)
+        impostos["COFINS"] = q2(rec * (cfg.aliq_cofins_real if real else cfg.aliq_cofins) / 100)
+    novos, informativos = _ibs_cbs(cfg, mes.year, rec)
+    impostos.update(novos)
+    iss = cfg.iss_fixo_mensal if cfg.iss_modo == "fixo" else rec * (emissora.aliquota_iss or 0)
+    if regras["iss"]:
+        impostos["ISS"] = q2(iss * regras["iss"])
     if not real and mes.month in (3, 6, 9, 12):  # IRPJ e CSLL são trimestrais
         tri = sum((receita.get(somar_meses(mes, -j, 1).strftime("%Y-%m"), ZERO) for j in range(0, 3)), ZERO)
         base_ir = tri * cfg.presuncao_irpj / 100
@@ -208,7 +263,8 @@ def _presumido(cfg: ConfigImpostos, emissora, mes: date, rec: Decimal, receita: 
         csll = tri * cfg.presuncao_csll / 100 * cfg.aliq_csll / 100
         impostos.update({"IRPJ": q2(irpj), "CSLL": q2(csll)})
     total = q2(sum(impostos.values(), ZERO))
-    return {"impostos": impostos, "total_impostos": total, "aliquota_efetiva": q2(total / rec * 100) if rec else ZERO,
+    return {"impostos": impostos, "informativos": informativos, "total_impostos": total,
+            "aliquota_efetiva": q2(total / rec * 100) if rec else ZERO,
             "vencimento": _vencimento(mes, cfg.dia_vencimento), "trimestre": not real and mes.month in (3, 6, 9, 12)}
 
 
@@ -239,7 +295,8 @@ def _config_out(cfg: ConfigImpostos, emissora) -> dict:
             "presuncao_irpj": cfg.presuncao_irpj, "presuncao_csll": cfg.presuncao_csll, "aliq_irpj": cfg.aliq_irpj,
             "aliq_adicional_irpj": cfg.aliq_adicional_irpj, "limite_adicional_trimestre": cfg.limite_adicional_trimestre,
             "aliq_csll": cfg.aliq_csll, "iss_modo": cfg.iss_modo, "iss_fixo_mensal": cfg.iss_fixo_mensal,
-            "aliquota_iss_emissora": q2((emissora.aliquota_iss or 0) * 100), "dia_vencimento": cfg.dia_vencimento}
+            "aliquota_iss_emissora": q2((emissora.aliquota_iss or 0) * 100), "dia_vencimento": cfg.dia_vencimento,
+            "aliq_cbs": cfg.aliq_cbs, "aliq_ibs": cfg.aliq_ibs, "reducao_ibs_cbs": cfg.reducao_ibs_cbs}
 
 
 

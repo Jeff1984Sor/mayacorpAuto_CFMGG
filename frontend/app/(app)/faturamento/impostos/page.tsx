@@ -55,6 +55,8 @@ interface Linha {
   realizado: boolean;
   atual: boolean;
   impostos: Record<string, Num>;
+  /** 2026: CBS/IBS de teste, compensados com PIS/COFINS (não somam no total) */
+  informativos?: Record<string, Num>;
   total_impostos: Num;
   aliquota_efetiva: Num;
   vencimento: string;
@@ -85,6 +87,9 @@ interface ConfigImp {
   iss_fixo_mensal: Num;
   aliquota_iss_emissora: Num;
   dia_vencimento: number;
+  aliq_cbs: Num;
+  aliq_ibs: Num;
+  reducao_ibs_cbs: Num;
 }
 interface Projecao {
   emissora_id: number;
@@ -132,7 +137,7 @@ const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "o
 const MESES_LONGOS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const rotMes = (m: string) => `${MESES[Number(m.slice(5)) - 1]}/${m.slice(2, 4)}`;
 const pct = (v: Num | undefined | null, casas = 2) => (v == null ? "—" : `${toNum(v).toLocaleString("pt-BR", { maximumFractionDigits: casas, minimumFractionDigits: 0 })}%`);
-const ORDEM_IMPOSTOS = ["DAS", "PIS", "COFINS", "ISS", "IRPJ", "CSLL"];
+const ORDEM_IMPOSTOS = ["DAS", "PIS", "COFINS", "CBS", "IBS", "ISS", "IRPJ", "CSLL"];
 const ORIGEM: Record<Linha["origem"], { l: string; tom: "success" | "brand" | "warning" | "neutral" | "info" }> = {
   contador: { l: "contador", tom: "success" },
   sistema: { l: "sistema", tom: "neutral" },
@@ -303,6 +308,12 @@ function ConfigPainel({ p, onSalvo }: { p: Projecao; onSalvo: (r: Projecao) => v
           <Field label="Dia de vencimento" htmlFor="imp-dia">
             <Input id="imp-dia" type="number" min={1} max={31} value={c.dia_vencimento} onChange={(e) => set("dia_vencimento", Number(e.target.value))} />
           </Field>
+          <p className="text-[13px] font-medium text-foreground/80 sm:col-span-4">
+            Reforma tributária <span className="font-normal text-muted-foreground">· CBS a partir de 2027, IBS a partir de 2029 (o teste de 2026 não custa nada)</span>
+          </p>
+          {numIn("aliq_cbs", "CBS (referência)")}
+          {numIn("aliq_ibs", "IBS (referência)")}
+          {numIn("reducao_ibs_cbs", "Redução da advocacia")}
         </div>
       )}
       <div className="flex justify-end">
@@ -394,7 +405,7 @@ export default function ImpostosPage() {
     );
 
   const linhasAsc = p ? [...p.linhas].reverse() : [];
-  const colunas = ORDEM_IMPOSTOS.filter((k) => linhasAsc.some((l) => k in l.impostos));
+  const colunas = ORDEM_IMPOSTOS.filter((k) => linhasAsc.some((l) => k in l.impostos || k in (l.informativos ?? {})));
   const pontos = linhasAsc.map((l) => ({ ...l, rot: rotMes(l.mes), rec: toNum(l.receita), imp: toNum(l.total_impostos), aliq: toNum(l.aliquota_efetiva) }));
   const r = p?.resumo;
   const mesAtualNome = MESES_LONGOS[new Date().getMonth()];
@@ -629,7 +640,15 @@ export default function ImpostosPage() {
                         </td>
                         {colunas.map((k) => (
                           <td key={k} className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                            {l.impostos[k] != null ? moeda(l.impostos[k]) : ""}
+                            {l.impostos[k] != null ? (
+                              moeda(l.impostos[k])
+                            ) : l.informativos?.[k] != null ? (
+                              <span className="text-muted-foreground/70" title="Teste de 2026: compensado com PIS/COFINS, não soma no total">
+                                {moeda(l.informativos[k])}
+                              </span>
+                            ) : (
+                              ""
+                            )}
                           </td>
                         ))}
                         <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums">{moeda(l.total_impostos)}</td>
