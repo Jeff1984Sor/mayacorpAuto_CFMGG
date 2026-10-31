@@ -138,3 +138,15 @@ def com_escritorio(fn: Callable) -> Callable:
     """Leva o escritório atual para outra thread (ThreadPoolExecutor não copia a ContextVar)."""
     ctx = contextvars.copy_context()
     return lambda *a, **kw: ctx.run(fn, *a, **kw)
+
+
+def robos() -> list[str] | None:
+    """Robôs liberados para o escritório atual. None = um banco só (tudo liberado, como sempre foi)."""
+    if not multi():
+        return None
+    esc = atual()
+    if esc is None:
+        return []
+    from app.controle import service
+
+    return service.robos_do(esc.slug)

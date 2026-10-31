@@ -45,6 +45,7 @@ export interface FichaIn {
   teste_ate: string | null;
   observacao: string | null;
   indicado_por_id: number | null;
+  robos?: string[];
 }
 
 export interface ClienteNovoIn extends FichaIn {
@@ -154,6 +155,7 @@ export const fichaDe = (c: ClienteSaaS): FichaIn => ({
   teste_ate: c.teste_ate,
   observacao: c.observacao,
   indicado_por_id: c.indicado_por_id,
+  robos: c.robos ?? [],
 });
 
 // ---------------------------------------------------------------- cobrança (Mercado Pago)

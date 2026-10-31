@@ -50,6 +50,8 @@ class Cliente(BaseControle):
     inicio_contrato: Mapped[date | None] = mapped_column(Date)
     observacao: Mapped[str | None] = mapped_column(Text)
     indicado_por_id: Mapped[int | None] = mapped_column(ForeignKey("cliente.id", ondelete="SET NULL"))  # quem indicou
+    # robôs liberados para o escritório (chaves de planos.ROBOS); os módulos de gestão valem para todos
+    robos: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     # cobrança: "link" = link do Mercado Pago todo mês por e-mail · "cartao" = assinatura recorrente no cartão
     forma_pagamento: Mapped[str] = mapped_column(String(10), default="link", server_default="link")
     mp_assinatura_id: Mapped[str | None] = mapped_column(String(64))  # preapproval do Mercado Pago

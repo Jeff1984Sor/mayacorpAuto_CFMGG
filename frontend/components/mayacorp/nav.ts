@@ -66,6 +66,8 @@ export interface NavItem {
   equipe?: boolean;
   /** Só no admin MayaCorp (clientes, planos, contratos). */
   painel?: boolean;
+  /** Robô feito sob medida: só aparece para o escritório que tem o robô liberado (Clientes › Ficha no admin). */
+  robo?: string;
   /** Some no admin MayaCorp: item de advocacia, ou o equivalente fica no grupo MayaCorp (um menu só). */
   foraDoPainel?: boolean;
   exato?: boolean;
@@ -140,11 +142,11 @@ export const NAV: NavGrupo[] = [
   {
     titulo: "NFS-e · RPA 01",
     itens: [
-      { label: "Painel", href: "/nfse", icone: Gauge, permissao: "nfse_notas.ver", exato: true, atalho: "G P" },
-      { label: "Nova emissão em lote", href: "/nfse/nova-emissao", icone: FileUp, permissao: "nfse_emissao.emitir", atalho: "N" },
-      { label: "Lotes", href: "/nfse/lotes", icone: Layers, permissao: "nfse_emissao.ver", atalho: "G L" },
-      { label: "Notas emitidas", href: "/nfse/notas", icone: FileCheck2, permissao: "nfse_notas.ver", atalho: "G N" },
-      { label: "Recebimentos", href: "/nfse/recebimentos", icone: HandCoins, permissao: "nfse_recebimentos.ver", atalho: "G R" },
+      { label: "Painel", href: "/nfse", icone: Gauge, permissao: "nfse_notas.ver", exato: true, atalho: "G P", robo: "nfse_lote" },
+      { label: "Nova emissão em lote", href: "/nfse/nova-emissao", icone: FileUp, permissao: "nfse_emissao.emitir", atalho: "N", robo: "nfse_lote" },
+      { label: "Lotes", href: "/nfse/lotes", icone: Layers, permissao: "nfse_emissao.ver", atalho: "G L", robo: "nfse_lote" },
+      { label: "Notas emitidas", href: "/nfse/notas", icone: FileCheck2, permissao: "nfse_notas.ver", atalho: "G N", robo: "nfse_lote" },
+      { label: "Recebimentos", href: "/nfse/recebimentos", icone: HandCoins, permissao: "nfse_recebimentos.ver", atalho: "G R", robo: "nfse_lote" },
     ],
   },
   {
@@ -159,7 +161,7 @@ export const NAV: NavGrupo[] = [
   },
   {
     titulo: "Próximos robôs",
-    itens: [{ label: "Porto Seguro", href: "#", icone: Truck, emBreve: true, foraDoPainel: true }],
+    itens: [{ label: "Porto Seguro", href: "#", icone: Truck, emBreve: true, foraDoPainel: true, robo: "porto_seguro" }],
   },
   {
     titulo: "Configurações",
@@ -193,12 +195,14 @@ export function navPara(
   pode: ((permissao: string) => boolean) | undefined,
   equipeMayaCorp = false,
   painelMayaCorp = false,
+  robos: string[] | null = null,
 ): NavGrupo[] {
   if (!pode) return [];
   return NAV.map((g) => ({
     ...g,
     itens: g.itens.filter(
-      (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp) && !(i.foraDoPainel && painelMayaCorp),
+      (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp) && !(i.foraDoPainel && painelMayaCorp) &&
+        (!i.robo || robos === null || robos.includes(i.robo)),
     ),
   })).filter((g) => g.itens.length > 0);
 }

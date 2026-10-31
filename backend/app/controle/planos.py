@@ -13,6 +13,12 @@ RECURSOS: dict[str, str] = {
     "contador": "Integração com contador",
 }
 
+# robôs feitos sob medida, liberados cliente a cliente na ficha do admin (Clientes › Ficha › Robôs liberados)
+ROBOS: dict[str, str] = {
+    "nfse_lote": "Emissor de NFS-e em lote (arquivo da Lello)",
+    "porto_seguro": "Upload Porto Seguro (em breve)",
+}
+
 PADRAO = [
     # nome, mensal, anual (2 meses grátis), usuários, notas/mês, recursos
     ("Solo", "119", "1190", 1, 20, ["gestao"]),

@@ -70,6 +70,7 @@ class FichaIn(BaseModel):
     teste_ate: date | None = None
     observacao: str | None = None
     indicado_por_id: int | None = None
+    robos: list[str] | None = None  # ausente = não mexe nos robôs liberados
 
 
 class PoliticaIn(BaseModel):
@@ -164,7 +165,7 @@ def _cliente_base(c: Cliente) -> dict:
             "email_financeiro": c.email_financeiro, "telefone": c.telefone, "plano": _plano_out(c.plano),
             "plano_id": c.plano_id, "ciclo": c.ciclo, "valor": _d(_valor(c)), "inicio_contrato": c.inicio_contrato,
             "observacao": c.observacao, "banco_principal": c.banco is None,
-            "dominios": [{"id": d.id, "host": d.host} for d in c.dominios]}
+            "dominios": [{"id": d.id, "host": d.host} for d in c.dominios], "robos": c.robos or []}
 
 
 def _cliente(db, cid: int) -> Cliente:
@@ -196,6 +197,10 @@ def _ficha(dados: FichaIn) -> dict:
     campos = dados.model_dump(include=set(FichaIn.model_fields))
     campos["documento"] = re.sub(r"\D", "", campos["documento"] or "") or None
     campos["email_financeiro"] = str(campos["email_financeiro"]).lower() if campos["email_financeiro"] else None
+    if campos.get("robos") is None:
+        campos.pop("robos", None)
+    else:
+        campos["robos"] = [r for r in dict.fromkeys(campos["robos"]) if r in planos.ROBOS]
     return campos
 
 
@@ -323,6 +328,7 @@ def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
         for k, v in _ficha(dados).items():
             setattr(c, k, v)
         db.commit()
+        service.limpar_cache()  # robôs liberados valem no próximo clique do cliente
         service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, c)
         ctx.auditar("admin.cliente.alterar", "controle_cliente", c.id, descricao=c.nome)
         ctx.db.commit()
@@ -535,6 +541,11 @@ def salvar_suporte(dados: SenhaSuporteIn, ctx: Painel):
 
 
 # ================================================================ planos
+@router.get("/robos")
+def robos(ctx: Painel):
+    return [{"chave": k, "rotulo": v} for k, v in planos.ROBOS.items()]
+
+
 @router.get("/recursos")
 def recursos(ctx: Painel):
     return [{"chave": k, "rotulo": v} for k, v in planos.RECURSOS.items()]

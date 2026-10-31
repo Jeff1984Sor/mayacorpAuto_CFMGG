@@ -40,6 +40,18 @@ def limpar_cache() -> None:
     _cache.clear()
 
 
+def robos_do(slug: str) -> list[str]:
+    """Robôs liberados para o escritório (cache curto, como o resto do catálogo)."""
+    agora = time.monotonic()
+    hit = _cache.get(("robos", slug))
+    if hit and agora - hit[0] < _TTL:
+        return hit[1]
+    with SessaoControle() as db:
+        valor = list(db.scalar(select(Cliente.robos).where(Cliente.slug == slug)) or [])
+    _cache[("robos", slug)] = (agora, valor)
+    return valor
+
+
 def normalizar_host(host: str) -> str:
     return host.split(":")[0].strip().lower().rstrip(".")
 
@@ -339,7 +351,7 @@ def registrar_principal_se_faltar() -> str | None:
         if t is None:
             return None
         slug, nome = t.slug, t.nome
-    registrar(slug, nome, banco=None)
+    registrar(slug, nome, banco=None, robos=list(planos_robos()))  # o principal (CFME) já usa os robôs dele
     sincronizar_todos(slug)
     return slug
 
@@ -445,3 +457,9 @@ def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[s
         html = corpo_html(corpo, titulo=assunto, marca="MayaJus", logo_cid="logo-mayacorp" if imagens else None)
         mail.enviar(para, assunto, corpo, anexos=anexos, config=cfg if cfg and cfg.smtp_host else None, html=html,
                     imagens=imagens)
+
+
+def planos_robos() -> list[str]:
+    from app.controle.planos import ROBOS
+
+    return list(ROBOS)

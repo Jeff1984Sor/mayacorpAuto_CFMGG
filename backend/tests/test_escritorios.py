@@ -414,3 +414,18 @@ def test_primeiro_acesso_pelo_login_e_primeira_cobranca(multi):
     novos = set(glob.glob(str(tn.pasta_base() / "**" / "outbox" / "*.eml"), recursive=True)) - antes
     assert any("primeiro-acesso?token=" in open(f, encoding="utf8", errors="ignore").read() for f in novos), novos
     assert all(os.path.exists(f) for f in novos)
+
+
+def test_robos_liberados_por_escritorio(multi):
+    c = multi
+    cfme, ana = _login(c), _entrar(c, "ana@silva.adv.br", "Silva@2026x")
+    assert set(c.get("/api/auth/me", headers=cfme).json()["robos"]) == {"nfse_lote", "porto_seguro"}
+    assert c.get("/api/auth/me", headers=ana).json()["robos"] == []
+    assert {k["slug"] for k in c.get("/api/hub/automacoes", headers=ana).json()} == {"tribunais"}
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    silva = next(x for x in c.get("/api/admin/clientes", headers=adm).json() if x["slug"] == "silva")
+    ficha = {k: silva[k] for k in ("nome", "documento", "responsavel", "email_financeiro", "telefone", "plano_id", "ciclo",
+                                    "inicio_contrato", "teste_ate", "observacao", "indicado_por_id")}
+    r = c.put(f"/api/admin/clientes/{silva['id']}", headers=adm, json={**ficha, "robos": ["nfse_lote", "inventado"]})
+    assert r.status_code == 200 and r.json()["robos"] == ["nfse_lote"], r.text
+    assert c.get("/api/auth/me", headers=ana).json()["robos"] == ["nfse_lote"]

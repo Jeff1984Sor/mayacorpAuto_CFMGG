@@ -173,7 +173,7 @@ export function ComunicadorWidget() {
   return (
     <>
       {/* botão flutuante */}
-      <div className="no-print fixed right-6 bottom-6 z-40">
+      <div data-tour="comunicador" className="no-print fixed right-6 bottom-6 z-40">
         <Tooltip>
           <TooltipTrigger
             render={

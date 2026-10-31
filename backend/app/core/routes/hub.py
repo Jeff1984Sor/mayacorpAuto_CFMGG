@@ -21,7 +21,10 @@ def automacoes(ctx: Ctx):
             Nfse.tenant_id == ctx.tenant_id, Nfse.status == StatusNfse.emitida, Nfse.data_emissao >= inicio
         )
     ) or 0
-    return [
+    from app.core import tenancy
+
+    robos = tenancy.robos()
+    cards = [
         AutomacaoCard(slug="nfse", nome="Emissor de NFS-e em Lote",
                       descricao="Arquivo da Lello → notas no layout 2 (ISS + IBS + CBS), assinadas e transmitidas.",
                       icone="receipt", status="ativo", href="/nfse", metrica=f"{notas_mes} notas no mês"),
@@ -30,6 +33,8 @@ def automacoes(ctx: Ctx):
                       descricao="Robô de envio de arquivos ao portal da Porto Seguro.",
                       icone="upload", status="planejado", href=None, metrica="Em breve"),
     ]
+    liberado = {"nfse": "nfse_lote", "porto": "porto_seguro"}  # cards de robôs feitos sob medida
+    return [c for c in cards if robos is None or c.slug not in liberado or liberado[c.slug] in robos]
 
 
 def _card_tribunais(ctx) -> AutomacaoCard:

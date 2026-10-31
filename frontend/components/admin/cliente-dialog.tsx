@@ -9,6 +9,7 @@ import { BotaoIAAdmin } from "@/components/admin/ia";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -17,6 +18,7 @@ import {
   type FichaIn,
   fichaDe,
   type PlanoOut,
+  type Rotulo,
 } from "@/lib/admin";
 import { api } from "@/lib/api";
 import { moeda } from "@/lib/format";
@@ -33,6 +35,7 @@ const vazio = (): ClienteNovoIn => ({
   teste_ate: null,
   observacao: null,
   indicado_por_id: null,
+  robos: [],
   slug: null,
   admin_nome: "",
   admin_email: "",
@@ -102,6 +105,7 @@ export function ClienteDialog({
         teste_ate: f.teste_ate,
         observacao: nulo(f.observacao),
         indicado_por_id: f.indicado_por_id,
+        robos: f.robos ?? [],
       };
       return cliente
         ? api.put<ClienteSaaS>(`/admin/clientes/${cliente.id}`, ficha)
@@ -134,6 +138,11 @@ export function ClienteDialog({
     },
   });
 
+  const robos = useQuery({
+    queryKey: ["admin", "robos"],
+    queryFn: () => api.get<Rotulo[]>("/admin/robos"),
+    enabled: open,
+  });
   const outros = (clientes.data ?? []).filter((c) => c.id !== cliente?.id);
 
   const buscarCnpj = async () => {
@@ -362,6 +371,35 @@ export function ClienteDialog({
             ))}
           </NativeSelect>
         </Field>
+
+        <div className="sm:col-span-2">
+          <p className="mb-2 text-[13px] text-foreground/80">Robôs liberados</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(robos.data ?? []).map((r) => (
+              <label
+                key={r.chave}
+                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              >
+                <Checkbox
+                  checked={(f.robos ?? []).includes(r.chave)}
+                  onCheckedChange={(v) =>
+                    set(
+                      "robos",
+                      v
+                        ? [...(f.robos ?? []), r.chave]
+                        : (f.robos ?? []).filter((x) => x !== r.chave),
+                    )
+                  }
+                />
+                {r.rotulo}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Robôs feitos sob medida. Gestão, faturamento e financeiro valem para
+            todos.
+          </p>
+        </div>
 
         {!cliente && (
           <>

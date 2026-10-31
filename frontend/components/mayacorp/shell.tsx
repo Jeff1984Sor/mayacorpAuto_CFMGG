@@ -3,6 +3,7 @@
 import {
   ChevronsLeft,
   CircleUserRound,
+  Compass,
   Gem,
   KeyRound,
   LogOut,
@@ -42,6 +43,7 @@ import type { UsuarioMe } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { ClientLogo, MayaCorpAssinatura } from "./brand";
+import { iniciarTour, TourGuiado } from "./tour";
 import { CommandPalette, abrirPaleta } from "./command-palette";
 import { ModoBadge } from "./modo-badge";
 import { TrocarSenhaDialog } from "./trocar-senha-dialog";
@@ -161,7 +163,7 @@ function ItemNav({ item, recolhido, onNavigate }: { item: NavItem; recolhido: bo
   const el = item.emBreve ? (
     <span className={classe}>{conteudo}</span>
   ) : (
-    <Link href={item.href} className={classe} onClick={onNavigate}>
+    <Link href={item.href} className={classe} onClick={onNavigate} data-tour={`nav:${item.href}`}>
       {conteudo}
     </Link>
   );
@@ -201,7 +203,7 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
   const { usuario, pode } = useAuth();
   const { nome_exibicao } = useBrand();
   const pathname = usePathname();
-  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp);
+  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp, usuario?.robos ?? null);
   const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
@@ -233,7 +235,7 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
         )}
       </div>
 
-      <nav className="relative flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-4 [scrollbar-width:thin]">
+      <nav data-tour="menu" className="relative flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-2 py-4 [scrollbar-width:thin]">
         {grupos.map((g) => {
           const fechado = !recolhido && fechados.has(g.titulo);
           // grupo recolhido ainda mostra a tela em que a pessoa está
@@ -346,6 +348,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
 
       <button
         onClick={abrirPaleta}
+        data-tour="busca"
         className="group flex h-9 w-full max-w-md items-center gap-2 rounded-lg border bg-background/60 px-3 text-sm text-muted-foreground transition hover:border-brand/40 hover:bg-background"
       >
         <Search className="size-4" />
@@ -368,7 +371,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <button className="flex items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition hover:bg-muted" />
+            <button data-tour="usuario" className="flex items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition hover:bg-muted" />
           }
         >
           <UserAvatar nome={usuario?.nome ?? "?"} fotoUrl={usuario?.foto_url} className="size-8 ring-2 ring-brand/30" textoClassName="text-xs" />
@@ -410,6 +413,9 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenuItem onClick={() => setTrocarSenha(true)}>
             <KeyRound /> Trocar senha
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={iniciarTour}>
+            <Compass /> Tour guiado
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={sair} variant="destructive">
             <LogOut /> Sair
@@ -428,7 +434,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pode, usuario } = useAuth();
   // bloqueio leve por página: o servidor já recusa os dados, aqui só trocamos a tela por um aviso amigável
   const rota = itemDaRota(pathname);
-  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp) || (!!rota.foraDoPainel && !!usuario?.painel_mayacorp));
+  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp) || (!!rota.foraDoPainel && !!usuario?.painel_mayacorp) || (!!rota.robo && !!usuario?.robos && !usuario.robos.includes(rota.robo)));
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha a gaveta ao navegar
   useEffect(() => setGaveta(false), [pathname]);
   // o admin MayaCorp tem endereço próprio: entrou pelo endereço do MayaJus, vai para o login de lá
@@ -473,6 +479,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Topbar onMenu={() => setGaveta(true)} />
       <CommandPalette />
+      <TourGuiado />
       {pode("comunicador.usar") && <ComunicadorWidget />}
 
       <main className="min-h-dvh pt-[calc(var(--tb)+var(--faixa))] transition-[padding] duration-200 lg:pl-(--sb)">

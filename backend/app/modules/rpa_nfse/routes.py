@@ -567,6 +567,10 @@ def _lote_detalhe(lote: Lote) -> LoteDetalhe:
 
 @router.post("/importacoes", response_model=LoteDetalhe)
 async def importar(ctx: Operador, arquivo: UploadFile = File(...), emissora_id: int = Form(...)):
+    from app.core import tenancy
+
+    if (robos := tenancy.robos()) is not None and "nfse_lote" not in robos:
+        raise HTTPException(403, "A emissão em lote não está liberada para este escritório. Fale com a MayaCorp.")
     emissora = _do_tenant(ctx, Emissora, emissora_id)
     if not emissora.ativa:
         raise HTTPException(400, "Esta emissora está inativa.")
