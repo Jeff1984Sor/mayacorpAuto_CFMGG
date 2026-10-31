@@ -11,6 +11,10 @@ from datetime import date
 
 from sqlalchemy import select
 
+import app.comunicador.models  # noqa: F401  (registra todos os modelos: Processo aponta para Caso)
+import app.core.models  # noqa: F401
+import app.modules.faturamento.models  # noqa: F401
+import app.modules.financas.models  # noqa: F401
 from app.core.db import SessionLocal
 from app.modules.rpa_nfse import service, tasks
 from app.modules.rpa_nfse.models import Lote, StatusLote
