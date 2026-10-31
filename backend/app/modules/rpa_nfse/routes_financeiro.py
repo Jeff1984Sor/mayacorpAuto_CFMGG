@@ -29,8 +29,7 @@ config_router = APIRouter(prefix="/config", tags=["configurações"])
 
 # ======================================================================== configurações das automações
 def _proxima(db, cfg, tipo: TipoFatura) -> int:
-    ano = date.today().year
-    return max(fatura.ultimo_numero(db, ano, tipo, tenant_id=cfg.tenant_id) + 1, fatura.numero_definido(cfg, ano, tipo))
+    return max(fatura.ultimo_numero(db, tipo, tenant_id=cfg.tenant_id) + 1, fatura.numero_definido(cfg, tipo))
 
 
 def _cfg_out(db, cfg) -> ConfigAutomacoesOut:
@@ -49,16 +48,14 @@ def salvar_automacoes(dados: ConfigAutomacoesIn, ctx: Admin):
     cfg = service.config_nfse(ctx.db, ctx.tenant_id)
     if dados.relatorio_emissao_ativo and not dados.relatorio_destinatarios:
         raise HTTPException(400, "Informe ao menos um e-mail para receber o relatório de emissão.")
-    ano = date.today().year
     for tipo, campo, sigla in ((TipoFatura.honorarios, "fatura_proxima_nh", "NH"), (TipoFatura.despesas, "fatura_proxima_nd", "ND")):
         pedido = getattr(dados, campo)
-        ultimo = fatura.ultimo_numero(ctx.db, ano, tipo, tenant_id=ctx.tenant_id)
+        ultimo = fatura.ultimo_numero(ctx.db, tipo, tenant_id=ctx.tenant_id)
         if pedido is not None and pedido <= ultimo:
-            raise HTTPException(400, f"A {sigla} {ano}/{ultimo:05d} já existe: a próxima {sigla} precisa ser {ultimo + 1} ou maior.")
+            raise HTTPException(400, f"A {sigla} {ultimo:05d} já existe: a próxima {sigla} precisa ser {ultimo + 1} ou maior.")
     antes = {k: getattr(cfg, k) for k in ConfigAutomacoesIn.model_fields}
     for k, v in dados.model_dump().items():
         setattr(cfg, k, [str(e).lower() for e in v] if k == "relatorio_destinatarios" else v)
-    cfg.fatura_proxima_ano = ano
     depois = {k: getattr(cfg, k) for k in ConfigAutomacoesIn.model_fields}
     ctx.auditar("automacoes.alterar", "config_nfse", ctx.tenant_id,
                 antes={k: v for k, v in antes.items() if depois[k] != v},

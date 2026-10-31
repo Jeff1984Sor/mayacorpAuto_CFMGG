@@ -144,7 +144,7 @@ export default function AutomacoesPage() {
       >
         <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
           <div className="grid grid-cols-2 gap-4 sm:col-span-2 sm:max-w-md">
-            <Field label="Próxima Nota de Honorários" htmlFor="fat-proxima-nh" dica={`NH ${new Date().getFullYear()}/…`}>
+            <Field label="Próxima Nota de Honorários" htmlFor="fat-proxima-nh" dica={`Sai como NH ${String(c.fatura_proxima_nh).padStart(5, "0")}`}>
               <Input
                 id="fat-proxima-nh"
                 type="number"
@@ -154,7 +154,7 @@ export default function AutomacoesPage() {
                 className="num"
               />
             </Field>
-            <Field label="Próxima Nota de Despesas" htmlFor="fat-proxima-nd" dica={`ND ${new Date().getFullYear()}/…`}>
+            <Field label="Próxima Nota de Despesas" htmlFor="fat-proxima-nd" dica={`Sai como ND ${String(c.fatura_proxima_nd).padStart(5, "0")}`}>
               <Input
                 id="fat-proxima-nd"
                 type="number"
@@ -165,7 +165,7 @@ export default function AutomacoesPage() {
               />
             </Field>
             <p className="col-span-2 -mt-2 text-xs text-muted-foreground">
-              Honorários e Despesas têm sequências separadas, que recomeçam em 1 a cada ano. Não dá para voltar a um número já usado.
+              Honorários e Despesas têm sequências separadas e contínuas. Não dá para voltar a um número já usado.
             </p>
           </div>
           <Field label="Vencimento da fatura" className="sm:col-span-2" dica={

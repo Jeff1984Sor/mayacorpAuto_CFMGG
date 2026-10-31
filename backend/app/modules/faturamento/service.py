@@ -292,7 +292,7 @@ def criar_faturas(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pen
         fat = Fatura(
             tenant_id=tenant_id, emissora_id=emissora_id, nfse_id=None, tipo=tipo, origem="faturamento",
             contrato_id=contrato.id, tomador_id=tomador_id, rateio=rateio, ano=hoje.year,
-            numero=faturas.proximo_numero(db, emissora_id, hoje.year, tipo), data_emissao=hoje,
+            numero=faturas.proximo_numero(db, emissora_id, tipo), data_emissao=hoje,
             data_vencimento=hoje if vencimento_na_emissao else hoje + timedelta(days=dias_vencimento),
             descricao=_descricao(contrato, sel, tipo, pct if rateio else None), valor=valor, observacao=observacao,
         )

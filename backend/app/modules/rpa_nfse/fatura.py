@@ -24,27 +24,26 @@ from app.modules.rpa_nfse.pix import br_code
 from app.modules.rpa_nfse.qr import QrFlowable
 
 
-def ultimo_numero(db: Session, ano: int, tipo: TipoFatura, *, emissora_id: int | None = None,
-                  tenant_id: int | None = None) -> int:
-    q = select(func.max(Fatura.numero)).where(Fatura.ano == ano, Fatura.tipo == tipo)
+def ultimo_numero(db: Session, tipo: TipoFatura, *, emissora_id: int | None = None, tenant_id: int | None = None) -> int:
+    q = select(func.max(Fatura.numero)).where(Fatura.tipo == tipo)
     q = q.where(Fatura.emissora_id == emissora_id) if emissora_id else q.where(Fatura.tenant_id == tenant_id)
     return db.scalar(q) or 0
 
 
-def numero_definido(cfg: ConfigNfse | None, ano: int, tipo: TipoFatura) -> int:
+def numero_definido(cfg: ConfigNfse | None, tipo: TipoFatura) -> int:
     """Próximo número escolhido em Configurações (0 = segue a sequência)."""
-    if not cfg or cfg.fatura_proxima_ano != ano:
+    if not cfg:
         return 0
     return (cfg.fatura_proxima_nd if tipo == TipoFatura.despesas else cfg.fatura_proxima_nh) or 0
 
 
-def proximo_numero(db: Session, emissora_id: int, ano: int, tipo: TipoFatura = TipoFatura.honorarios) -> int:
-    """Numeração própria por emissora, tipo (NH / ND) e ano. Nunca volta para um número já usado."""
+def proximo_numero(db: Session, emissora_id: int, tipo: TipoFatura = TipoFatura.honorarios) -> int:
+    """Numeração própria por emissora e tipo (NH / ND), contínua entre os anos. Nunca volta para um número já usado."""
     from app.modules.rpa_nfse.models import Emissora
 
     cfg = db.scalar(select(ConfigNfse).join(Emissora, Emissora.tenant_id == ConfigNfse.tenant_id)
                     .where(Emissora.id == emissora_id))
-    return max(ultimo_numero(db, ano, tipo, emissora_id=emissora_id) + 1, numero_definido(cfg, ano, tipo))
+    return max(ultimo_numero(db, tipo, emissora_id=emissora_id) + 1, numero_definido(cfg, tipo))
 
 
 def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:
@@ -61,7 +60,7 @@ def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:
     emissao = nota.data_emissao.date() if hasattr(nota.data_emissao, "date") else date.today()
     fat = Fatura(
         tenant_id=nota.tenant_id, emissora_id=nota.emissora_id, nfse_id=nota.id, tomador_id=nota.tomador_id,
-        ano=emissao.year, numero=proximo_numero(db, nota.emissora_id, emissao.year), data_emissao=emissao,
+        ano=emissao.year, numero=proximo_numero(db, nota.emissora_id), data_emissao=emissao,
         data_vencimento=emissao if cfg.fatura_vencimento_modo == "emissao"
         else emissao + timedelta(days=cfg.fatura_dias_vencimento if cfg.fatura_dias_vencimento is not None else 10),
         descricao=nota.rps.discriminacao or "Honorários advocatícios", valor=nota.valor,
@@ -116,7 +115,7 @@ def pix_da_fatura(fat: Fatura) -> str | None:
 
 def salvar_pdf(db: Session, fat: Fatura, cfg: ConfigNfse) -> None:
     prefixo = "ND" if fat.tipo == TipoFatura.despesas else "NH"
-    destino = service.pasta(fat.emissora_id, fat.data_emissao) / f"Fatura_{prefixo}{fat.ano}_{fat.numero:05d}.pdf"
+    destino = service.pasta(fat.emissora_id, fat.data_emissao) / f"Fatura_{prefixo}{fat.numero:05d}.pdf"
     destino.write_bytes(gerar_pdf(fat, db.get(Identidade, fat.tenant_id), cfg))
     fat.pdf_path = str(destino)
 

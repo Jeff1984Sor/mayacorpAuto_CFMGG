@@ -530,7 +530,7 @@ def test_proximo_numero_da_nh_e_da_nd_nas_configuracoes(cliente):  # noqa: F811
     for aba, sigla, numero in (("honorarios", "NH", 500), ("despesas", "ND", 70)):
         itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params={**params, "aba": aba}).json()["clientes"][0]["contratos"][0]["itens"]
         fat = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": aba, **params, "chaves": [i["chave"] for i in itens]}).json()["faturas"][0]
-        assert fat["codigo"].startswith(sigla) and fat["codigo"].endswith(f"/{numero:05d}"), fat["codigo"]
+        assert fat["codigo"] == f"{sigla} {numero:05d}", fat["codigo"]  # só o número, sem o ano
     cfg = cliente.get("/api/config/automacoes", headers=h).json()
     assert (cfg["fatura_proxima_nh"], cfg["fatura_proxima_nd"]) == (501, 71)  # segue a sequência de cada uma
     r = cliente.put("/api/config/automacoes", headers=h, json={**cfg, "fatura_proxima_nh": 10})

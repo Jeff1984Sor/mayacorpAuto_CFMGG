@@ -83,10 +83,9 @@ class ConfigNfse(Base, Timestamped):
 
     # Fatura (Nota de Honorários) gerada para cada NFS-e emitida
     fatura_ativa: Mapped[bool] = mapped_column(Boolean, default=True)  # não é mais usado: toda NFS-e gera a NH
-    # Próximo número definido em Configurações (vale no ano informado; NH e ND têm sequências separadas)
+    # Próximo número definido em Configurações (NH e ND têm sequências separadas e contínuas)
     fatura_proxima_nh: Mapped[int | None] = mapped_column(Integer)
     fatura_proxima_nd: Mapped[int | None] = mapped_column(Integer)
-    fatura_proxima_ano: Mapped[int | None] = mapped_column(Integer)
     fatura_dias_vencimento: Mapped[int] = mapped_column(Integer, default=10)
     # "dias": vence N dias após a emissão · "emissao": vence na própria data de emissão da nota (à vista)
     fatura_vencimento_modo: Mapped[str] = mapped_column(String(10), default="dias")
@@ -383,7 +382,7 @@ class Fatura(Base, Timestamped):
     contrato_id: Mapped[int | None] = mapped_column(ForeignKey("fat_contrato.id"), index=True)
     tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id"))  # quem paga
     rateio: Mapped[str | None] = mapped_column(String(32), index=True)  # faturas da mesma divisão do contrato
-    numero: Mapped[int] = mapped_column(Integer)  # sequencial por emissora, tipo e ano
+    numero: Mapped[int] = mapped_column(Integer)  # sequencial por emissora e tipo (não recomeça no ano)
     ano: Mapped[int] = mapped_column(Integer)
     data_emissao: Mapped[date] = mapped_column(Date)
     data_vencimento: Mapped[date] = mapped_column(Date, index=True)
@@ -404,7 +403,7 @@ class Fatura(Base, Timestamped):
 
     @property
     def codigo(self) -> str:
-        return f"{'ND' if self.tipo == TipoFatura.despesas else 'NH'} {self.ano}/{self.numero:05d}"
+        return f"{'ND' if self.tipo == TipoFatura.despesas else 'NH'} {self.numero:05d}"
 
     @property
     def total(self) -> Decimal:

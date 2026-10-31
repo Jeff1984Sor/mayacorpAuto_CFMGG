@@ -424,7 +424,7 @@ def _anexos_disponiveis(db: Session, nota: Nfse) -> list[dict]:
                       "padrao": not cfg or cfg.anexar_xml})
     fat = db.scalar(select(Fatura).where(Fatura.nfse_id == nota.id))
     if fat and fat.status != StatusFatura.cancelada and fat.pdf_path and Path(fat.pdf_path).exists():
-        lista.append({"tipo": "fatura", "nome": f"Fatura_{fat.ano}_{fat.numero:05d}.pdf", "caminho": fat.pdf_path,
+        lista.append({"tipo": "fatura", "nome": f"Fatura_{fat.codigo.replace(' ', '_')}.pdf", "caminho": fat.pdf_path,
                       "mime": "application/pdf",
                       "padrao": fat.status == StatusFatura.aberta and config_nfse(db, nota.tenant_id).fatura_anexar_email})
     for a in lista:

@@ -452,7 +452,7 @@ class ConfigAutomacoesOut(Schema):
     fatura_vencimento_modo: str
     fatura_instrucoes: str | None
     fatura_anexar_email: bool
-    fatura_proxima_nh: int  # o número que a próxima NH deste ano vai receber
+    fatura_proxima_nh: int  # o número que a próxima NH vai receber
     fatura_proxima_nd: int
     relatorio_emissao_ativo: bool
     relatorio_destinatarios: list[str]
