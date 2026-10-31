@@ -103,7 +103,13 @@ export function ClienteDialog({
           });
     },
     onSuccess: (c) => {
-      toast.success(cliente ? "Ficha atualizada" : `Ambiente de ${c.nome} criado. Convite enviado para o administrador.`);
+      if (cliente) toast.success("Ficha atualizada");
+      else
+        toast.success(`Ambiente de ${c.nome} criado. Convite enviado para o administrador.`, {
+          duration: 20000,
+          description: "O link vale por 2 horas. Copie se quiser mandar também pelo WhatsApp.",
+          action: c.convite ? { label: "Copiar convite", onClick: () => navigator.clipboard.writeText(c.convite!) } : undefined,
+        });
       qc.invalidateQueries({ queryKey: ["admin"] });
       onSalvo?.(c);
       onOpenChange(false);

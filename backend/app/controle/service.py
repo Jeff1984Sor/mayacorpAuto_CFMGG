@@ -171,11 +171,20 @@ def criar_banco(banco: str) -> None:
         return
     if not re.match(r"^[a-z][a-z0-9_]{1,62}$", banco):
         raise RegraControle("Nome de banco inválido.")
+    from sqlalchemy.exc import ProgrammingError
+
     adm = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    with adm.connect() as conn:
-        if not conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": banco}):
-            conn.execute(text(f'CREATE DATABASE "{banco}"'))
-    adm.dispose()
+    try:
+        with adm.connect() as conn:
+            if not conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": banco}):
+                conn.execute(text(f'CREATE DATABASE "{banco}"'))
+    except ProgrammingError as e:
+        if "permission denied" in str(e).lower():
+            raise RegraControle(f"O servidor do banco não deixa o MayaJus criar bancos. Peça ao suporte para rodar: "
+                                f"ALTER ROLE {url.username} CREATEDB;") from e
+        raise
+    finally:
+        adm.dispose()
 
 
 def migrar(esc: Escritorio) -> None:
@@ -211,20 +220,32 @@ def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias
         for chave in filter(None, (email, login)):
             if db.get(Login, chave):
                 raise RegraControle(f"{chave} já é usado em outro escritório (o login precisa ser único no MayaJus).")
+    if not SLUG.match(slug):
+        raise RegraControle("Identificador: letras minúsculas, números e hífen (2 a 39), começando com letra.")
+    with SessaoControle() as db:
+        if db.scalar(select(Cliente.id).where(Cliente.slug == slug)):
+            raise RegraControle(f"Já existe o escritório {slug}.")
     banco = nome_do_banco(slug)
+    criar_banco(banco)  # antes de registrar: sem banco, o escritório não pode existir no controle
     cliente = registrar(slug, nome, banco=banco, dias_teste=dias_teste, dominios=dominios, tipo=tipo, **ficha)
     esc = Escritorio(slug=slug, banco=banco, mayacorp=tipo == "mayacorp")
-    criar_banco(banco)
-    migrar(esc)
-    with tenancy.usando(esc), SessionLocal() as db:
-        t = Tenant(slug=slug, nome=nome)
-        db.add(t)
-        db.flush()
-        db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
-        admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
-        db.commit()
-        uid = admin.id
-        link = "" if admin_senha else _convite(admin)
+    try:
+        migrar(esc)
+        with tenancy.usando(esc), SessionLocal() as db:
+            t = Tenant(slug=slug, nome=nome)
+            db.add(t)
+            db.flush()
+            db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
+            admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
+            db.commit()
+            uid = admin.id
+            link = "" if admin_senha else _convite(admin)
+    except Exception:
+        with SessaoControle() as db:  # não deixa escritório pela metade no controle (o banco vazio pode ser reaproveitado)
+            db.delete(db.get(Cliente, cliente.id))
+            db.commit()
+        limpar_cache()
+        raise
     sincronizar_usuario(slug, uid, [email, login])
     return cliente, link
 
@@ -359,3 +380,19 @@ def escritorio_mayacorp() -> Escritorio | None:
     with SessaoControle() as db:
         c = db.scalar(select(Cliente).where(Cliente.tipo == "mayacorp"))
         return Escritorio(slug=c.slug, banco=c.banco, mayacorp=True) if c else None
+
+
+def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[str, bytes, str]] | None = None) -> None:
+    """E-mails da MayaCorp aos clientes (convites, contratos, cobranças) saem pelo SMTP configurado no admin
+    (Configurações › Notificações e e-mail); sem ele, pelo do servidor."""
+    from app.core import email as mail
+    from app.core.db import SessionLocal
+    from app.core.models import ConfigNotificacao
+
+    esc = escritorio_mayacorp()
+    if esc is None:
+        mail.enviar(para, assunto, corpo, anexos=anexos)
+        return
+    with tenancy.usando(esc), SessionLocal() as s:
+        cfg = s.scalar(select(ConfigNotificacao).limit(1))
+        mail.enviar(para, assunto, corpo, anexos=anexos, config=cfg if cfg and cfg.smtp_host else None)

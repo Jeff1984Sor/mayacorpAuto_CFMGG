@@ -290,17 +290,8 @@ def _data_mp(v: str | None) -> datetime | None:
 # ---------------------------------------------------------------- e-mails (pelo SMTP configurado no admin)
 def enviar_email(para: list[str], assunto: str, corpo: str) -> None:
     from app.controle import service
-    from app.core import email as mail
-    from app.core.db import SessionLocal
-    from app.core.models import ConfigNotificacao
 
-    esc = service.escritorio_mayacorp()
-    if esc is None:
-        mail.enviar(para, assunto, corpo)
-        return
-    with tenancy.usando(esc), SessionLocal() as s:
-        cfg = s.scalar(select(ConfigNotificacao).limit(1))
-        mail.enviar(para, assunto, corpo, config=cfg if cfg and cfg.smtp_host else None)
+    service.enviar_email(para, assunto, corpo)
 
 
 def _moeda(v: Decimal) -> str:

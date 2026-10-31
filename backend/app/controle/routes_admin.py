@@ -229,7 +229,6 @@ def listar_clientes(ctx: Painel, q: str | None = None, status: str | None = None
 
 @router.post("/clientes", status_code=201)
 def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
-    from app.core import email as mail
 
     with SessaoControle() as db:
         _validar_indicacao(db, dados.indicado_por_id)
@@ -246,7 +245,7 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
         with SessaoControle() as db:
             db.get(Cliente, cliente.id).teste_ate = teste_ate
             db.commit()
-    mail.enviar([str(dados.admin_email)], f"Bem-vindo ao MayaJus — {nome}",
+    service.enviar_email([str(dados.admin_email)], f"Bem-vindo ao MayaJus — {nome}",
                 f"Olá, {dados.admin_nome}.\n\nO ambiente do {nome} no MayaJus está pronto. Para criar sua senha e "
                 f"entrar, acesse:\n{link}\n\nO link vale por 2 horas; depois disso, use \"Esqueci minha senha\".")
     with SessaoControle() as db:
@@ -362,7 +361,6 @@ def _link_senha(u) -> str:
 
 @router.post("/clientes/{cid}/usuarios", status_code=201)
 def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
-    from app.core import email as mail
     from app.core import perfis
     from app.core.models import Tenant, Usuario
 
@@ -383,7 +381,7 @@ def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
         db.commit()
         link = _link_senha(u)
         out = _usuario_out(u)
-    mail.enviar([email], f"Convite para o MayaJus — {nome_cliente}",
+    service.enviar_email([email], f"Convite para o MayaJus — {nome_cliente}",
                 f"Olá, {dados.nome}.\n\nVocê foi convidado(a) para o MayaJus do {nome_cliente}. Para criar sua senha, "
                 f"acesse:\n{link}\n\nO link vale por 2 horas.")
     ctx.auditar("admin.usuario.criar", "controle_cliente", cid, descricao=f"{nome_cliente}: {email}")
@@ -394,7 +392,6 @@ def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
 @router.post("/clientes/{cid}/usuarios/{uid}/zerar-senha")
 def zerar_senha(cid: int, uid: int, ctx: Painel):
     """Apaga a senha atual (ninguém entra com ela) e envia o link para a pessoa criar uma nova."""
-    from app.core import email as mail
     from app.core.models import Usuario
 
     with SessaoControle() as db:
@@ -408,7 +405,7 @@ def zerar_senha(cid: int, uid: int, ctx: Painel):
         db.commit()
         link = _link_senha(u)
         email, nome = u.email, u.nome
-    mail.enviar([email], "Sua senha do MayaJus foi zerada",
+    service.enviar_email([email], "Sua senha do MayaJus foi zerada",
                 f"Olá, {nome}.\n\nA MayaCorp zerou a sua senha do MayaJus ({nome_cliente}). Para criar uma nova, "
                 f"acesse:\n{link}\n\nO link vale por 2 horas.")
     ctx.auditar("admin.usuario.zerar_senha", "controle_cliente", cid, descricao=f"{nome_cliente}: {email}")
@@ -621,7 +618,6 @@ def contrato_pdf(kid: int, ctx: Painel):
 
 @router.post("/contratos/{kid}/enviar")
 def enviar_contrato(kid: int, dados: EnviarContratoIn, ctx: Painel):
-    from app.core import email as mail
 
     with SessaoControle() as db:
         k = _contrato(db, kid)
@@ -632,7 +628,7 @@ def enviar_contrato(kid: int, dados: EnviarContratoIn, ctx: Painel):
         para = [str(e).lower() for e in dados.para]
         texto = (dados.mensagem or f"Olá,\n\nSegue em anexo o contrato \"{k.titulo}\" para leitura e assinatura.\n\n"
                  "Qualquer dúvida, é só responder este e-mail.").strip()
-        mail.enviar(para, k.titulo, f"{texto}\n\n{emitente}", anexos=[(f"contrato-{k.id}.pdf", arquivo, "application/pdf")])
+        service.enviar_email(para, k.titulo, f"{texto}\n\n{emitente}", anexos=[(f"contrato-{k.id}.pdf", arquivo, "application/pdf")])
         k.status, k.enviado_para, k.enviado_em = "enviado", para, agora()
         db.commit()
         ctx.auditar("admin.contrato.enviar", "controle_contrato", k.id, descricao=f"{k.titulo} → {', '.join(para)}")
