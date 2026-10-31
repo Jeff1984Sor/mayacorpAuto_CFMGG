@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     app_name: str = "MayaJus"
     ambiente: Literal["dev", "hml", "prod"] = "dev"
     database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'dev.db').as_posix()}"
+    # Um banco por escritório: o banco de controle (só da MayaCorp) lista os escritórios. Vazio = um banco só.
+    controle_database_url: str | None = None
     storage_dir: Path = BASE_DIR / "storage"
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

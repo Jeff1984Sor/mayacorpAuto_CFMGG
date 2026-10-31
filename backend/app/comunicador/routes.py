@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+from collections import defaultdict
 from datetime import datetime
 
 import jwt
@@ -13,6 +14,7 @@ from sqlalchemy import func, select
 from app.comunicador import service
 from app.comunicador.hub import hub
 from app.comunicador.models import Conversa, Mencao, Mensagem, Participante
+from app.core import tenancy
 from app.core.db import SessionLocal, agora
 from app.core.deps import Ctx
 from app.core.models import Usuario
@@ -188,7 +190,7 @@ def apagar(mid: int, ctx: Ctx):
 
 def hub_atualizar(ctx, m: Mensagem) -> None:
     c = ctx.db.get(Conversa, m.conversa_id)
-    _fila_eventos.append(([p.usuario_id for p in c.participantes], {"tipo": "mensagem.atualizada", "mensagem": msg_out(ctx.db, m)}))
+    _fila_eventos.append((_slug(), [p.usuario_id for p in c.participantes], {"tipo": "mensagem.atualizada", "mensagem": msg_out(ctx.db, m)}))
 
 
 class LidoIn(BaseModel):
@@ -200,7 +202,7 @@ def lido(cid: int, dados: LidoIn, ctx: Ctx):
     c, p = _conversa(ctx, cid)
     ate = service.marcar_lido(ctx.db, p, dados.ate_id)
     ctx.db.commit()
-    _fila_eventos.append(([x.usuario_id for x in c.participantes],
+    _fila_eventos.append((_slug(), [x.usuario_id for x in c.participantes],
                           {"tipo": "lida", "conversa_id": cid, "usuario_id": ctx.usuario.id, "ate_id": ate}))
     return {"ate_id": ate}
 
@@ -268,13 +270,19 @@ def chamar(dados: ChamarIn, ctx: Ctx):
 
 # ======================================================================== tempo real
 # Eventos gerados nas rotas síncronas; o carteiro (async) entrega.
-_fila_eventos: list[tuple[list[int], dict]] = []
-_cursor = {"mensagem": None, "mencao": None}
+_fila_eventos: list[tuple[str, list[int], dict]] = []  # (escritório, destinatários, evento)
+_cursores: dict[str, dict] = {}  # por escritório: os ids de mensagem se repetem entre bancos
+
+
+def _slug() -> str:
+    esc = tenancy.atual()
+    return esc.slug if esc else ""
 
 
 def _novidades() -> list[tuple[list[int], dict]]:
-    """Mensagens e menções novas no banco (inclusive as do robô, gravadas pelo worker)."""
+    """Mensagens e menções novas no banco do escritório atual (inclusive as do robô, gravadas pelo worker)."""
     saida = []
+    _cursor = _cursores.setdefault(_slug(), {"mensagem": None, "mencao": None})
     with SessionLocal() as db:
         if _cursor["mensagem"] is None:  # primeira volta: começa do agora
             _cursor["mensagem"] = db.scalar(select(func.max(Mensagem.id))) or 0
@@ -291,18 +299,34 @@ def _novidades() -> list[tuple[list[int], dict]]:
     return saida
 
 
+def _escritorio(slug: str):
+    if not slug:
+        return None
+    from app.controle import service as controle
+
+    return controle.por_slug(slug)
+
+
 async def carteiro(parar: asyncio.Event) -> None:
     ciclo = 0
     while not parar.is_set():
         try:
-            eventos = await asyncio.to_thread(_novidades)
+            avulsos = defaultdict(list)
             while _fila_eventos:
-                eventos.append(_fila_eventos.pop(0))
-            for usuarios_ids, payload in eventos:
-                await hub.para_usuarios(usuarios_ids, payload)
+                slug, ids, payload = _fila_eventos.pop(0)
+                avulsos[slug].append((ids, payload))
+            # só os escritórios com alguém conectado precisam de entrega ao vivo
+            for slug in set(hub.hubs) | set(avulsos):
+                esc = _escritorio(slug)
+                if slug and esc is None:
+                    continue
+                with tenancy.usando(esc):
+                    eventos = await asyncio.to_thread(_novidades) + avulsos.get(slug, [])
+                    for usuarios_ids, payload in eventos:
+                        await hub.para_usuarios(usuarios_ids, payload)
+                    if ciclo % 30 == 0:
+                        await hub.varrer_ausentes()
             ciclo += 1
-            if ciclo % 30 == 0:
-                await hub.varrer_ausentes()
         except Exception:  # noqa: BLE001 — o carteiro nunca pode morrer
             log.exception("Carteiro do comunicador falhou num ciclo")
         with contextlib.suppress(TimeoutError):

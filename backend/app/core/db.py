@@ -66,7 +66,16 @@ if _is_sqlite:
         cur.close()
 
 
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+class SessaoDoEscritorio(Session):
+    """Escolhe o banco na hora da consulta, pelo escritório atual (app.core.tenancy); sem multi, é o `engine`."""
+
+    def get_bind(self, mapper=None, clause=None, **kw):
+        from app.core import tenancy
+
+        return tenancy.engine_atual()
+
+
+SessionLocal = sessionmaker(class_=SessaoDoEscritorio, autoflush=False, expire_on_commit=False)
 
 
 def get_db() -> Iterator[Session]:

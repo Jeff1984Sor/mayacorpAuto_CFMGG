@@ -88,5 +88,21 @@ class Hub:
         await self.para_usuarios([u for u, t in self.tenant_de.items() if t == tenant_id], payload)
 
 
-hub = Hub()
+class HubPorEscritorio:
+    """Um Hub por escritório: com um banco por escritório os ids de usuário se repetem entre os bancos."""
+
+    def __init__(self) -> None:
+        self.hubs: dict[str, Hub] = {}
+
+    def do_atual(self) -> Hub:
+        from app.core import tenancy
+
+        esc = tenancy.atual()
+        return self.hubs.setdefault(esc.slug if esc else "", Hub())
+
+    def __getattr__(self, nome):
+        return getattr(self.do_atual(), nome)
+
+
+hub = HubPorEscritorio()
 

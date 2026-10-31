@@ -6,6 +6,7 @@ import smtplib
 from email.message import EmailMessage
 from pathlib import Path
 
+from app.core import tenancy
 from app.core.config import settings
 from app.core.db import agora
 from app.core.models import ConfigNotificacao
@@ -76,7 +77,7 @@ def enviar(
 
     host = (config and config.smtp_host) or settings.smtp_host
     if not host:
-        outbox = Path(settings.storage_dir) / "outbox"
+        outbox = tenancy.pasta_base() / "outbox"
         outbox.mkdir(parents=True, exist_ok=True)
         arq = outbox / f"{agora():%Y%m%d-%H%M%S-%f}.eml"
         oculto = f"\n\n[Cco (oculto): {', '.join(cco)}]".encode() if cco else b""

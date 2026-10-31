@@ -35,6 +35,10 @@ def criar_token(sub: str, tipo: TokenTipo, extra: dict[str, Any] | None = None) 
     }[tipo]
     now = datetime.now(UTC)
     payload = {"sub": sub, "typ": tipo, "iat": now, "exp": now + duracao, "jti": secrets.token_hex(8)}
+    from app.core import tenancy
+
+    if (esc := tenancy.atual()) is not None:
+        payload["cli"] = esc.slug  # o escritório viaja no token (um banco por escritório)
     payload.update(extra or {})
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 

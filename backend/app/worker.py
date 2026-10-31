@@ -12,9 +12,11 @@ from datetime import date
 from sqlalchemy import select
 
 import app.comunicador.models  # noqa: F401  (registra todos os modelos: Processo aponta para Caso)
+import app.controle.sincronia  # noqa: F401  (catálogo de logins do controle)
 import app.core.models  # noqa: F401
 import app.modules.faturamento.models  # noqa: F401
 import app.modules.financas.models  # noqa: F401
+from app.core import tenancy
 from app.core.db import SessionLocal
 from app.modules.rpa_nfse import service, tasks
 from app.modules.rpa_nfse.models import Lote, StatusLote
@@ -34,32 +36,56 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)  # o httpx loga a URL completa de cada chamada
     signal.signal(signal.SIGTERM, _sinal)
     signal.signal(signal.SIGINT, _sinal)
-    with SessionLocal() as db:
-        service.liberar_presos(db)
-    tribunais_jobs.liberar_presos()
-    ultimo_diario: date | None = None
+    iniciados: set[str] = set()
+    ultimo_diario: dict[str, date] = {}
     log.info("Worker iniciado")
     while not _parar:
-        with SessionLocal() as db:
-            ids = list(db.scalars(select(Lote.id).where(Lote.status == StatusLote.na_fila).order_by(Lote.id)))
-        for lote_id in ids:
+        for esc in _escritorios():
             if _parar:
                 break
-            log.info("Processando lote %s", lote_id)
-            tasks._rodar(lote_id)
-        try:  # fila dos tribunais (varredura, importação, protocolo, avisos)
-            tribunais_jobs.rodar_fila(limite=20)
-        except Exception:
-            log.exception("Fila dos tribunais falhou")
-        if ultimo_diario != date.today():
-            tasks.alertar_certificados()
+            chave = esc.slug if esc else ""
             try:
-                tribunais_jobs.rotina_diaria()
-            except Exception:
-                log.exception("Rotina diária dos tribunais falhou")
-            ultimo_diario = date.today()
+                with tenancy.usando(esc):
+                    if chave not in iniciados:  # primeira volta do escritório: solta o que ficou preso
+                        with SessionLocal() as db:
+                            service.liberar_presos(db)
+                        tribunais_jobs.liberar_presos()
+                        iniciados.add(chave)
+                    _ciclo(chave, ultimo_diario)
+            except Exception:  # um escritório com problema não para os outros
+                log.exception("Ciclo do escritório %s falhou", chave or "principal")
         time.sleep(3)
     log.info("Worker encerrado")
+
+
+def _escritorios() -> list:
+    """Um banco só: [None]. Um banco por escritório: os escritórios ativos do controle (relidos a cada volta)."""
+    if not tenancy.multi():
+        return [None]
+    from app.controle import service as controle
+
+    return controle.ativos()
+
+
+def _ciclo(chave: str, ultimo_diario: dict[str, date]) -> None:
+    with SessionLocal() as db:
+        ids = list(db.scalars(select(Lote.id).where(Lote.status == StatusLote.na_fila).order_by(Lote.id)))
+    for lote_id in ids:
+        if _parar:
+            return
+        log.info("Processando lote %s (%s)", lote_id, chave or "principal")
+        tasks._rodar(lote_id)
+    try:  # fila dos tribunais (varredura, importação, protocolo, avisos)
+        tribunais_jobs.rodar_fila(limite=20)
+    except Exception:
+        log.exception("Fila dos tribunais falhou")
+    if ultimo_diario.get(chave) != date.today():
+        tasks.alertar_certificados()
+        try:
+            tribunais_jobs.rotina_diaria()
+        except Exception:
+            log.exception("Rotina diária dos tribunais falhou")
+        ultimo_diario[chave] = date.today()
 
 
 if __name__ == "__main__":

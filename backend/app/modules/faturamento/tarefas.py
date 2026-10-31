@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, select
 
-from app.core.config import settings
+from app.core import tenancy
 from app.core.deps import Ctx, Operador
 from app.core.models import Usuario
 from app.core.schemas import Mensagem
@@ -244,7 +244,7 @@ def anexos_tarefa(tid: int, ctx: Ctx):
 @router.post("/tarefas/{tid}/anexos", response_model=list[AnexoOut], status_code=201)
 async def enviar_anexos_tarefa(tid: int, ctx: Operador, arquivos: list[UploadFile] = File(...)):
     t = _tarefa(ctx, tid)
-    pasta = Path(settings.storage_dir) / "tarefas" / str(t.id)
+    pasta = tenancy.pasta_base() / "tarefas" / str(t.id)
     pasta.mkdir(parents=True, exist_ok=True)
     novos = []
     for arq in arquivos:

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from app.core.config import settings
+from app.core import tenancy
 from app.core.deps import Admin, Ctx, Operador
 from app.core.models import Cargo, Usuario
 from app.core.schemas import Mensagem
@@ -56,7 +56,6 @@ from app.modules.faturamento.schemas import (
     ContratoIn,
     ContratoOut,
     ContratoPendenteOut,
-    PagadorOut,
     DespesaIn,
     DespesaOut,
     EmitirNfseIn,
@@ -65,6 +64,7 @@ from app.modules.faturamento.schemas import (
     FaturarOut,
     ItemPendenteOut,
     ItensAFaturarOut,
+    PagadorOut,
     ProfissionalOut,
     RegraIn,
     RegraOut,
@@ -714,7 +714,7 @@ async def enviar_anexos(cid: int, ctx: Operador, arquivos: list[UploadFile] = Fi
     import uuid
 
     c = _get(ctx, Caso, cid, "Caso")
-    pasta = Path(settings.storage_dir) / "casos" / str(c.id)
+    pasta = tenancy.pasta_base() / "casos" / str(c.id)
     pasta.mkdir(parents=True, exist_ok=True)
     novos = []
     for arq in arquivos:
@@ -1126,7 +1126,7 @@ async def enviar_comprovante(did: int, ctx: Operador, arquivo: UploadFile = File
     conteudo = await arquivo.read()
     if len(conteudo) > COMPROVANTE_MAX:
         raise HTTPException(400, "Arquivo maior que 15 MB.")
-    pasta = Path(settings.storage_dir) / "despesas" / f"{d.data:%Y}"
+    pasta = tenancy.pasta_base() / "despesas" / f"{d.data:%Y}"
     pasta.mkdir(parents=True, exist_ok=True)
     destino = pasta / f"despesa_{d.id}{ext}"
     destino.write_bytes(conteudo)

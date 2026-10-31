@@ -10,15 +10,15 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core import tenancy
 from app.core.db import agora
 from app.core.models import Usuario
 from app.modules.faturamento.models import Andamento, Caso, TipoAndamento
 from app.modules.rpa_nfse.models import Tomador
 from app.modules.tribunais import catalogo, cnj, fontes, vinculo
 from app.modules.tribunais.models import (
-    Alerta,
     AdvogadoParte,
+    Alerta,
     CertificadoAdvogado,
     ConfigTribunais,
     Encontrado,
@@ -55,7 +55,7 @@ def config(db: Session, tenant_id: int) -> ConfigTribunais:
 
 
 def pasta(tenant_id: int, *sub: str) -> Path:
-    p = Path(settings.storage_dir) / "tribunais" / str(tenant_id) / Path(*sub)
+    p = tenancy.pasta_base() / "tribunais" / str(tenant_id) / Path(*sub)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -625,9 +625,9 @@ def consultar_mni(db: Session, p: Processo, advogado_id: int, usuario_id: int | 
 
 
 def salvar_documento(doc, tenant_id: int, conteudo: bytes) -> None:
-    from pypdf import PdfReader
-
     import io
+
+    from pypdf import PdfReader
 
     doc.hash_sha256 = sha256(conteudo)
     doc.tamanho_bytes = len(conteudo)

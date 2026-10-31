@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core import tenancy
 from app.core.config import settings
 from app.core.db import agora
 from app.core.documentos import cnpj_valido, so_digitos
@@ -39,7 +40,7 @@ class RegraNegocio(ValueError):
 # ---------------------------------------------------------------- arquivos
 def pasta(emissora_id: int, quando: date | None = None) -> Path:
     q = quando or date.today()
-    p = Path(settings.storage_dir) / f"emissora_{emissora_id}" / f"{q:%Y}" / f"{q:%m}"
+    p = tenancy.pasta_base() / f"emissora_{emissora_id}" / f"{q:%Y}" / f"{q:%m}"
     p.mkdir(parents=True, exist_ok=True)
     return p
 

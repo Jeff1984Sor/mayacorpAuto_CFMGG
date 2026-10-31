@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import func, select
 
-from app.core import audit, certificados
+from app.core import audit, certificados, tenancy
 from app.core.config import settings
 from app.core.db import SessionLocal, agora
 from app.core.models import Certificado, ConfigNotificacao, Identidade
@@ -36,18 +36,24 @@ from app.modules.rpa_nfse.prefeitura_sp import (
 log = logging.getLogger(__name__)
 
 _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rpa-nfse")
-_em_execucao: set[int] = set()
+_em_execucao: set[tuple[str, int]] = set()  # (escritório, lote): o id do lote se repete entre bancos
 _trava = threading.Lock()
 
 
 def enfileirar_job(lote_id: int) -> None:
     if not settings.worker_embutido:
         return  # o serviço app.worker pega o lote na fila do banco
+    chave = _chave(lote_id)
     with _trava:
-        if lote_id in _em_execucao:
+        if chave in _em_execucao:
             return
-        _em_execucao.add(lote_id)
-    _pool.submit(_rodar, lote_id)
+        _em_execucao.add(chave)
+    _pool.submit(tenancy.com_escritorio(_rodar), lote_id)
+
+
+def _chave(lote_id: int) -> tuple[str, int]:
+    esc = tenancy.atual()
+    return (esc.slug if esc else "", lote_id)
 
 
 def _rodar(lote_id: int) -> None:
@@ -64,7 +70,7 @@ def _rodar(lote_id: int) -> None:
                 db.commit()
     finally:
         with _trava:
-            _em_execucao.discard(lote_id)
+            _em_execucao.discard(_chave(lote_id))
 
 
 def _rps_xml(r: Rps) -> RpsXml:

@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 
-from app.core.config import settings
+from app.core import tenancy
 from app.core.deps import Admin, Ctx, Operador
 from app.core.schemas import Mensagem, Pagina
 from app.modules.rpa_nfse import conciliacao, fatura, service
@@ -100,7 +100,7 @@ async def enviar_extrato(ctx: Operador, arquivo: UploadFile = File(...)):
         lido = leitor.ler(nome, conteudo)
     except leitor.ExtratoInvalido as e:
         raise HTTPException(400, str(e)) from e
-    destino = Path(settings.storage_dir) / "extratos" / f"tenant_{ctx.tenant_id}"
+    destino = tenancy.pasta_base() / "extratos" / f"tenant_{ctx.tenant_id}"
     destino.mkdir(parents=True, exist_ok=True)
     caminho = destino / f"{date.today():%Y%m%d}_{nome}"
     caminho.write_bytes(conteudo)

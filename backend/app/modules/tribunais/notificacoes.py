@@ -18,7 +18,13 @@ from app.core.config import settings
 from app.core.db import agora
 from app.core.models import ConfigNotificacao, Usuario
 from app.modules.tribunais import cnj
-from app.modules.tribunais.models import EmailLog, NotificacaoProtocolo, PreferenciaNotificacao, Processo, RetornoProtocolo
+from app.modules.tribunais.models import (
+    EmailLog,
+    NotificacaoProtocolo,
+    PreferenciaNotificacao,
+    Processo,
+    RetornoProtocolo,
+)
 
 log = logging.getLogger(__name__)
 LIMITE_ANEXO = 10 * 1024 * 1024  # acima disso o recibo vai como link autenticado
@@ -43,8 +49,12 @@ def render(modelo: str, variaveis: dict) -> str:
 
 def link_recibo(retorno_id: int, dias: int = 7) -> str:
     agora_ = datetime.now(UTC)
-    tok = jwt.encode({"sub": str(retorno_id), "typ": "recibo", "iat": agora_, "exp": agora_ + timedelta(days=dias)},
-                     settings.jwt_secret, algorithm="HS256")
+    from app.core import tenancy
+
+    corpo = {"sub": str(retorno_id), "typ": "recibo", "iat": agora_, "exp": agora_ + timedelta(days=dias)}
+    if (esc := tenancy.atual()) is not None:
+        corpo["cli"] = esc.slug  # o link abre no banco do escritório certo
+    tok = jwt.encode(corpo, settings.jwt_secret, algorithm="HS256")
     return f"{settings.frontend_url.rstrip('/')}/api/public/tribunais/recibo?token={tok}"
 
 

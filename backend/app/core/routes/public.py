@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
+from app.core import tenancy
 from app.core.deps import DB
 from app.core.models import Identidade, Tenant
 from app.core.schemas import IdentidadePublica
@@ -14,7 +15,9 @@ router = APIRouter(prefix="/public", tags=["público"])
 
 
 def _identidade(request: Request, db) -> Identidade | None:
-    # Multi-cliente por subdomínio/caminho no futuro; hoje: ?tenant=slug ou o primeiro tenant
+    # Um banco por escritório: o domínio próprio diz o escritório; no endereço principal, a marca MayaJus
+    if tenancy.multi() and tenancy.atual() is None:
+        return None
     slug = request.query_params.get("tenant")
     q = select(Identidade).join(Tenant)
     if slug:

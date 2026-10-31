@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import tenancy
 from app.core.config import settings
 from app.core.db import SessionLocal, agora
 from app.modules.tribunais.models import CertificadoAdvogado, Encontrado, Job, Sistema, Tribunal, Varredura
@@ -43,7 +44,7 @@ def enfileirar(db: Session, tenant_id: int, tipo: str, referencia_id: int, *, tr
 def disparar() -> None:
     """Dev: a API processa a fila numa thread. Produção: o serviço worker chama rodar_fila()."""
     if settings.worker_embutido:
-        _pool.submit(rodar_fila)
+        _pool.submit(tenancy.com_escritorio(rodar_fila))
 
 
 def _fora_da_janela(s: Sistema | None, agora_local: datetime) -> datetime | None:

@@ -9,10 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import app.controle.sincronia  # noqa: F401  (catálogo de logins do controle)
 from app.comunicador import routes as comunicador
-from app.core import cnpj
+from app.core import cnpj, tenancy
 from app.core.config import BASE_DIR, settings
+from app.core.escritorio_http import EscritorioMiddleware
 from app.core.routes import auditoria, auth, config, hub, ia, public
+from app.core.tenancy import EscritorioNaoIdentificado
 from app.modules.assistente import routes as assistente_routes
 from app.modules.faturamento import judiciario as faturamento_judiciario
 from app.modules.faturamento import planilhas as faturamento_planilhas
@@ -44,6 +47,14 @@ def migrar() -> None:
     command.upgrade(cfg, "head")
 
 
+def _escritorios_para_retomar() -> list:
+    if not tenancy.multi():
+        return [None]
+    from app.controle import service as controle
+
+    return controle.ativos()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Path(settings.storage_dir).mkdir(parents=True, exist_ok=True)
@@ -51,8 +62,14 @@ async def lifespan(_: FastAPI):
         Path(settings.database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
     if settings.migrar_na_subida:
         migrar()
+        if tenancy.multi():
+            from app.controle import service as controle
+
+            controle.migrar_todos()
     if settings.worker_embutido:
-        tasks.retomar_pendentes()
+        for esc in _escritorios_para_retomar():
+            with tenancy.usando(esc):
+                tasks.retomar_pendentes()
     # carteiro do Comunicador: entrega ao vivo as mensagens gravadas (inclusive as do robô, que vêm do worker)
     parar = asyncio.Event()
     carteiro = asyncio.create_task(comunicador.carteiro(parar))
@@ -70,6 +87,7 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
+app.add_middleware(EscritorioMiddleware)  # um banco por escritório (sem CONTROLE_DATABASE_URL, não faz nada)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -98,6 +116,11 @@ def _traduzir(e: dict) -> str:
     if tipo.startswith("date"):
         return "data inválida"
     return e.get("msg", "valor inválido")
+
+
+@app.exception_handler(EscritorioNaoIdentificado)
+async def _sem_escritorio(_: Request, exc: EscritorioNaoIdentificado):
+    return JSONResponse(status_code=401, content={"detail": "Sessão expirada. Entre novamente."})
 
 
 @app.exception_handler(RequestValidationError)

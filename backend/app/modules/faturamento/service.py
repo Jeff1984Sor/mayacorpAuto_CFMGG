@@ -298,7 +298,7 @@ def criar_faturas(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pen
         )
         db.add(fat)
         db.flush()
-        for p, v in zip(sel, valores):
+        for p, v in zip(sel, valores, strict=True):
             item = FaturaItem(
                 fatura_id=fat.id, tipo=p.tipo, regra_id=p.regra_id, caso_id=p.caso_id, competencia=p.competencia,
                 chave_cobranca=p.chave if principal and p.tipo in ("fixo", "recorrente") else None, data=p.data,

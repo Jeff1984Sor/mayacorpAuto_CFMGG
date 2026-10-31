@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 
-from app.core import audit, certificados, perfis
+from app.core import audit, certificados, perfis, tenancy
 from app.core import email as mail
 from app.core.config import settings
 from app.core.db import agora
@@ -76,7 +76,7 @@ async def enviar_logo(ctx: Admin, arquivo: UploadFile = File(...)):
     conteudo = await arquivo.read()
     if len(conteudo) > 3 * 1024 * 1024:
         raise HTTPException(400, "O logo deve ter no máximo 3 MB.")
-    destino = Path(settings.storage_dir) / "identidade" / f"tenant_{ctx.tenant_id}{ext}"
+    destino = tenancy.pasta_base() / "identidade" / f"tenant_{ctx.tenant_id}{ext}"
     destino.parent.mkdir(parents=True, exist_ok=True)
     for antigo in destino.parent.glob(f"tenant_{ctx.tenant_id}.*"):
         antigo.unlink()
@@ -214,6 +214,14 @@ def _checar_unicos(ctx, email: str | None, login: str | None, exceto: int | None
         raise HTTPException(409, "Já existe um usuário com este e-mail.")
     if login and ctx.db.scalar(select(Usuario.id).where(Usuario.login == login.lower(), Usuario.id != (exceto or 0))):
         raise HTTPException(409, "Este login já está em uso.")
+    from app.core import tenancy
+
+    if tenancy.multi() and (esc := tenancy.atual()) and (email or login):
+        from app.controle import service as controle
+
+        # no endereço principal o login diz o escritório: não pode repetir entre escritórios
+        if controle.chaves_em_uso([email, login], exceto_slug=esc.slug, exceto_usuario=exceto):
+            raise HTTPException(409, "Este e-mail ou login já é usado em outro escritório do MayaJus.")
 
 
 def _checar_cargo(ctx, cargo_id: int | None) -> None:

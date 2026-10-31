@@ -62,6 +62,9 @@ echo "=== 4/7  Migrations ==="
 # (o .env é lido pela própria aplicação; não dar `source`: o bash corrompe CORS_ORIGINS=["..."])
 "$UV" run python -m alembic check >/dev/null 2>&1 || echo "    (aviso: há modelo sem migration gerada, confira)"
 "$UV" run python -m alembic upgrade head
+if grep -qE '^CONTROLE_DATABASE_URL=.+' .env 2>/dev/null; then  # um banco por escritório: controle + cada escritório
+  "$UV" run python -m app.controle.cli migrar
+fi
 cd ..
 
 echo "=== 5/7  Frontend: build ==="

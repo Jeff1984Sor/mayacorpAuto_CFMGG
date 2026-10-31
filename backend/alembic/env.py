@@ -26,6 +26,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    externa = config.attributes.get("connection")  # banco de um escritório (app.controle.service.migrar)
+    if externa is not None:
+        context.configure(connection=externa, target_metadata=target_metadata, render_as_batch=True)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     with engine.connect() as connection:
         if connection.dialect.name == "sqlite":
             # batch_alter_table recria a tabela; com FKs ligadas o DROP falha

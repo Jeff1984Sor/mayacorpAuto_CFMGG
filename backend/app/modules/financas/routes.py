@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 
-from app.core.config import settings
+from app.core import tenancy
 from app.core.deps import Admin, Ctx, Operador
 from app.core.models import Usuario
 from app.core.schemas import Mensagem
@@ -860,7 +860,7 @@ async def enviar_arquivo(cid: int, ctx: Operador, tipo: str = Query("anexo", pat
     conteudo = await arquivo.read()
     if len(conteudo) > ANEXO_MAX:
         raise HTTPException(400, "Arquivo maior que 15 MB.")
-    pasta = Path(settings.storage_dir) / "contas_pagar" / f"{c.data_vencimento:%Y}"
+    pasta = tenancy.pasta_base() / "contas_pagar" / f"{c.data_vencimento:%Y}"
     pasta.mkdir(parents=True, exist_ok=True)
     destino = pasta / f"conta_{c.id}_{tipo}{ext}"
     destino.write_bytes(conteudo)

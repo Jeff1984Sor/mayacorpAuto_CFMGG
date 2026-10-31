@@ -7,11 +7,12 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from app.core import audit
+from app.core import audit, tenancy
 from app.core import email as mail
 from app.core.config import settings
 from app.core.db import agora
 from app.core.deps import DB, Admin, Ctx, ip_cliente
+from app.core.escritorio_http import definir_pelo_token
 from app.core.models import Usuario
 from app.core.schemas import ForgotIn, LoginIn, Mensagem, RefreshIn, ResetIn, TokenOut, TrocarSenhaIn, UsuarioMe
 from app.core.security import (
@@ -23,6 +24,19 @@ from app.core.security import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _escritorio_do_login(ident: str) -> bool:
+    """Um banco por escritório: pelo domínio (já identificado no pedido) ou pelo catálogo de logins."""
+    if not tenancy.multi() or tenancy.atual() is not None:
+        return True
+    from app.controle import service as controle
+
+    esc = controle.por_login(ident)
+    if esc is None:
+        return False
+    tenancy.definir(esc)
+    return True
 
 
 def foto_url(u: Usuario) -> str | None:
@@ -48,6 +62,8 @@ def _tokens(u: Usuario) -> TokenOut:
 @router.post("/login", response_model=TokenOut)
 def login(dados: LoginIn, request: Request, db: DB):
     ident = dados.email.strip().lower()
+    if not _escritorio_do_login(ident):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos.")
     campo = Usuario.email if "@" in ident else Usuario.login
     u = db.scalar(select(Usuario).where(campo == ident))
     now = agora()
@@ -80,6 +96,8 @@ def refresh(dados: RefreshIn, db: DB):
         payload = decodificar_token(dados.refresh_token, "refresh")
     except jwt.PyJWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sessão expirada. Entre novamente.") from None
+    if tenancy.multi() and definir_pelo_token(dados.refresh_token) is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sessão expirada. Entre novamente.")
     u = db.get(Usuario, int(payload["sub"]))
     if not u or not u.ativo or not u.acesso_sistema:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário inativo.")
@@ -88,6 +106,8 @@ def refresh(dados: RefreshIn, db: DB):
 
 @router.post("/forgot", response_model=Mensagem)
 def forgot(dados: ForgotIn, db: DB):
+    if not _escritorio_do_login(dados.email):
+        return Mensagem(mensagem="Se o e-mail estiver cadastrado, enviamos um link para redefinir a senha.")
     u = db.scalar(select(Usuario).where(Usuario.email == dados.email.lower(), Usuario.ativo, Usuario.acesso_sistema))
     if u:
         token = criar_token(str(u.id), "reset", {"h": (u.senha_hash or "")[-12:]})
@@ -104,6 +124,8 @@ def reset(dados: ResetIn, request: Request, db: DB):
         payload = decodificar_token(dados.token, "reset")
     except jwt.PyJWTError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link inválido ou expirado.") from None
+    if tenancy.multi() and definir_pelo_token(dados.token) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link inválido ou expirado.")
     u = db.get(Usuario, int(payload["sub"]))
     # o token embute o final do hash atual: usado uma vez, deixa de valer
     if not u or payload.get("h") != (u.senha_hash or "")[-12:]:
@@ -163,7 +185,7 @@ async def _salvar_foto(u: Usuario, arquivo: UploadFile) -> None:
     conteudo = await arquivo.read()
     if len(conteudo) > 4 * 1024 * 1024:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A foto deve ter no máximo 4 MB.")
-    pasta = Path(settings.storage_dir) / "usuarios"
+    pasta = tenancy.pasta_base() / "usuarios"
     pasta.mkdir(parents=True, exist_ok=True)
     for antigo in pasta.glob(f"usuario_{u.id}.*"):
         antigo.unlink()
