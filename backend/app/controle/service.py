@@ -422,15 +422,26 @@ def escritorio_mayacorp() -> Escritorio | None:
 
 def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[str, bytes, str]] | None = None) -> None:
     """E-mails da MayaCorp aos clientes (convites, contratos, cobranças) saem pelo SMTP configurado no admin
-    (Configurações › Notificações e e-mail); sem ele, pelo do servidor."""
+    (Configurações › Notificações e e-mail), no modelo HTML com a marca; sem SMTP no admin, pelo do servidor."""
+    import mimetypes
+    from pathlib import Path
+
+    from app.controle.email_modelo import corpo_html
     from app.core import email as mail
     from app.core.db import SessionLocal
-    from app.core.models import ConfigNotificacao
+    from app.core.models import ConfigNotificacao, Identidade
 
     esc = escritorio_mayacorp()
     if esc is None:
-        mail.enviar(para, assunto, corpo, anexos=anexos)
+        mail.enviar(para, assunto, corpo, anexos=anexos, html=corpo_html(corpo, titulo=assunto))
         return
     with tenancy.usando(esc), SessionLocal() as s:
         cfg = s.scalar(select(ConfigNotificacao).limit(1))
-        mail.enviar(para, assunto, corpo, anexos=anexos, config=cfg if cfg and cfg.smtp_host else None)
+        ident = s.scalar(select(Identidade).limit(1))
+        imagens = {}
+        logo = Path(ident.logo_path) if ident and ident.logo_path else None
+        if logo and logo.exists():
+            imagens["logo-mayacorp"] = (logo.read_bytes(), mimetypes.guess_type(logo.name)[0] or "image/png")
+        html = corpo_html(corpo, titulo=assunto, marca="MayaJus", logo_cid="logo-mayacorp" if imagens else None)
+        mail.enviar(para, assunto, corpo, anexos=anexos, config=cfg if cfg and cfg.smtp_host else None, html=html,
+                    imagens=imagens)

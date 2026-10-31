@@ -56,7 +56,10 @@ def enviar(
     config: ConfigNotificacao | None = None,
     cc: list[str] | None = None,
     cco: list[str] | None = None,
+    html: str | None = None,
+    imagens: dict[str, tuple[bytes, str]] | None = None,
 ) -> None:
+    """html: versão HTML pronta (com imagens embutidas por cid → (bytes, mime)); sem ela, só o logo opcional."""
     msg = EmailMessage()
     remetente = settings.smtp_from
     if config:
@@ -69,7 +72,12 @@ def enviar(
     todos = list(dict.fromkeys([*para, *(cc or []), *(cco or [])]))
     msg["Subject"] = assunto
     msg.set_content(corpo)
-    if config is not None and config.email_logo:
+    if html:
+        msg.add_alternative(html, subtype="html")
+        for cid, (dados, mime) in (imagens or {}).items():
+            maintype, subtype = mime.split("/", 1)
+            msg.get_payload()[-1].add_related(dados, maintype=maintype, subtype=subtype, cid=f"<{cid}>")
+    elif config is not None and config.email_logo:
         _versao_html(msg, corpo, config)
     for nome, dados, mime in anexos or []:
         maintype, subtype = mime.split("/", 1)
