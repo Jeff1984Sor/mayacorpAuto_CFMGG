@@ -7,7 +7,7 @@ reiniciar, retoma de onde parou. Rodar: `python -m app.worker`.
 import logging
 import signal
 import time
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 
@@ -54,8 +54,22 @@ def main() -> None:
                     _ciclo(chave, ultimo_diario)
             except Exception:  # um escritório com problema não para os outros
                 log.exception("Ciclo do escritório %s falhou", chave or "principal")
+        _cobranca_do_dia(ultimo_diario)
         time.sleep(3)
     log.info("Worker encerrado")
+
+
+def _cobranca_do_dia(ultimo_diario: dict[str, date]) -> None:
+    """Uma vez por dia, a partir das 8h: mensalidades dos clientes do MayaJus e e-mails da régua (Mercado Pago)."""
+    if not tenancy.multi() or ultimo_diario.get("@cobranca") == date.today() or datetime.now().hour < 8:
+        return
+    ultimo_diario["@cobranca"] = date.today()
+    from app.controle import cobranca
+
+    try:
+        log.info("Cobrança do dia: %s", cobranca.rotina_diaria())
+    except Exception:
+        log.exception("Cobrança do dia falhou")
 
 
 def _escritorios() -> list:

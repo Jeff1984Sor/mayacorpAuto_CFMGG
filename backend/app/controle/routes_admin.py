@@ -6,7 +6,7 @@ escritórios clientes estas rotas não existem (404).
 
 import re
 import unicodedata
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
@@ -327,25 +327,13 @@ def remover_dominio(cid: int, did: int, ctx: Painel):
 @router.get("/clientes/{cid}/uso")
 def uso(cid: int, ctx: Painel):
     """Usuários com acesso e NFS-e reais emitidas no mês, contra os limites do plano."""
-    from app.core.models import Usuario
-    from app.modules.rpa_nfse.models import Nfse, StatusNfse
+    from app.controle import cobranca
 
     with SessaoControle() as db:
         c = _cliente(db, cid)
-        p = c.plano
-        esc = _esc_do(c)
-    hoje = date.today()
-    inicio = datetime(hoje.year, hoje.month, 1)
-    with tenancy.usando(esc), SessionLocal() as db:
-        usuarios = db.scalar(select(func.count(Usuario.id)).where(Usuario.ativo, Usuario.acesso_sistema)) or 0
-        notas = db.scalar(select(func.count(Nfse.id)).where(Nfse.status == StatusNfse.emitida, Nfse.simulada.is_(False),
-                                                            Nfse.data_emissao >= inicio)) or 0
-    exc_u = max(0, usuarios - p.usuarios) if p and p.usuarios else 0
-    exc_n = max(0, notas - p.notas_mes) if p and p.notas_mes is not None else 0
-    extra = (exc_u * p.preco_usuario_adicional + exc_n * p.preco_nota_excedente) if p else Decimal(0)
-    return {"mes": f"{hoje:%Y-%m}", "usuarios": usuarios, "limite_usuarios": p.usuarios if p else None,
-            "notas_mes": notas, "limite_notas": p.notas_mes if p else None, "usuarios_excedentes": exc_u,
-            "notas_excedentes": exc_n, "valor_excedente": _d(extra)}
+        hoje = date.today()
+        u = cobranca.uso(c, hoje.year, hoje.month)
+    return {**u, "valor_excedente": _d(u["valor_excedente"])}
 
 
 # ================================================================ usuários do cliente

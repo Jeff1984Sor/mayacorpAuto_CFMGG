@@ -37,6 +37,9 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     fluxo de caixa, DRE gerencial (pela `grupo_dre` da categoria), projeção de despesas, previsão de caixa e projeção de impostos (Simples ou Presumido).
     - O saldo nunca é gravado: é sempre calculado a partir dos lançamentos.
     - Pagar uma conta lança um débito no extrato. Fatura paga vira crédito na conta de recebimento (`fatura.espelhar_no_financeiro`).
+- `app/controle/` (banco `mayajus_controle`): escritórios, planos, contratos e **cobrança pelo Mercado Pago**
+  (`cobranca.py` + `mercadopago.py` + `routes_cobranca.py`: mensalidade no dia 1, avulsa, cartão recorrente, régua de e-mails,
+  webhook em `/api/public/mercadopago`, "Meu plano" do cliente). Token do MP fica cifrado no controle (tela Cobranças do admin).
 - Menu **Cadastros** (`/cadastros/clientes`, `/cadastros/emissoras`): cadastros do escritório, compartilhados por todos os robôs.
 - `frontend/` é Next.js (App Router) + Tailwind + shadcn/ui. Os tipos em `lib/types.ts` espelham os schemas Pydantic.
 - `deploy/` tem `deploy.sh hml|prod`, `rollback.sh`, `backup.sh`, systemd templated (`@hml`/`@prod`) e nginx.

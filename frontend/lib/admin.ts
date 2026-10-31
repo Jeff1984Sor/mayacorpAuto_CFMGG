@@ -155,3 +155,83 @@ export const fichaDe = (c: ClienteSaaS): FichaIn => ({
   observacao: c.observacao,
   indicado_por_id: c.indicado_por_id,
 });
+
+// ---------------------------------------------------------------- cobrança (Mercado Pago)
+export type StatusCobranca = "pendente" | "vencida" | "paga" | "cancelada";
+
+export const TOM_COBRANCA: Record<StatusCobranca, "info" | "danger" | "success" | "neutral"> = {
+  pendente: "info",
+  vencida: "danger",
+  paga: "success",
+  cancelada: "neutral",
+};
+
+export interface Cobranca {
+  id: number;
+  cliente_id: number;
+  cliente_nome: string;
+  tipo: "mensalidade" | "avulsa" | "cartao";
+  competencia: string | null;
+  descricao: string;
+  itens: { descricao: string; valor: Decimal }[];
+  valor: Decimal;
+  vencimento: string;
+  status: StatusCobranca;
+  status_rotulo: string;
+  link: string | null;
+  pago_em: string | null;
+  forma_paga: string | null;
+  avisos: number[];
+  criado_em: string;
+}
+
+export interface ResumoCobranca {
+  em_aberto: Decimal;
+  vencido: Decimal;
+  recebido_mes: Decimal;
+  inadimplentes: number;
+}
+
+export interface ConfigCobranca {
+  conectado: boolean;
+  segredo_definido: boolean;
+  conta: string | null;
+  dia_vencimento: number;
+  gerar_automatico: boolean;
+  regua: number[];
+  url_notificacao: string | null;
+}
+
+export interface PagamentoCliente {
+  forma_pagamento: "link" | "cartao";
+  assinatura_id: string | null;
+  assinatura_status: string | null;
+  link?: string;
+}
+
+export const ROTULO_ASSINATURA: Record<string, string> = {
+  pending: "aguardando o cliente cadastrar o cartão",
+  authorized: "ativa",
+  paused: "pausada",
+  cancelled: "cancelada",
+};
+
+export interface MeuPlano {
+  nome: string;
+  status: StatusCliente;
+  teste_ate: string | null;
+  ciclo: "mensal" | "anual";
+  plano: PlanoOut | null;
+  valor: Decimal | null;
+  forma_pagamento: "link" | "cartao";
+  assinatura_status: string | null;
+  pode_alterar: boolean;
+  uso: UsoCliente;
+  planos: PlanoOut[];
+  recursos: Rotulo[];
+  em_aberto: Cobranca[];
+  pagas: Cobranca[];
+}
+
+/** Passo da régua em palavras: -3 → "3 dias antes", 0 → "no dia", 5 → "5 dias depois". */
+export const passoRegua = (d: number) => (d === 0 ? "no dia" : d < 0 ? `${-d} dia(s) antes` : `${d} dia(s) depois`);

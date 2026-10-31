@@ -215,3 +215,113 @@ def test_ia_no_admin(multi, monkeypatch):
     r = c.post("/api/admin/ia/mensagem", headers=adm, json={"titulo": "Contrato", "cliente_id": cliente_id})
     assert r.json()["mensagem"] == "Olá, segue o contrato."
     assert c.post("/api/admin/ia/ficha", headers=_login(c), json={"texto": "x" * 20}).status_code == 404  # só no admin
+
+
+def test_cobranca_mercado_pago(multi, monkeypatch):
+    from app.controle import mercadopago
+
+    chamadas = []
+
+    class MPFalso(mercadopago.MercadoPago):
+        def _chamar(self, metodo, caminho, json=None, chave=None):
+            chamadas.append((metodo, caminho, json))
+            if caminho == "/users/me":
+                return {"id": 1, "email": "contato@mayacorp.com.br"}
+            if caminho == "/checkout/preferences":
+                return {"id": f"pref-{json['external_reference']}", "init_point": f"https://mp.test/{json['external_reference']}"}
+            if caminho.startswith("/v1/payments/"):
+                return {"id": 555, "status": "approved", "external_reference": pagamento_ref[0],
+                        "payment_type_id": "pix", "date_approved": "2026-11-05T10:00:00.000-03:00"}
+            if caminho == "/preapproval" and metodo == "POST":
+                return {"id": "pre-1", "status": "pending", "init_point": "https://mp.test/assinar"}
+            if caminho.startswith("/preapproval/"):
+                return {"id": "pre-1", "status": "authorized"}
+            if caminho.startswith("/authorized_payments/"):
+                return {"preapproval_id": "pre-1", "transaction_amount": 279, "debit_date": "2026-11-10T09:00:00Z",
+                        "payment": {"id": 777, "status": "approved"}}
+            raise AssertionError(caminho)
+
+    monkeypatch.setattr(mercadopago, "MercadoPago", MPFalso)
+    monkeypatch.setattr("app.controle.cobranca.MercadoPago", MPFalso)
+    monkeypatch.setattr("app.controle.routes_cobranca.MercadoPago", MPFalso)
+    pagamento_ref = [""]
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+
+    # sem conta conectada, nada de link
+    assert c.get("/api/admin/cobranca/config", headers=adm).json()["conectado"] is False
+    r = c.put("/api/admin/cobranca/config", headers=adm,
+              json={"token": "APP_USR-123", "dia_vencimento": 10, "gerar_automatico": True, "regua": [-3, 0, 3]})
+    assert r.status_code == 200, r.text
+    assert r.json()["conectado"] and r.json()["conta"] == "contato@mayacorp.com.br"
+    assert r.json()["url_notificacao"] == "https://admin.mayajus.test/api/public/mercadopago"
+
+    silva = next(x for x in c.get("/api/admin/clientes", headers=adm).json() if x["slug"] == "silva")
+    solo = next(p for p in c.get("/api/admin/planos", headers=adm).json() if p["nome"] == "Solo")
+    ficha = {k: silva[k] for k in ("nome", "documento", "responsavel", "telefone", "ciclo", "inicio_contrato",
+                                    "teste_ate", "observacao", "indicado_por_id")}
+    ficha.update(plano_id=solo["id"], email_financeiro="fin@silva.adv.br")
+    assert c.put(f"/api/admin/clientes/{silva['id']}", headers=adm, json=ficha).status_code == 200
+    c.post(f"/api/admin/clientes/{silva['id']}/status", headers=adm, json={"status": "ativo"})
+
+    # mensalidade do mês: idempotente
+    r = c.post("/api/admin/cobrancas/gerar", headers=adm, json={"competencia": "2026-11", "enviar": True})
+    assert r.status_code == 200 and "Silva Advogados" in r.json()["criadas"], r.text
+    assert "Silva Advogados" not in c.post("/api/admin/cobrancas/gerar", headers=adm,
+                                           json={"competencia": "2026-11", "enviar": False}).json()["criadas"]
+    cob = next(k for k in c.get("/api/admin/cobrancas", headers=adm).json() if k["cliente_nome"] == "Silva Advogados")
+    assert cob["valor"] == "119.00" and cob["link"] == f"https://mp.test/cob:{cob['id']}"
+
+    # o Mercado Pago avisa o pagamento: baixa automática (relida na API, não no aviso)
+    pagamento_ref[0] = f"cob:{cob['id']}"
+    assert c.post("/api/public/mercadopago", json={"type": "payment", "data": {"id": "555"}}).status_code == 200
+    cob = next(k for k in c.get("/api/admin/cobrancas", headers=adm).json() if k["id"] == cob["id"])
+    assert cob["status"] == "paga" and cob["forma_paga"] == "Pix"
+
+    # avulsa (sem produto) + assinatura secreta: aviso com assinatura errada é ignorado
+    r = c.post("/api/admin/cobrancas/avulsa", headers=adm, json={"cliente_id": silva["id"], "descricao": "Implantação",
+                                                                 "valor": "500.00", "vencimento": "2026-11-20"})
+    assert r.status_code == 201, r.text
+    av = r.json()
+    c.put("/api/admin/cobranca/config", headers=adm,
+          json={"segredo": "s3gr3d0", "dia_vencimento": 10, "gerar_automatico": True, "regua": [-3, 0, 3]})
+    pagamento_ref[0] = f"cob:{av['id']}"
+    c.post("/api/public/mercadopago?data.id=555&type=payment", json={"type": "payment", "data": {"id": "555"}},
+           headers={"x-signature": "ts=1,v1=errado", "x-request-id": "r1"})
+    assert next(k for k in c.get("/api/admin/cobrancas", headers=adm).json() if k["id"] == av["id"])["status"] == "pendente"
+    import hashlib
+    import hmac
+    v1 = hmac.new(b"s3gr3d0", b"id:555;request-id:r1;ts:1;", hashlib.sha256).hexdigest()
+    c.post("/api/public/mercadopago?data.id=555&type=payment", json={"type": "payment", "data": {"id": "555"}},
+           headers={"x-signature": f"ts=1,v1={v1}", "x-request-id": "r1"})
+    assert next(k for k in c.get("/api/admin/cobrancas", headers=adm).json() if k["id"] == av["id"])["status"] == "paga"
+
+    # "Meu plano" no ambiente do cliente: upgrade e cartão recorrente
+    ana = _entrar(c, "ana@silva.adv.br", "Silva@2026x")
+    meu = c.get("/api/meu-plano", headers=ana).json()
+    assert meu["plano"]["nome"] == "Solo" and meu["pode_alterar"] is True
+    esc = next(p for p in meu["planos"] if p["nome"] == "Escritório")
+    r = c.put("/api/meu-plano", headers=ana, json={"plano_id": esc["id"], "ciclo": "mensal"})
+    assert r.status_code == 200 and r.json()["plano"]["nome"] == "Escritório", r.text
+    r = c.post("/api/meu-plano/cartao", headers=ana)
+    assert r.status_code == 200 and r.json()["link"] == "https://mp.test/assinar", r.text
+    assert c.get("/api/meu-plano", headers=adm).status_code == 404  # o admin não tem "Meu plano"
+
+    # débito da assinatura vira cobrança paga
+    c.post("/api/public/mercadopago", json={"type": "subscription_authorized_payment", "data": {"id": "9"}})
+    cartao = [k for k in c.get("/api/admin/cobrancas", headers=adm).json() if k["tipo"] == "cartao"]
+    assert [(k["competencia"], k["valor"], k["status"]) for k in cartao] == [("2026-11", "279.00", "paga")]
+
+    # régua: uma pendente vencida recebe um aviso só (o passo mais recente)
+    from datetime import date
+
+    from app.controle import cobranca
+    from app.controle.models import Cobranca, SessaoControle
+
+    r = c.post("/api/admin/cobrancas/avulsa", headers=adm, json={"cliente_id": silva["id"], "descricao": "Treinamento",
+                                                                 "valor": "200.00", "vencimento": "2026-11-01",
+                                                                 "enviar": False})
+    kid = r.json()["id"]
+    assert cobranca.rotina_diaria(date(2026, 11, 6))["avisos"] >= 1
+    with SessaoControle() as db:
+        assert db.get(Cobranca, kid).avisos == [-3, 0, 3]

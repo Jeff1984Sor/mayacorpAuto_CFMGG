@@ -5,7 +5,20 @@ eles entram e a quem pertence cada login. Fica fora dos bancos dos escritórios 
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, MetaData, Numeric, String, Text, create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    MetaData,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from app.core.db import NAMING, UtcDateTime, agora
@@ -37,6 +50,10 @@ class Cliente(BaseControle):
     inicio_contrato: Mapped[date | None] = mapped_column(Date)
     observacao: Mapped[str | None] = mapped_column(Text)
     indicado_por_id: Mapped[int | None] = mapped_column(ForeignKey("cliente.id", ondelete="SET NULL"))  # quem indicou
+    # cobrança: "link" = link do Mercado Pago todo mês por e-mail · "cartao" = assinatura recorrente no cartão
+    forma_pagamento: Mapped[str] = mapped_column(String(10), default="link", server_default="link")
+    mp_assinatura_id: Mapped[str | None] = mapped_column(String(64))  # preapproval do Mercado Pago
+    mp_assinatura_status: Mapped[str | None] = mapped_column(String(20))  # pending | authorized | paused | cancelled
 
     plano: Mapped["Plano | None"] = relationship()
     indicado_por: Mapped["Cliente | None"] = relationship(remote_side="Cliente.id")
@@ -97,6 +114,46 @@ class ContratoCliente(BaseControle):
     status: Mapped[str] = mapped_column(String(15), default="rascunho")  # rascunho | enviado | assinado | cancelado
     enviado_para: Mapped[list[str]] = mapped_column(JSON, default=list)
     enviado_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
+
+    cliente: Mapped[Cliente] = relationship()
+
+
+class ConfigCobranca(BaseControle):
+    """Uma linha só: a conta do Mercado Pago da MayaCorp e a régua de cobrança (editadas no admin)."""
+
+    __tablename__ = "config_cobranca"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mp_token_cifrado: Mapped[bytes | None] = mapped_column(LargeBinary)  # Access Token (cifrado com a MASTER_KEY)
+    mp_segredo_cifrado: Mapped[bytes | None] = mapped_column(LargeBinary)  # assinatura secreta das notificações
+    mp_conta: Mapped[str | None] = mapped_column(String(200))  # e-mail/apelido da conta conferido no "Testar"
+    dia_vencimento: Mapped[int] = mapped_column(Integer, default=10)
+    gerar_automatico: Mapped[bool] = mapped_column(Boolean, default=True)  # mensalidades geradas e enviadas sozinhas
+    regua: Mapped[list[int]] = mapped_column(JSON, default=lambda: [-3, 0, 3, 10])  # dias em relação ao vencimento
+
+
+class Cobranca(BaseControle):
+    """Uma cobrança ao cliente: mensalidade (do plano), avulsa (sem produto) ou paga pela assinatura no cartão."""
+
+    __tablename__ = "cobranca"
+    __table_args__ = (UniqueConstraint("cliente_id", "tipo", "competencia", name="uq_cobranca_competencia"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("cliente.id", ondelete="CASCADE"), index=True)
+    tipo: Mapped[str] = mapped_column(String(12))  # mensalidade | avulsa | cartao
+    competencia: Mapped[str | None] = mapped_column(String(7))  # AAAA-MM (mensalidade/cartão); avulsa: None
+    descricao: Mapped[str] = mapped_column(String(200))
+    itens: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{descricao, valor}] (plano, excedentes, desconto)
+    valor: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    vencimento: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(12), default="pendente")  # pendente | paga | cancelada
+    link: Mapped[str | None] = mapped_column(String(500))
+    mp_preferencia_id: Mapped[str | None] = mapped_column(String(80))
+    mp_pagamento_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    pago_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    forma_paga: Mapped[str | None] = mapped_column(String(30))  # pix | cartão | boleto | manual
+    avisos: Mapped[list[int]] = mapped_column(JSON, default=list)  # passos da régua já enviados
     criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
 
     cliente: Mapped[Cliente] = relationship()

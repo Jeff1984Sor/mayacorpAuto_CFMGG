@@ -81,6 +81,7 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Clientes", href: "/admin/clientes", icone: Building2, painel: true },
       { label: "Contratos", href: "/admin/contratos", icone: ScrollText, painel: true },
+      { label: "Cobranças", href: "/admin/cobrancas", icone: HandCoins, painel: true },
       { label: "Planos e indicação", href: "/admin/planos", icone: BadgeDollarSign, painel: true },
     ],
   },

@@ -333,11 +333,10 @@ def espelhar_todos_no_cadastro() -> int:
     from app.core.db import SessionLocal
     from app.core.models import Tenant
 
+    esc = escritorio_mayacorp()
+    if esc is None:
+        return 0
     with SessaoControle() as db:
-        adm = db.scalar(select(Cliente).where(Cliente.tipo == "mayacorp"))
-        if adm is None:
-            return 0
-        esc = Escritorio(slug=adm.slug, banco=adm.banco, mayacorp=True)
         clientes = db.scalars(select(Cliente).where(Cliente.tipo != "mayacorp")).all()
         db.expunge_all()
     with tenancy.usando(esc), SessionLocal() as s:
@@ -354,3 +353,9 @@ def endereco_do_painel() -> str | None:
     """Domínio do admin MayaCorp (o 1º cadastrado): o admin só abre nele, nunca dentro do endereço do MayaJus."""
     with SessaoControle() as db:
         return db.scalar(select(Dominio.host).join(Cliente).where(Cliente.tipo == "mayacorp").order_by(Dominio.id))
+
+
+def escritorio_mayacorp() -> Escritorio | None:
+    with SessaoControle() as db:
+        c = db.scalar(select(Cliente).where(Cliente.tipo == "mayacorp"))
+        return Escritorio(slug=c.slug, banco=c.banco, mayacorp=True) if c else None

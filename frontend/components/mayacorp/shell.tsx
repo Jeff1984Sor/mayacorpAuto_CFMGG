@@ -3,6 +3,7 @@
 import {
   ChevronsLeft,
   CircleUserRound,
+  Gem,
   KeyRound,
   LogOut,
   Menu,
@@ -401,6 +402,11 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenuItem onClick={() => router.push("/minha-conta")}>
             <CircleUserRound /> Minha conta
           </DropdownMenuItem>
+          {usuario?.administrador && !usuario.painel_mayacorp && (
+            <DropdownMenuItem onClick={() => router.push("/minha-conta/plano")}>
+              <Gem /> Meu plano
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => setTrocarSenha(true)}>
             <KeyRound /> Trocar senha
           </DropdownMenuItem>

@@ -17,7 +17,7 @@ import { data, moeda } from "@/lib/format";
 const ATALHOS = [
   { label: "Clientes", href: "/admin/clientes", icone: Building2 },
   { label: "Contratos", href: "/admin/contratos", icone: ScrollText },
-  { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText },
+  { label: "Cobranças", href: "/admin/cobrancas", icone: ReceiptText },
   { label: "Contas a pagar", href: "/financeiro/pagar", icone: CalendarClock },
 ];
 

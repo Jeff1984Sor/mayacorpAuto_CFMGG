@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 import app.controle.sincronia  # noqa: F401  (catálogo de logins do controle)
 from app.comunicador import routes as comunicador
 from app.controle import routes_admin as admin_mayacorp
+from app.controle import routes_cobranca as cobranca_routes
 from app.core import cnpj, tenancy
 from app.core.config import BASE_DIR, settings
 from app.core.escritorio_http import EscritorioMiddleware
@@ -139,7 +140,7 @@ for r in (auth.router, public.router, hub.router, config.router, nfse_routes.con
           nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
           auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_planilhas.router, faturamento_tarefas.router, faturamento_timesheet.router, faturamento_routes.router, routes_revisao.router, financas_routes.router,
           tribunais_routes.router, tribunais_protocolo.router, tribunais_config.router, tribunais_config.publico,
-          admin_mayacorp.router):
+          admin_mayacorp.router, cobranca_routes.admin, cobranca_routes.publico, cobranca_routes.meu):
     app.include_router(r, prefix="/api")
 
 
