@@ -94,6 +94,13 @@ def test_itens_a_faturar_e_faturas_nh_nd(cliente):  # noqa: F811
     nd = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "despesas", **params, "chaves": [item["chave"]]}).json()
     nd = nd["faturas"][0]
     assert nd["codigo"].startswith("ND ")
+    # filtro NH × ND no Fluxo e no resumo das Faturas
+    for tipo, doc in (("despesas", "ND"), ("honorarios", "NH")):
+        fluxo = cliente.get("/api/faturamento/fluxo", headers=h, params={"tipo": tipo}).json()
+        docs = {c["documento"] for col in fluxo["colunas"].values() for c in col["cards"]}
+        assert docs == {doc}, (tipo, docs)
+    res = cliente.get("/api/nfse/faturas/resumo", headers=h, params={"tipo": "despesas"}).json()
+    assert sum(v["qtd"] for v in res.values()) == 1
     assert cliente.get(f"/api/nfse/faturas/{nd['id']}/pdf", headers=h).content[:5] == b"%PDF-"
     r = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nd["id"]]})
     assert r.status_code == 400 and "Nota de Despesas" in r.json()["detail"]

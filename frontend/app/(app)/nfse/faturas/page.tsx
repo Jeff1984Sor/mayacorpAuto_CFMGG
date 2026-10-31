@@ -10,10 +10,10 @@ import { AnimatedNumber } from "@/components/mayacorp/animated-number";
 import { Mono } from "@/components/mayacorp/brand";
 import { Pagination, SearchInput, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
-import { NativeSelect } from "@/components/mayacorp/form";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
+import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useZipFaturas } from "@/components/nfse/acoes-fatura";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,12 +36,16 @@ const CARDS: { s: SituacaoFatura; l: string; i: React.ComponentType<{ className?
 export default function FaturasPage() {
   const router = useRouter();
   const lista = usePaginado<FaturaOut>("faturas", "/nfse/faturas", {}, 25);
-  const resumo = useQuery({ queryKey: ["faturas-resumo"], queryFn: () => api.get<ResumoFaturas>("/nfse/faturas/resumo") });
+
   const zip = useZipFaturas();
   const emitir = useEmitirNfse();
   const { pode } = useAuth();
   const podeEmitir = pode("nfse_emissao.emitir");
-  const tipo = (lista.filtros.tipo as string | undefined) ?? "";
+  const tipo = ((lista.filtros.tipo as string | undefined) ?? "") as TipoDocumento;
+  const resumo = useQuery({
+    queryKey: ["faturas-resumo", tipo],
+    queryFn: () => api.get<ResumoFaturas>("/nfse/faturas/resumo", { tipo: tipo || undefined }),
+  });
   const [sel, setSel] = useState<Set<number>>(new Set());
   const situacao = (lista.filtros.situacao as SituacaoFatura | undefined) ?? null;
   const { setFiltro } = lista;
@@ -127,11 +131,7 @@ export default function FaturasPage() {
                 Lote #{String(lista.filtros.lote_id).padStart(4, "0")} <X className="size-3" />
               </button>
             ) : null}
-            <NativeSelect aria-label="Tipo de fatura" value={tipo} onChange={(e) => lista.setFiltro("tipo", e.target.value || undefined)} className="h-9 w-40">
-              <option value="">NH e ND</option>
-              <option value="honorarios">Só NH (honorários)</option>
-              <option value="despesas">Só ND (despesas)</option>
-            </NativeSelect>
+            <FiltroDocumento valor={tipo} onChange={(v) => lista.setFiltro("tipo", v || undefined)} />
             <label className="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs">
               <Checkbox checked={!!lista.filtros.sem_nfse} onCheckedChange={(v) => lista.setFiltro("sem_nfse", v ? true : undefined)} aria-label="Só sem NFS-e" /> Sem NFS-e
             </label>

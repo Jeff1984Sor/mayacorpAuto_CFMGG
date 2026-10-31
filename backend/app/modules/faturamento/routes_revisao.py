@@ -263,7 +263,8 @@ def descartar(rid: int, dados: DescartarIn, ctx: Operador):
 
 # ================================================================ fluxo de faturamento
 @router.get("/fluxo")
-def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id: int | None = None):
+def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id: int | None = None,
+          tipo: str | None = Query(None, pattern="^(honorarios|despesas)$")):
     """Quadro do ciclo: Em revisão → Aguardando NFS-e → A receber → Vencidas → Pagas."""
     hoje = date.today()
     de = de or hoje - timedelta(days=90)
@@ -273,6 +274,8 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
     q = select(Revisao).where(Revisao.tenant_id == ctx.tenant_id, Revisao.status == StatusRevisao.em_revisao)
     if tomador_id:
         q = q.where(Revisao.tomador_id == tomador_id)
+    if tipo:
+        q = q.where(Revisao.aba == tipo)  # a aba da revisão usa os mesmos nomes: honorarios | despesas
     for r in ctx.db.scalars(q.order_by(Revisao.criado_em)):
         res = _resumo(ctx, r)
         colunas["em_revisao"].append({
@@ -285,6 +288,8 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
                              Fatura.data_emissao >= de, Fatura.data_emissao <= ate)
     if tomador_id:
         q = q.where(Fatura.tomador_id == tomador_id)
+    if tipo:
+        q = q.where(Fatura.tipo == TipoFatura(tipo))
     for f in ctx.db.scalars(q.order_by(Fatura.data_vencimento)):
         card = {"tipo": "fatura", "id": f.id, "titulo": f.codigo, "cliente": f.tomador.nome if f.tomador else "",
                 "contrato": None, "valor": f.total, "data": f.data_emissao, "vencimento": f.data_vencimento,

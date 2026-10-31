@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
+import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { IaBadge } from "@/components/faturamento/ia-score";
 import { AnimatedNumber } from "@/components/mayacorp/animated-number";
@@ -69,11 +70,12 @@ export default function FluxoPage() {
   const [cliente, setCliente] = useState<ClienteEscolhido[]>([]);
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [busca, setBusca] = useState("");
+  const [tipo, setTipo] = useState<TipoDocumento>("");
   const [sel, setSel] = useState<Set<number>>(new Set());
   const emitir = useEmitirNfse();
   const q = useQuery({
-    queryKey: ["fat", "fluxo", de, ate, cliente[0]?.id ?? null],
-    queryFn: () => api.get<FluxoOut>("/faturamento/fluxo", { de, ate, tomador_id: cliente[0]?.id }),
+    queryKey: ["fat", "fluxo", de, ate, cliente[0]?.id ?? null, tipo],
+    queryFn: () => api.get<FluxoOut>("/faturamento/fluxo", { de, ate, tomador_id: cliente[0]?.id, tipo: tipo || undefined }),
   });
 
   const todas: Linha[] = useMemo(
@@ -155,6 +157,13 @@ export default function FluxoPage() {
         <Toolbar>
           <SearchInput value={busca} onChange={setBusca} placeholder="Fatura, cliente, contrato ou NFS-e" className="sm:w-80" />
           <div className="flex flex-wrap items-center gap-2">
+            <FiltroDocumento
+              valor={tipo}
+              onChange={(v) => {
+                setTipo(v);
+                setSel(new Set());
+              }}
+            />
             <div className="w-64">
               <ClientesMulti unico id="fluxo-cliente" valor={cliente} onChange={setCliente} />
             </div>

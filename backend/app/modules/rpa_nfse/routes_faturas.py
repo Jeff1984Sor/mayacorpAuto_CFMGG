@@ -86,11 +86,14 @@ def listar(
 
 
 @router.get("/faturas/resumo")
-def resumo(ctx: Ctx):
+def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despesas)$")):
     hoje = date.today()
+    f = [Fatura.tenant_id == ctx.tenant_id]
+    if tipo:
+        f.append(Fatura.tipo == TipoFatura(tipo))
     linhas = ctx.db.execute(
         select(Fatura.status, Fatura.data_vencimento < hoje, func.count(Fatura.id), func.coalesce(func.sum(Fatura.valor), 0))
-        .where(Fatura.tenant_id == ctx.tenant_id).group_by(Fatura.status, Fatura.data_vencimento < hoje)
+        .where(*f).group_by(Fatura.status, Fatura.data_vencimento < hoje)
     ).all()
     out = {k: {"qtd": 0, "valor": 0.0} for k in ("aberta", "vencida", "paga", "cancelada")}
     for status, vencida, qtd, valor in linhas:
