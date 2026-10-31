@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 
 from app.core.config import settings
@@ -509,6 +510,92 @@ def excluir_fornecedor(fid: int, ctx: Operador):
     ctx.db.delete(f)
     ctx.db.commit()
     return Mensagem(mensagem="Fornecedor excluído.")
+
+
+_ROTULO_FORN = {"nome": "nome", "tipo": "tipo", "cpf_cnpj": "CPF/CNPJ", "email": "e-mail", "telefone": "telefone",
+                "chave_pix": "chave PIX", "banco": "banco", "agencia": "agência", "conta": "conta", "observacao": "observação"}
+
+
+@router.get("/fornecedores/modelo.xlsx")
+def modelo_fornecedores(ctx: Ctx):
+    return _xlsx(planilhas.modelo_fornecedores(), "modelo_fornecedores.xlsx")
+
+
+@router.post("/fornecedores/importar")
+async def importar_fornecedores(ctx: Operador, arquivo: UploadFile = File(...)):
+    """Cria ou atualiza fornecedores pela planilha do modelo: o CPF/CNPJ (ou, sem ele, o nome) acha o cadastro existente."""
+    conteudo = await arquivo.read()
+    try:
+        linhas = planilhas.linhas_planilha(conteudo, "Fornecedores")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, "Não consegui ler a planilha. Use o modelo (.xlsx).") from e
+    if not linhas:
+        raise HTTPException(400, "Planilha vazia.")
+    pos = planilhas.colunas_fornecedores(linhas[0])
+    if "nome" not in pos:
+        raise HTTPException(400, "A planilha não tem a coluna \"Nome\". Use o modelo.")
+    criados, atualizados, erros, novas = 0, 0, [], []
+
+    def col(row, k):
+        i = pos.get(k)
+        v = row[i] if i is not None and i < len(row) else None
+        v = str(int(v) if isinstance(v, float) and v.is_integer() else v).strip() if v is not None else ""
+        return v or None
+
+    for n, row in enumerate(linhas[1:], start=2):
+        if not any(v not in (None, "") for v in row):
+            continue
+        nome = col(row, "nome")
+        if not nome:
+            erros.append(f"Linha {n}: nome vazio")
+            continue
+        doc = "".join(ch for ch in col(row, "cpf_cnpj") or "" if ch.isdigit()) or None
+        tipo = (col(row, "tipo") or "").upper() or None
+        if tipo and tipo not in ("PF", "PJ"):
+            erros.append(f"Linha {n}: tipo \"{tipo}\" inválido (use PF ou PJ)")
+            continue
+        if doc and not tipo:
+            tipo = "PF" if len(doc) == 11 else "PJ"
+        if doc and len(doc) != (11 if tipo == "PF" else 14):
+            erros.append(f"Linha {n}: {'CPF precisa ter 11 dígitos' if tipo == 'PF' else 'CNPJ precisa ter 14 dígitos'}")
+            continue
+        ativo_txt = (col(row, "ativo") or "").lower()
+        if ativo_txt and ativo_txt not in ("sim", "s", "não", "nao", "n"):
+            erros.append(f"Linha {n}: ativo deve ser Sim ou Não")
+            continue
+        if doc:
+            f = ctx.db.scalar(select(Fornecedor).where(Fornecedor.tenant_id == ctx.tenant_id, Fornecedor.cpf_cnpj == doc))
+        else:
+            f = ctx.db.scalar(select(Fornecedor).where(Fornecedor.tenant_id == ctx.tenant_id, Fornecedor.cpf_cnpj.is_(None),
+                                                       func.lower(Fornecedor.nome) == nome.lower()))
+        dados = {k: getattr(f, k) for k in FornecedorIn.model_fields} if f else {}
+        dados.update({k: v for k, v in {
+            "nome": nome, "tipo": tipo, "cpf_cnpj": doc, "email": col(row, "email"), "telefone": col(row, "telefone"),
+            "chave_pix": col(row, "chave_pix"), "banco": col(row, "banco"), "agencia": col(row, "agencia"),
+            "conta": col(row, "conta"), "observacao": col(row, "observacao"),
+            "ativo": ativo_txt.startswith("s") if ativo_txt else None}.items() if v is not None})
+        try:
+            valido = FornecedorIn.model_validate(dados)
+        except ValidationError as e:
+            campo = str(e.errors()[0]["loc"][0]) if e.errors() and e.errors()[0]["loc"] else ""
+            erros.append(f"Linha {n}: {_ROTULO_FORN.get(campo, campo) or 'dados'} inválido")
+            continue
+        cat_nome = col(row, "categoria")
+        if cat_nome:
+            cat, _ = service.categoria_por_nome(ctx.db, ctx.tenant_id, cat_nome, TipoCategoria.despesa, None, novas)
+            valido.categoria_padrao_id = cat.id
+        if f:
+            for k, v in valido.model_dump().items():
+                setattr(f, k, v)
+            atualizados += 1
+        else:
+            ctx.db.add(Fornecedor(tenant_id=ctx.tenant_id, **valido.model_dump()))
+            criados += 1
+        ctx.db.flush()
+    ctx.auditar("financeiro.fornecedor.importar", "fin_fornecedor",
+                descricao=f"{arquivo.filename}: {criados} criados, {atualizados} atualizados, {len(erros)} com erro")
+    ctx.db.commit()
+    return {"criados": criados, "atualizados": atualizados, "erros": erros[:50], "qtd_erros": len(erros), "categorias_novas": novas}
 
 
 @router.get("/favorecidos")

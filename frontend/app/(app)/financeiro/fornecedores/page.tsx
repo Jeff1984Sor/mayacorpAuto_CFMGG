@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Pencil, Plus, Trash2, Truck } from "lucide-react";
+import { Download, MoreHorizontal, Pencil, Plus, Trash2, Truck, Upload } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ImportarPlanilhaDialog } from "@/components/faturamento/importar-planilha";
 import { useCategoriasFin } from "@/components/financeiro/comum";
 import { FornecedorDialog, mascaraDoc } from "@/components/financeiro/pagar/fornecedor-dialog";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
@@ -15,7 +16,7 @@ import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDebounce } from "@/hooks/use-debounce";
-import { api } from "@/lib/api";
+import { api, baixar } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { FornecedorOut } from "@/lib/financeiro";
 import { moeda, toNum } from "@/lib/format";
@@ -31,6 +32,7 @@ export default function FornecedoresPage() {
   const [ativos, setAtivos] = useState<"sim" | "todos">("sim");
   const [dlg, setDlg] = useState<{ f: FornecedorOut | null } | null>(null);
   const [excluir, setExcluir] = useState<FornecedorOut | null>(null);
+  const [importar, setImportar] = useState(false);
   const cats = useCategoriasFin("despesa");
   const lista = useQuery({
     queryKey: ["fin", "fornecedores", busca, ativos],
@@ -54,11 +56,24 @@ export default function FornecedoresPage() {
         icone={Truck}
         migalhas={[{ label: "Contas a Pagar" }, { label: "Fornecedores" }]}
         acoes={
-          podeEditar && (
-            <Button onClick={() => setDlg({ f: null })}>
-              <Plus /> Novo fornecedor
+          <>
+            <Button
+              variant="outline"
+              onClick={() => baixar("/financeiro/fornecedores/modelo.xlsx", {}, "modelo_fornecedores.xlsx").catch(() => toast.error("Não foi possível baixar o modelo agora."))}
+            >
+              <Download /> Baixar modelo
             </Button>
-          )
+            {podeEditar && (
+              <>
+                <Button variant="outline" onClick={() => setImportar(true)}>
+                  <Upload /> Importar
+                </Button>
+                <Button onClick={() => setDlg({ f: null })}>
+                  <Plus /> Novo fornecedor
+                </Button>
+              </>
+            )}
+          </>
         }
       />
       <TableCard>
@@ -154,6 +169,16 @@ export default function FornecedoresPage() {
           </div>
         )}
       </TableCard>
+      <ImportarPlanilhaDialog
+        open={importar}
+        onOpenChange={setImportar}
+        rotulo="fornecedores"
+        urlImportar="/financeiro/fornecedores/importar"
+        urlModelo="/financeiro/fornecedores/modelo.xlsx"
+        nomeModelo="modelo_fornecedores.xlsx"
+        invalidar={["fin"]}
+        dica="Preencha o modelo (um fornecedor por linha). Se o CPF/CNPJ já estiver cadastrado, o fornecedor é atualizado; senão, é criado."
+      />
       <FornecedorDialog open={!!dlg} onOpenChange={(o) => !o && setDlg(null)} fornecedor={dlg?.f ?? null} />
       <ConfirmDialog
         open={!!excluir}
