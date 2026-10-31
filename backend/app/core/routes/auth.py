@@ -326,3 +326,37 @@ def primeiro_acesso(dados: PrimeiroAcessoIn, request: Request, db: DB):
                     entidade_id=u.id, ip=ip_cliente(request), descricao="usuário master criado pelo link de boas-vindas")
     db.commit()
     return _tokens(u)
+
+
+class PedirPrimeiroAcessoIn(BaseModel):
+    email: EmailStr
+
+
+@router.post("/primeiro-acesso/pedir", response_model=Mensagem)
+def pedir_primeiro_acesso(dados: PedirPrimeiroAcessoIn):
+    """Botão "1º acesso" do login: o e-mail do financeiro do escritório recebe o link para criar o usuário master.
+    A resposta é sempre a mesma (não revela quais e-mails são clientes)."""
+    resposta = Mensagem(mensagem="Se este e-mail for o do financeiro de um escritório que ainda não criou o acesso, "
+                                 "enviamos agora o link para criar a sua senha. Confira a caixa de entrada e o spam.")
+    if not tenancy.multi():
+        return resposta
+    from app.controle import service as controle
+    from app.controle.models import Cliente, SessaoControle
+    from app.core.db import SessionLocal
+
+    email = str(dados.email).lower()
+    with SessaoControle() as ctl:
+        clientes = ctl.scalars(select(Cliente).where(Cliente.tipo == "escritorio", Cliente.banco.is_not(None),
+                                                     Cliente.status.in_(("teste", "ativo", "suspenso")),
+                                                     Cliente.email_financeiro.ilike(email))).all()
+        alvos = [(c.slug, c.banco, c.nome, c.responsavel or "") for c in clientes]
+    for slug, banco, nome, pessoa in alvos:
+        with tenancy.usando(tenancy.Escritorio(slug=slug, banco=banco)), SessionLocal() as db:
+            if db.scalar(select(Usuario.id).where(Usuario.equipe_mayacorp.is_(False), Usuario.senha_hash.is_not(None))):
+                continue  # já tem usuário master: o caminho é "Esqueci minha senha"
+        link = controle.link_primeiro_acesso(slug, email)
+        ola = f"Olá, {pessoa.split()[0]}!" if pessoa.strip() else "Olá!"
+        controle.enviar_email([email], f"Seu primeiro acesso ao MayaJus — {nome}",
+                              f"{ola}\n\nPara criar o usuário master do {nome} e a sua senha, acesse:\n{link}\n\n"
+                              "O link vale por 7 dias.\n\nEquipe MayaCorp")
+    return resposta

@@ -1,7 +1,17 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Mail,
+  MailCheck,
+  UserRound,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -21,7 +31,13 @@ const schema = z.object({
   senha: z.string().min(1, "Informe a senha"),
 });
 
-function ComIcone({ icone: I, children }: { icone: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+function ComIcone({
+  icone: I,
+  children,
+}: {
+  icone: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+}) {
   return (
     <div className="relative">
       <I className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -30,12 +46,21 @@ function ComIcone({ icone: I, children }: { icone: React.ComponentType<{ classNa
   );
 }
 
-function Login({ onEsqueci }: { onEsqueci: () => void }) {
+function Login({
+  onEsqueci,
+  onPrimeiro,
+}: {
+  onEsqueci: () => void;
+  onPrimeiro: () => void;
+}) {
   const { login } = useAuth();
   const router = useRouter();
   const [ver, setVer] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const form = useForm({ resolver: zodResolver(schema), defaultValues: { email: "", senha: "" } });
+  const form = useForm({
+    resolver: zodResolver(schema),
+    defaultValues: { email: "", senha: "" },
+  });
 
   const enviar = form.handleSubmit(async (v) => {
     setErro(null);
@@ -43,7 +68,9 @@ function Login({ onEsqueci }: { onEsqueci: () => void }) {
       const u = await login(v.email, v.senha);
       toast.success(`Bem-vindo(a), ${u.nome.split(" ")[0]}!`);
       const volta = new URLSearchParams(window.location.search).get("volta");
-      router.replace(volta && volta.startsWith("/") && !volta.startsWith("//") ? volta : "/");
+      router.replace(
+        volta && volta.startsWith("/") && !volta.startsWith("//") ? volta : "/",
+      );
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : "Não foi possível entrar.");
     }
@@ -51,7 +78,10 @@ function Login({ onEsqueci }: { onEsqueci: () => void }) {
 
   return (
     <form onSubmit={enviar} className="space-y-4">
-      <Field label="E-mail ou usuário" erro={form.formState.errors.email?.message}>
+      <Field
+        label="E-mail ou usuário"
+        erro={form.formState.errors.email?.message}
+      >
         <ComIcone icone={UserRound}>
           <Input
             {...form.register("email")}
@@ -96,8 +126,19 @@ function Login({ onEsqueci }: { onEsqueci: () => void }) {
           </motion.p>
         )}
       </AnimatePresence>
-      <div className="flex justify-end">
-        <button type="button" onClick={onEsqueci} className="text-sm font-medium text-navy hover:underline dark:text-brand">
+      <div className="flex justify-between">
+        <button
+          type="button"
+          onClick={onPrimeiro}
+          className="text-sm font-medium text-navy hover:underline dark:text-brand"
+        >
+          1º acesso
+        </button>
+        <button
+          type="button"
+          onClick={onEsqueci}
+          className="text-sm font-medium text-navy hover:underline dark:text-brand"
+        >
           Esqueci minha senha
         </button>
       </div>
@@ -106,7 +147,9 @@ function Login({ onEsqueci }: { onEsqueci: () => void }) {
         disabled={form.formState.isSubmitting}
         className="group h-11 w-full brand-gradient text-white shadow-lg shadow-brand/25 hover:opacity-95"
       >
-        {form.formState.isSubmitting ? <Loader2 className="animate-spin" /> : null}
+        {form.formState.isSubmitting ? (
+          <Loader2 className="animate-spin" />
+        ) : null}
         Entrar
         <ArrowRight className="transition-transform group-hover:translate-x-0.5" />
       </Button>
@@ -114,7 +157,14 @@ function Login({ onEsqueci }: { onEsqueci: () => void }) {
   );
 }
 
-function Esqueci({ onVoltar }: { onVoltar: () => void }) {
+/** "Esqueci minha senha" ou "1º acesso" (o e-mail do financeiro do escritório recebe o link para criar a senha). */
+function Esqueci({
+  onVoltar,
+  primeiro,
+}: {
+  onVoltar: () => void;
+  primeiro?: boolean;
+}) {
   const [email, setEmail] = useState("");
   const [enviado, setEnviado] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -122,7 +172,11 @@ function Esqueci({ onVoltar }: { onVoltar: () => void }) {
     e.preventDefault();
     setCarregando(true);
     try {
-      await api.post("/auth/forgot", { email }, { auth: false });
+      await api.post(
+        primeiro ? "/auth/primeiro-acesso/pedir" : "/auth/forgot",
+        { email },
+        { auth: false },
+      );
       setEnviado(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao enviar");
@@ -137,7 +191,19 @@ function Esqueci({ onVoltar }: { onVoltar: () => void }) {
           <MailCheck className="size-7 text-success" />
         </div>
         <p className="text-sm text-muted-foreground">
-          Se <strong className="text-foreground">{email}</strong> estiver cadastrado, você receberá um link para criar uma nova senha.
+          {primeiro ? (
+            <>
+              Se <strong className="text-foreground">{email}</strong> for o
+              e-mail do financeiro de um escritório que ainda não criou o
+              acesso, você receberá o link para criar o seu usuário e a sua
+              senha. Confira também o spam.
+            </>
+          ) : (
+            <>
+              Se <strong className="text-foreground">{email}</strong> estiver
+              cadastrado, você receberá um link para criar uma nova senha.
+            </>
+          )}
         </p>
         <Button variant="outline" className="w-full" onClick={onVoltar}>
           <ArrowLeft /> Voltar ao login
@@ -146,15 +212,32 @@ function Esqueci({ onVoltar }: { onVoltar: () => void }) {
     );
   return (
     <form onSubmit={enviar} className="space-y-4">
-      <p className="text-sm text-muted-foreground">Informe seu e-mail e enviaremos um link para redefinir a senha.</p>
+      <p className="text-sm text-muted-foreground">
+        {primeiro
+          ? "Primeira vez no MayaJus? Informe o e-mail do financeiro do escritório (o do cadastro) e enviaremos o link para criar o seu usuário e a sua senha."
+          : "Informe seu e-mail e enviaremos um link para redefinir a senha."}
+      </p>
       <ComIcone icone={Mail}>
-        <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required placeholder="voce@cfme.com.br" className="h-11 pl-9" autoFocus />
+        <Input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          required
+          placeholder="voce@escritorio.com.br"
+          className="h-11 pl-9"
+          autoFocus
+        />
       </ComIcone>
       <Button type="submit" disabled={carregando} className="h-11 w-full">
         {carregando && <Loader2 className="animate-spin" />}
         Enviar link
       </Button>
-      <Button type="button" variant="ghost" className="w-full" onClick={onVoltar}>
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full"
+        onClick={onVoltar}
+      >
         <ArrowLeft /> Voltar
       </Button>
     </form>
@@ -162,14 +245,24 @@ function Esqueci({ onVoltar }: { onVoltar: () => void }) {
 }
 
 export default function LoginPage() {
-  const [modo, setModo] = useState<"login" | "esqueci">("login");
+  const [modo, setModo] = useState<"login" | "esqueci" | "primeiro">("login");
   return (
     <div>
       <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
         <MayaJusLogo className="mb-8 lg:hidden" />
-        <h1 className="text-2xl font-semibold tracking-tight">{modo === "login" ? "Entrar" : "Recuperar acesso"}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {modo === "login"
+            ? "Entrar"
+            : modo === "primeiro"
+              ? "1º acesso"
+              : "Recuperar acesso"}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {modo === "login" ? "Acesse o MayaJus com seu e-mail ou usuário." : "Vamos te ajudar a voltar."}
+          {modo === "login"
+            ? "Acesse o MayaJus com seu e-mail ou usuário."
+            : modo === "primeiro"
+              ? "Crie o seu acesso ao MayaJus."
+              : "Vamos te ajudar a voltar."}
         </p>
       </div>
       <AnimatePresence mode="wait">
@@ -180,7 +273,17 @@ export default function LoginPage() {
           exit={{ opacity: 0, x: modo === "login" ? 12 : -12 }}
           transition={{ duration: 0.18 }}
         >
-          {modo === "login" ? <Login onEsqueci={() => setModo("esqueci")} /> : <Esqueci onVoltar={() => setModo("login")} />}
+          {modo === "login" ? (
+            <Login
+              onEsqueci={() => setModo("esqueci")}
+              onPrimeiro={() => setModo("primeiro")}
+            />
+          ) : (
+            <Esqueci
+              onVoltar={() => setModo("login")}
+              primeiro={modo === "primeiro"}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
     </div>

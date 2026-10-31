@@ -4,6 +4,7 @@ Só responde dentro do escritório MayaCorp (tipo "mayacorp" no controle) e para
 escritórios clientes estas rotas não existem (404).
 """
 
+import logging
 import re
 import unicodedata
 from datetime import date
@@ -20,6 +21,8 @@ from app.controle.models import Cliente, ContratoCliente, Dominio, ModeloContrat
 from app.core import tenancy
 from app.core.db import SessionLocal, agora
 from app.core.deps import Contexto, Ctx
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin MayaCorp"])
 STATUS = {"teste": "Em teste", "ativo": "Ativo", "suspenso": "Suspenso (avisado)", "inativo": "Inativo (sem acesso)"}
@@ -236,6 +239,7 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
     nome = ficha.pop("nome")
     teste_ate = ficha.pop("teste_ate")
     slug = (dados.slug or _slug_de(nome)).lower()
+    ficha["email_financeiro"] = ficha.get("email_financeiro") or str(dados.admin_email).lower()  # o "1º acesso" usa este e-mail
     try:
         cliente, link = service.provisionar(slug, nome, admin_nome=dados.admin_nome, admin_email=str(dados.admin_email),
                                             dias_teste=dados.dias_teste, dominios=dados.dominios, primeiro_acesso=True,
@@ -247,12 +251,29 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
             db.get(Cliente, cliente.id).teste_ate = teste_ate
             db.commit()
     _boas_vindas(str(dados.admin_email), dados.admin_nome, nome, link, dados.dias_teste)
+    _primeira_cobranca(cliente.id)
     with SessaoControle() as db:
         service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, db.get(Cliente, cliente.id))
     ctx.auditar("admin.cliente.criar", "controle_cliente", cliente.id, descricao=f"{slug}: {nome}")
     ctx.db.commit()
     with SessaoControle() as db:
         return {**_cliente_out(db.get(Cliente, cliente.id)), "convite": link}
+
+
+def _primeira_cobranca(cid: int) -> None:
+    """A 1ª cobrança nasce com o cliente; sem teste grátis, o link já vai por e-mail."""
+    from app.controle import cobranca
+
+    with SessaoControle() as db:
+        try:
+            cob = cobranca.primeira_cobranca(db, db.get(Cliente, cid))
+            db.commit()
+            if cob and not cob.cliente.teste_ate and cobranca.config(db).mp_token_cifrado:
+                cobranca.enviar_cobranca(db, cob)
+                db.commit()
+        except Exception:  # cobrança nunca impede o cliente de nascer (dá para gerar depois em Cobranças)
+            db.rollback()
+            log.exception("1ª cobrança do cliente %s falhou", cid)
 
 
 def _boas_vindas(email: str, pessoa: str, escritorio: str, link: str, dias_teste: int | None = None) -> None:

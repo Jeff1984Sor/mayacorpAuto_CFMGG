@@ -14,7 +14,9 @@ from sqlalchemy import select
 from app.controle import service
 from app.controle.models import Plano, SessaoControle, Solicitacao
 from app.controle.routes_admin import ClienteNovoIn, Painel, _d, _plano_out, criar_cliente
-from app.core.deps import ip_cliente
+from app.core.config import settings
+from app.core.deps import Contexto, ip_cliente
+from app.core.models import Usuario
 
 log = logging.getLogger(__name__)
 
@@ -100,22 +102,88 @@ def cadastrar(dados: CadastroIn, request: Request):
 
 
 def _avisar_mayacorp(s: Solicitacao, plano_nome: str) -> None:
-    """Avisa os administradores do admin MayaCorp que chegou cadastro novo."""
+    """Avisa cada administrador do admin MayaCorp, com o link para aprovar sem entrar no sistema."""
     from app.core import tenancy
     from app.core.db import SessionLocal
     from app.core.models import Usuario
+    from app.core.security import criar_token
 
     esc = service.escritorio_mayacorp()
     if esc is None:
         return
+    host = service.endereco_do_painel()
     with tenancy.usando(esc), SessionLocal() as db:
-        para = [u.email for u in db.scalars(select(Usuario).where(Usuario.ativo, Usuario.senha_hash.is_not(None)))
-                if u.administrador and not u.equipe_mayacorp]
-    if para:
-        service.enviar_email(para, f"Novo cadastro no MayaJus: {s.nome}",
-                             f"{s.nome} ({s.documento or 'sem CNPJ'})\nResponsável: {s.responsavel}\nE-mail: {s.email}\n"
-                             f"Telefone: {s.telefone}\nPlano: {plano_nome} ({s.ciclo})\nUsuários: {s.usuarios or '-'}\n"
-                             f"Indicação: {s.indicacao or '-'}\n\n{s.mensagem or ''}\n\nAprove em Clientes › Solicitações.")
+        admins = [(u.id, u.email) for u in db.scalars(select(Usuario).where(Usuario.ativo, Usuario.senha_hash.is_not(None)))
+                  if u.administrador and not u.equipe_mayacorp]
+        links = {uid: criar_token(str(uid), "aprovar", {"sol": s.id}) for uid, _ in admins}
+    base = f"https://{host}" if host else settings.frontend_url.rstrip("/")
+    for uid, email in admins:
+        service.enviar_email(
+            [email], f"Novo cadastro no MayaJus: {s.nome}",
+            f"{s.nome} ({s.documento or 'sem CNPJ'})\nResponsável: {s.responsavel}\nE-mail: {s.email}\n"
+            f"Telefone: {s.telefone}\nPlano: {plano_nome} ({s.ciclo})\nUsuários: {s.usuarios or '-'}\n"
+            f"Indicação: {s.indicacao or '-'}\n\n{s.mensagem or ''}\n\n"
+            f"Aprovar ou recusar (sem precisar entrar no sistema):\n{base}/aprovar?token={links[uid]}\n\n"
+            "O link vale por 7 dias. Também dá para aprovar no admin, em Solicitações.")
+
+
+# ================================================================ aprovar pelo link do e-mail (sem login)
+class TokenIn(BaseModel):
+    token: str
+    dias_teste: int | None = Field(default=15, ge=1, le=90)
+
+
+def _pelo_link(token: str, db) -> tuple[Usuario, int]:
+    """O link do e-mail identifica o administrador da MayaCorp e a solicitação (vale 7 dias)."""
+    import jwt
+
+    from app.core import tenancy
+    from app.core.escritorio_http import definir_pelo_token
+    from app.core.security import decodificar_token
+
+    try:
+        payload = decodificar_token(token, "aprovar")
+    except jwt.PyJWTError:
+        raise HTTPException(400, "Link inválido ou expirado. Aprove pelo admin, em Solicitações.") from None
+    esc = definir_pelo_token(token)
+    if not (esc and esc.mayacorp) and tenancy.multi():
+        raise HTTPException(400, "Link inválido.")
+    u = db.get(Usuario, int(payload["sub"]))
+    if not u or not u.ativo or not u.administrador:
+        raise HTTPException(403, "Este link não vale mais para o seu usuário.")
+    return u, int(payload["sol"])
+
+
+@publico.get("/solicitacao")
+def ver_pelo_link(token: str, request: Request):
+    from app.core.db import SessionLocal
+
+    with SessionLocal() as db:
+        _, sid = _pelo_link(token, db)
+    with SessaoControle() as ctl:
+        s = ctl.get(Solicitacao, sid)
+        if not s:
+            raise HTTPException(404, "Solicitação não encontrada.")
+        return _sol_out(s)
+
+
+@publico.post("/solicitacao/aprovar")
+def aprovar_pelo_link(dados: TokenIn, request: Request):
+    from app.core.db import SessionLocal
+
+    with SessionLocal() as db:
+        u, sid = _pelo_link(dados.token, db)
+        ctx = Contexto(db=db, usuario=u, ip=ip_cliente(request))
+        return aprovar(sid, AprovarIn(dias_teste=dados.dias_teste), ctx)
+
+
+@publico.post("/solicitacao/recusar")
+def recusar_pelo_link(dados: TokenIn, request: Request):
+    from app.core.db import SessionLocal
+
+    with SessionLocal() as db:
+        u, sid = _pelo_link(dados.token, db)
+        return recusar(sid, Contexto(db=db, usuario=u, ip=ip_cliente(request)))
 
 
 # ================================================================ admin

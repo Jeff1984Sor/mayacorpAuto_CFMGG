@@ -247,6 +247,39 @@ export default function CadastroPage() {
                   autoComplete="tel"
                 />
               </Field>
+              <Field
+                label="Como prefere pagar?"
+                obrigatorio
+                className="sm:col-span-2"
+              >
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(["mensal", "anual"] as const).map((c) => {
+                    const p = planos.find((x) => x.id === f.plano_id);
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setCiclo(c)}
+                        className={cn(
+                          "rounded-xl border p-3 text-left text-sm transition-colors hover:border-brand/60",
+                          ciclo === c && "border-brand ring-2 ring-brand",
+                        )}
+                      >
+                        <span className="font-medium">
+                          {c === "mensal" ? "Mensal" : "Anual (2 meses grátis)"}
+                        </span>
+                        {p && (
+                          <span className="block font-mono text-xs text-muted-foreground">
+                            {c === "mensal"
+                              ? `${moeda(p.preco_mensal)} por mês`
+                              : `${moeda(p.preco_anual)} por ano`}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
               <Field label="Quantas pessoas vão usar?" htmlFor="cad-usu">
                 <Input
                   id="cad-usu"

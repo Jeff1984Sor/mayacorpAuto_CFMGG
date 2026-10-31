@@ -363,3 +363,54 @@ def test_cadastro_pelo_site(multi):
     cli = r.json()
     assert cli["status"] == "teste" and cli["plano"]["nome"] == "Pro" and "/primeiro-acesso?token=" in cli["convite"]
     assert c.post(f"/api/admin/solicitacoes/{sols[0]['id']}/aprovar", headers=adm, json={}).status_code == 400
+
+
+def test_aprovar_pelo_link_do_email(multi):
+    from app.controle import service
+    from app.core import tenancy
+    from app.core.db import SessionLocal
+    from app.core.models import Usuario
+    from app.core.security import criar_token
+
+    c = multi
+    base = {"nome": "Lima Advocacia", "responsavel": "Rui Lima", "email": "rui@lima.adv.br",
+            "telefone": "(11) 98888-0000", "ciclo": "mensal", "aceite": True}
+    assert c.post("/api/public/cadastro", json=base, headers={"x-forwarded-for": "10.9.9.9"}).status_code == 201
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    sid = next(s["id"] for s in c.get("/api/admin/solicitacoes", headers=adm).json() if s["nome"] == "Lima Advocacia")
+    esc = service.escritorio_mayacorp()
+    with tenancy.usando(esc), SessionLocal() as db:
+        uid = db.query(Usuario).filter_by(email="jeff@mayacorp.com.br").one().id
+        tk = criar_token(str(uid), "aprovar", {"sol": sid})
+    assert c.get("/api/public/solicitacao", params={"token": "lixo"}).status_code == 400
+    assert c.get("/api/public/solicitacao", params={"token": tk}).json()["nome"] == "Lima Advocacia"
+    r = c.post("/api/public/solicitacao/aprovar", json={"token": tk, "dias_teste": 10})
+    assert r.status_code == 200 and r.json()["status"] == "teste", r.text
+    assert c.post("/api/public/solicitacao/recusar", json={"token": tk}).status_code == 400  # já tratada
+
+
+def test_primeiro_acesso_pelo_login_e_primeira_cobranca(multi):
+    import glob
+    import os
+
+    from app.core import tenancy as tn
+
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    solo = next(p for p in c.get("/api/admin/planos", headers=adm).json() if p["nome"] == "Solo")
+    r = c.post("/api/admin/clientes", headers=adm, json={
+        "nome": "Torres Advogados", "plano_id": solo["id"], "ciclo": "mensal", "dias_teste": 10,
+        "admin_email": "fin@torres.adv.br", "dominios": []})
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+    assert r.json()["email_financeiro"] == "fin@torres.adv.br"
+    # a 1ª cobrança já nasce, vencendo no fim do teste
+    cobs = c.get("/api/admin/cobrancas", headers=adm, params={"cliente_id": cid}).json()
+    assert [(k["valor"], k["vencimento"]) for k in cobs] == [("119.00", r.json()["teste_ate"])]
+    # botão "1º acesso" no login: resposta igual para qualquer e-mail; o do financeiro recebe o link
+    antes = set(glob.glob(str(tn.pasta_base() / "**" / "outbox" / "*.eml"), recursive=True))
+    msg = c.post("/api/auth/primeiro-acesso/pedir", json={"email": "fin@torres.adv.br"}).json()["mensagem"]
+    assert msg == c.post("/api/auth/primeiro-acesso/pedir", json={"email": "ninguem@x.com"}).json()["mensagem"]
+    novos = set(glob.glob(str(tn.pasta_base() / "**" / "outbox" / "*.eml"), recursive=True)) - antes
+    assert any("primeiro-acesso?token=" in open(f, encoding="utf8", errors="ignore").read() for f in novos), novos
+    assert all(os.path.exists(f) for f in novos)

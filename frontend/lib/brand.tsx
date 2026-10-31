@@ -56,7 +56,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   }, [cor]);
 
   useEffect(() => {
-    const publica = /^\/(login|redefinir-senha|primeiro-acesso|cadastro)/.test(window.location.pathname);
+    const publica = /^\/(login|redefinir-senha|primeiro-acesso|cadastro|aprovar)/.test(window.location.pathname);
     document.title = publica ? "MayaJus · Gestão jurídica" : `${ident.nome_exibicao} · MayaJus`;
   }, [ident.nome_exibicao]);
 

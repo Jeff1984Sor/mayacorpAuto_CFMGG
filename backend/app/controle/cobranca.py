@@ -168,6 +168,31 @@ def gerar_mensalidade(db, c: Cliente, ano: int, mes: int) -> Cobranca | None:
     return cob
 
 
+def primeira_cobranca(db, c: Cliente) -> Cobranca | None:
+    """Cliente novo: a 1ª mensalidade (ou anuidade) já nasce. Com teste grátis, vence no fim do teste (a régua avisa
+    antes); sem teste, vence em 3 dias. As mensalidades seguintes saem pela rotina de todo mês."""
+    if not c.plano:
+        return None
+    venc = c.teste_ate or date.today() + timedelta(days=3)
+    comp = f"{venc:%Y-%m}"
+    if db.scalar(select(Cobranca.id).where(Cobranca.cliente_id == c.id, Cobranca.tipo == "mensalidade",
+                                           Cobranca.competencia == comp)):
+        return None
+    bruto = c.plano.preco_anual if c.ciclo == "anual" else c.plano.preco_mensal
+    rotulo = "anuidade" if c.ciclo == "anual" else "mensalidade"
+    itens = [{"descricao": f"Plano {c.plano.nome} ({rotulo} {venc:%m/%Y})", "valor": f"{bruto:.2f}"}]
+    n, pct = indicacao.desconto(db, c)
+    if pct:
+        itens.append({"descricao": f"Desconto por indicação ({n} indicado(s), {pct:g}%)",
+                      "valor": f"{-(bruto - indicacao.aplicar(bruto, pct)):.2f}"})
+    total = sum((Decimal(i["valor"]) for i in itens), Decimal(0))
+    cob = Cobranca(cliente_id=c.id, tipo="mensalidade", competencia=comp, descricao=f"MayaJus {venc:%m/%Y}",
+                   itens=itens, valor=total, vencimento=venc, status="pendente", avisos=[])
+    db.add(cob)
+    db.flush()
+    return cob
+
+
 def avulsa(db, c: Cliente, descricao: str, valor: Decimal, vencimento: date) -> Cobranca:
     if valor <= 0:
         raise RegraCobranca("O valor precisa ser maior que zero.")
