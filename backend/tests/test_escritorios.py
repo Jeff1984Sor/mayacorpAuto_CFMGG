@@ -110,6 +110,11 @@ def test_admin_mayacorp(multi):
     novo = r.json()
     assert novo["slug"] == "souza-lima-advogados" and novo["status"] == "teste" and novo["valor"] == "5490.00"
     cid = novo["id"]
+    # o cliente do MayaJus é o mesmo cliente no cadastro da MayaCorp (um cadastro só)
+    tom = c.get("/api/nfse/tomadores", headers=adm, params={"q": "Souza"}).json()
+    tom = tom.get("itens", tom) if isinstance(tom, dict) else tom
+    assert [(t["nome"], t["cpf_cnpj"]) for t in tom] == [("Souza & Lima Advogados", "12345678000195")]
+    assert c.get("/api/auth/me", headers=adm).json()["endereco_painel"] == "admin.mayajus.test"
     c.post("/api/auth/reset", json={"token": novo["convite"].split("token=")[1], "senha": "Carla@2026x"})
     carla = _entrar(c, "carla@souzalima.adv.br", "Carla@2026x")
 
@@ -150,6 +155,8 @@ def test_admin_mayacorp(multi):
     r = c.post(f"/api/admin/contratos/{k['id']}/enviar", headers=adm, json={"para": ["fin@souzalima.adv.br"]})
     assert r.status_code == 200 and r.json()["status"] == "enviado", r.text
     assert c.put(f"/api/admin/contratos/{k['id']}", headers=adm, json={"titulo": "x x", "corpo": "y" * 20}).status_code == 400
+    todos = c.get("/api/admin/contratos", headers=adm).json()
+    assert [(x["id"], x["cliente_nome"]) for x in todos] == [(k["id"], "Souza & Lima Advogados")]
 
 
 def test_desconto_por_indicacao(multi):

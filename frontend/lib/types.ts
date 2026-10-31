@@ -24,6 +24,7 @@ export interface UsuarioMe {
   equipe_mayacorp: boolean;
   /** admin MayaCorp: mostra o menu MayaCorp */
   painel_mayacorp?: boolean;
+  endereco_painel?: string | null;
   /** Preferências de interface salvas no servidor (acompanham o usuário em qualquer computador). */
   preferencias?: { menu_recolhido?: string[] } & Record<string, unknown>;
   perfil_acesso_id: number | null;

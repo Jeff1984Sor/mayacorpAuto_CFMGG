@@ -34,7 +34,7 @@ export default function ClientesMayaJusPage() {
   return (
     <div>
       <PageHeader
-        titulo="Clientes MayaJus"
+        titulo="Clientes"
         icone={Building2}
         migalhas={[{ label: "MayaCorp" }, { label: "Clientes" }]}
         acoes={

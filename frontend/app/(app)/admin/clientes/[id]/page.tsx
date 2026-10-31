@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FileText, Globe, KeyRound, Mail, Pencil, Plus, Send, Trash2, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -29,19 +29,14 @@ import {
   TOM_STATUS,
   type UsoCliente,
   type UsuarioCliente,
+  ROTULO_CONTRATO,
 } from "@/lib/admin";
 import { abrirArquivo, api } from "@/lib/api";
 import { data, dataHora, documento, moeda, toNum } from "@/lib/format";
 
-const ROTULO_CONTRATO: Record<ContratoCliente["status"], [string, "neutral" | "info" | "success" | "danger"]> = {
-  rascunho: ["Rascunho", "neutral"],
-  enviado: ["Enviado", "info"],
-  assinado: ["Assinado", "success"],
-  cancelado: ["Cancelado", "danger"],
-};
-
 export default function FichaClientePage() {
   const { id } = useParams<{ id: string }>();
+  const abaInicial = useSearchParams().get("aba") ?? "uso";
   const qc = useQueryClient();
   const [editar, setEditar] = useState(false);
   const [mudar, setMudar] = useState<StatusCliente | null>(null);
@@ -62,7 +57,7 @@ export default function FichaClientePage() {
   return (
     <div>
       <Link href="/admin/clientes" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" /> Clientes MayaJus
+        <ArrowLeft className="size-3.5" /> Clientes
       </Link>
       <div className="card-surface mb-5 p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -118,7 +113,7 @@ export default function FichaClientePage() {
         </div>
       </div>
 
-      <Tabs defaultValue="uso">
+      <Tabs defaultValue={abaInicial}>
         <TabsList>
           <TabsTrigger value="uso">Uso e dados</TabsTrigger>
           <TabsTrigger value="usuarios">Usuários</TabsTrigger>
@@ -453,7 +448,7 @@ function AbaContratos({ cli }: { cli: ClienteSaaS }) {
         <Button size="sm" disabled={!modelo || gerar.isPending} onClick={() => gerar.mutate()}>
           <FileText /> Gerar contrato
         </Button>
-        <Link href="/admin/contratos" className="ml-auto text-xs text-muted-foreground hover:underline">
+        <Link href="/admin/contratos?aba=modelos" className="ml-auto text-xs text-muted-foreground hover:underline">
           Modelos de contrato
         </Link>
       </div>

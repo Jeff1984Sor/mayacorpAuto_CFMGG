@@ -121,7 +121,15 @@ export interface ContratoCliente {
   enviado_em: string | null;
   criado_em: string;
   variaveis_vazias?: string[];
+  cliente_nome?: string;
 }
+
+export const ROTULO_CONTRATO: Record<ContratoCliente["status"], [string, "neutral" | "info" | "success" | "danger"]> = {
+  rascunho: ["Rascunho", "neutral"],
+  enviado: ["Enviado", "info"],
+  assinado: ["Assinado", "success"],
+  cancelado: ["Cancelado", "danger"],
+};
 
 export interface Rotulo {
   chave: string;

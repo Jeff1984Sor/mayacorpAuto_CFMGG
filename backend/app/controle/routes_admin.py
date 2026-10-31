@@ -249,6 +249,8 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
     mail.enviar([str(dados.admin_email)], f"Bem-vindo ao MayaJus — {nome}",
                 f"Olá, {dados.admin_nome}.\n\nO ambiente do {nome} no MayaJus está pronto. Para criar sua senha e "
                 f"entrar, acesse:\n{link}\n\nO link vale por 2 horas; depois disso, use \"Esqueci minha senha\".")
+    with SessaoControle() as db:
+        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, db.get(Cliente, cliente.id))
     ctx.auditar("admin.cliente.criar", "controle_cliente", cliente.id, descricao=f"{slug}: {nome}")
     ctx.db.commit()
     with SessaoControle() as db:
@@ -271,6 +273,7 @@ def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
         for k, v in _ficha(dados).items():
             setattr(c, k, v)
         db.commit()
+        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, c)
         ctx.auditar("admin.cliente.alterar", "controle_cliente", c.id, descricao=c.nome)
         ctx.db.commit()
         return _cliente_out(c)
@@ -568,6 +571,13 @@ def _contrato(db, kid: int) -> ContratoCliente:
     if not k:
         raise HTTPException(404, "Contrato não encontrado.")
     return k
+
+
+@router.get("/contratos")
+def todos_os_contratos(ctx: Painel):
+    with SessaoControle() as db:
+        q = select(ContratoCliente).order_by(ContratoCliente.id.desc())
+        return [{**_contrato_out(k), "cliente_nome": k.cliente.nome} for k in db.scalars(q)]
 
 
 @router.get("/clientes/{cid}/contratos")

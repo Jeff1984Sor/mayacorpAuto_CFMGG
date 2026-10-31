@@ -65,6 +65,8 @@ export interface NavItem {
   equipe?: boolean;
   /** Só no admin MayaCorp (clientes, planos, contratos). */
   painel?: boolean;
+  /** Some no admin MayaCorp: lá o item equivalente fica no grupo MayaCorp (um menu só). */
+  foraDoPainel?: boolean;
   exato?: boolean;
 }
 
@@ -77,9 +79,9 @@ export const NAV: NavGrupo[] = [
   {
     titulo: "MayaCorp",
     itens: [
-      { label: "Clientes MayaJus", href: "/admin/clientes", icone: Building2, painel: true },
+      { label: "Clientes", href: "/admin/clientes", icone: Building2, painel: true },
+      { label: "Contratos", href: "/admin/contratos", icone: ScrollText, painel: true },
       { label: "Planos e indicação", href: "/admin/planos", icone: BadgeDollarSign, painel: true },
-      { label: "Modelos de contrato", href: "/admin/contratos", icone: ScrollText, painel: true },
     ],
   },
   {
@@ -92,8 +94,8 @@ export const NAV: NavGrupo[] = [
   {
     titulo: "Cadastros",
     itens: [
-      { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, permissao: "clientes.ver", atalho: "G C" },
-      { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, permissao: "contratos.ver" },
+      { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, permissao: "clientes.ver", atalho: "G C", foraDoPainel: true },
+      { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, permissao: "contratos.ver", foraDoPainel: true },
       { label: "Casos", href: "/faturamento/casos", icone: Briefcase, permissao: "casos.ver" },
       { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, permissao: "tarefas.ver", badge: "tarefas" },
       { label: "Timesheet", href: "/faturamento/timesheet", icone: Clock, permissao: "timesheet.ver" },
@@ -193,7 +195,7 @@ export function navPara(
   return NAV.map((g) => ({
     ...g,
     itens: g.itens.filter(
-      (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp),
+      (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp) && !(i.foraDoPainel && painelMayaCorp),
     ),
   })).filter((g) => g.itens.length > 0);
 }

@@ -55,6 +55,7 @@ class UsuarioMe(Schema):
     administrador: bool = False
     permissoes: list[str] = []
     painel_mayacorp: bool = False  # admin MayaCorp: mostra o menu MayaCorp (clientes, planos, contratos)
+    endereco_painel: str | None = None  # usuário da MayaCorp: o admin só abre neste domínio
 
 
 class IdentidadePublica(Schema):

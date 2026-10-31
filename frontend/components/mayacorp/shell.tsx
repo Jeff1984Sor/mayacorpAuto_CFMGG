@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
+import { api, tokens } from "@/lib/api";
 import { useComunicador } from "@/components/comunicador/provider";
 import { ChatBotao, MencoesBotao } from "@/components/comunicador/topbar";
 import { ComunicadorWidget } from "@/components/comunicador/widget";
@@ -425,6 +425,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp));
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha a gaveta ao navegar
   useEffect(() => setGaveta(false), [pathname]);
+  // o admin MayaCorp tem endereço próprio: entrou pelo endereço do MayaJus, vai para o login de lá
+  useEffect(() => {
+    const destino = usuario?.endereco_painel;
+    const { hostname } = window.location;
+    if (!destino || hostname === destino || hostname === "localhost" || hostname === "127.0.0.1") return;
+    tokens.clear();
+    window.location.replace(`https://${destino}/login`);
+  }, [usuario?.endereco_painel]);
 
   return (
     <>
