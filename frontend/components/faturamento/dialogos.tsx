@@ -190,6 +190,12 @@ export function ContratoDialog({
   }, [open, contrato, tomadorId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  const emissorasAtivas = (emissoras.data ?? []).filter(
+    (e) => e.ativa || e.id === f.emissora_id,
+  );
+  /** com uma só emissora não há "padrão" a escolher: é ela */
+  const emissoraUnica =
+    emissorasAtivas.length === 1 ? emissorasAtivas[0] : null;
   const set = <K extends keyof ContratoIn>(k: K, v: ContratoIn[K]) =>
     setF((o) => ({ ...o, [k]: v }));
   const nomeCliente =
@@ -205,6 +211,7 @@ export function ContratoDialog({
     mutationFn: () => {
       const body: ContratoIn = {
         ...f,
+        emissora_id: f.emissora_id ?? emissoraUnica?.id ?? null,
         nome: f.nome.trim(),
         objeto: nulo(f.objeto),
         observacao: nulo(f.observacao),
@@ -320,17 +327,21 @@ export function ContratoDialog({
         <Field
           label="Empresa emissora"
           htmlFor="contrato-emissora"
-          dica="Opcional: a padrão é usada se ficar em branco."
+          dica={
+            emissoraUnica
+              ? undefined
+              : "Opcional: a padrão é usada se ficar em branco."
+          }
         >
           <NativeSelect
             id="contrato-emissora"
-            value={f.emissora_id ?? ""}
+            value={f.emissora_id ?? emissoraUnica?.id ?? ""}
             onChange={(e) =>
               set("emissora_id", e.target.value ? Number(e.target.value) : null)
             }
           >
-            <option value="">Padrão</option>
-            {emissoras.data?.map((e) => (
+            {!emissoraUnica && <option value="">Padrão</option>}
+            {emissorasAtivas.map((e) => (
               <option key={e.id} value={e.id}>
                 {nomeEmissora(e)}
               </option>
