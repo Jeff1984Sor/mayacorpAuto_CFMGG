@@ -1,6 +1,6 @@
 """Rotas da integração: advogado (OAB, certificado, termo), varredura, processos, intimações, vínculos, painel e fila."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
@@ -35,10 +35,9 @@ from app.modules.tribunais.models import (
     Varredura,
     Vinculo,
 )
-from app.modules.tribunais.vinculo import normalizar_nome
 from app.modules.tribunais.schemas import (
-    ConcluirIn,
     ComunicacoesIn,
+    ConcluirIn,
     CriarCasoIn,
     CriarClienteIn,
     ImportarIn,
@@ -52,6 +51,7 @@ from app.modules.tribunais.schemas import (
     VarreduraIn,
     VinculoIn,
 )
+from app.modules.tribunais.vinculo import normalizar_nome
 
 router = APIRouter(prefix="/tribunais", tags=["Tribunais"])
 

@@ -194,15 +194,23 @@ def migrar(esc: Escritorio) -> None:
 
 
 def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias_teste: int | None = None,
-                dominios: list[str] | None = None, tipo: str = "escritorio", **ficha) -> tuple[Cliente, str]:
+                dominios: list[str] | None = None, tipo: str = "escritorio", admin_login: str | None = None,
+                admin_senha: str | None = None, **ficha) -> tuple[Cliente, str]:
     """Escritório novo: banco próprio, tabelas, identidade e o primeiro administrador (recebe o convite)."""
     from app.core.db import SessionLocal
     from app.core.models import Identidade, Tenant
 
     email = admin_email.strip().lower()
+    login = admin_login.strip().lower() if admin_login else None
+    if admin_senha:
+        from app.core.security import validar_politica_senha
+
+        if erro := validar_politica_senha(admin_senha):
+            raise RegraControle(erro)
     with SessaoControle() as db:
-        if db.get(Login, email):
-            raise RegraControle(f"O e-mail {email} já é usado em outro escritório.")
+        for chave in filter(None, (email, login)):
+            if db.get(Login, chave):
+                raise RegraControle(f"{chave} já é usado em outro escritório (o login precisa ser único no MayaJus).")
     banco = nome_do_banco(slug)
     cliente = registrar(slug, nome, banco=banco, dias_teste=dias_teste, dominios=dominios, tipo=tipo, **ficha)
     esc = Escritorio(slug=slug, banco=banco, mayacorp=tipo == "mayacorp")
@@ -213,20 +221,22 @@ def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias
         db.add(t)
         db.flush()
         db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
-        admin = _primeiro_admin(db, t.id, admin_nome, email)
+        admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
         db.commit()
         uid = admin.id
-        link = _convite(admin)
-    sincronizar_usuario(slug, uid, [email])
+        link = "" if admin_senha else _convite(admin)
+    sincronizar_usuario(slug, uid, [email, login])
     return cliente, link
 
 
-def _primeiro_admin(db, tenant_id: int, nome: str, email: str):
+def _primeiro_admin(db, tenant_id: int, nome: str, email: str, login: str | None = None, senha: str | None = None):
     from app.core import perfis
     from app.core.models import Perfil, Usuario
+    from app.core.security import hash_senha
 
     padrao = perfis.garantir_padrao(db, tenant_id)
-    u = Usuario(tenant_id=tenant_id, nome=nome, email=email, perfil=Perfil.admin, convite_pendente=True)
+    u = Usuario(tenant_id=tenant_id, nome=nome, email=email, login=login, perfil=Perfil.admin,
+                senha_hash=hash_senha(senha) if senha else None, convite_pendente=not senha)
     perfis.aplicar(u, padrao["Administrador"])
     db.add(u)
     db.flush()
@@ -255,9 +265,30 @@ def migrar_controle() -> None:
         planos.garantir_padrao(db)
 
 
+def registrar_principal_se_faltar() -> str | None:
+    """Primeira ativação: o escritório que já mora no banco principal (a CFME) entra no controle com os logins,
+    antes de a API reiniciar no modo novo — ninguém fica sem acesso."""
+    from sqlalchemy.orm import Session
+
+    from app.core.models import Tenant
+
+    with SessaoControle() as db:
+        if db.scalar(select(Cliente.id).where(Cliente.banco.is_(None))):
+            return None
+    with Session(tenancy.engine_do(None)) as db:
+        t = db.scalar(select(Tenant).order_by(Tenant.id))
+        if t is None:
+            return None
+        slug, nome = t.slug, t.nome
+    registrar(slug, nome, banco=None)
+    sincronizar_todos(slug)
+    return slug
+
+
 def migrar_todos() -> list[str]:
     """Controle + o banco de cada escritório (o principal é migrado pelo deploy de sempre)."""
     migrar_controle()
+    registrar_principal_se_faltar()
     feitos = []
     for esc in ativos():
         if esc.banco is not None:

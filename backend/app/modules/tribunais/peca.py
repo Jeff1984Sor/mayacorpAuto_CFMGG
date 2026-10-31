@@ -147,12 +147,13 @@ def texto_da_peca(prot, advogado: Usuario, oab: str) -> list[tuple[str, str]]:
 
 
 def gerar_pdf(prot, advogado: Usuario, oab: str) -> bytes:
+    from xml.sax.saxutils import escape
+
     from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-    from xml.sax.saxutils import escape
 
     estilos = {
         "titulo": ParagraphStyle("t", fontName="Times-Bold", fontSize=12, leading=16, alignment=TA_JUSTIFY, spaceAfter=36),

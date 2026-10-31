@@ -15,24 +15,23 @@ def multi(cliente):  # noqa: F811
     from app.controle import models, service
 
     pasta = Path(tempfile.mkdtemp(prefix="mayajus-controle-"))
-    settings.controle_database_url = f"sqlite:///{(pasta / 'controle.db').as_posix()}"
+    tenancy.forcar_controle(f"sqlite:///{(pasta / 'controle.db').as_posix()}")
     models._fabrica = None
     service.limpar_cache()
     service.migrar_controle()
-    service.registrar("cfme", "CFME Advogados", banco=None)
-    with tenancy.usando(service.por_slug("cfme")):
-        service.sincronizar_todos("cfme")
+    assert service.registrar_principal_se_faltar() == "cfme"  # primeira ativação: a CFME entra sozinha, com os logins
+    assert service.registrar_principal_se_faltar() is None
     _, link = service.provisionar("silva", "Silva Advogados", admin_nome="Ana Silva", admin_email="ana@silva.adv.br",
                                   dias_teste=15, dominios=["sistema.silva.adv.br"])
     token = link.split("token=")[1]
     r = cliente.post("/api/auth/reset", json={"token": token, "senha": "Silva@2026x"})
     assert r.status_code == 200, r.text
     _, link = service.provisionar("mayacorp", "MayaCorp", admin_nome="Jefferson", admin_email="jeff@mayacorp.com.br",
-                                  dominios=["admin.mayajus.test"], tipo="mayacorp")
-    r = cliente.post("/api/auth/reset", json={"token": link.split("token=")[1], "senha": "Maya@2026xx"})
-    assert r.status_code == 200, r.text
+                                  dominios=["admin.mayajus.test"], tipo="mayacorp", admin_login="jeffadm",
+                                  admin_senha="Maya@2026xx")
+    assert link == ""  # com senha definida não há convite
     yield cliente
-    settings.controle_database_url = None
+    tenancy.forcar_controle(None)
     models._fabrica = None
     service.limpar_cache()
 

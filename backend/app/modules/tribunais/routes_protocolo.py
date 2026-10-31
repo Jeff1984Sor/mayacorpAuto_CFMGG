@@ -14,10 +14,17 @@ from app.core.db import agora
 from app.core.deps import Ctx
 from app.core.models import Usuario
 from app.modules.faturamento.models import Caso, Despesa
-from app.modules.tribunais import cnj, jobs, peca
+from app.modules.tribunais import cnj, jobs, peca, service
 from app.modules.tribunais import protocolo as prot_mod
-from app.modules.tribunais import service
-from app.modules.tribunais.models import Custa, EmailLog, Processo, Protocolo, ProtocoloDocumento, RetornoProtocolo, Tribunal
+from app.modules.tribunais.models import (
+    Custa,
+    EmailLog,
+    Processo,
+    Protocolo,
+    ProtocoloDocumento,
+    RetornoProtocolo,
+    Tribunal,
+)
 from app.modules.tribunais.routes import _dt, _nome, _processo
 from app.modules.tribunais.schemas import CustaIn, DocumentoPatch, ProtocoloIn, RedigirIn
 

@@ -64,8 +64,9 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
 
 Configuração de **negócio** fica no banco e é editada em **Configurações**: usuários e senhas, identidade, certificado,
 parâmetros fiscais, SMTP e modo da Prefeitura. O `.env` guarda só o que é **de servidor**: `DATABASE_URL`, `JWT_SECRET`,
-`MASTER_KEY` (a chave que cifra o .pfx não pode morar no banco que ela protege), `AMBIENTE` e `CONTROLE_DATABASE_URL`
-(um banco por escritório: `app/core/tenancy.py`, `app/controle/`; vazio = banco único). Não crie variável de
+`MASTER_KEY` (a chave que cifra o .pfx não pode morar no banco que ela protege) e `AMBIENTE`. Um banco por escritório
+liga sozinho quando existe o banco `mayajus_controle` no mesmo servidor (`app/core/tenancy.py`, `app/controle/`); o
+Jefferson não quer nada disso no .env. Não crie variável de
 ambiente para regra de negócio. Emissão real só é liberada quando `AMBIENTE=prod`.
 
 ## Pegadinhas

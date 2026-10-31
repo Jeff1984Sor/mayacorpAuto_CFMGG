@@ -7,7 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.tribunais import adaptadores, cnj
-from app.modules.tribunais.models import ConfigTribunais, NotificacaoProtocolo, PesoProtocolo, Plataforma, Sistema, Tribunal
+from app.modules.tribunais.models import (
+    ConfigTribunais,
+    NotificacaoProtocolo,
+    PesoProtocolo,
+    Plataforma,
+    Sistema,
+    Tribunal,
+)
 
 # chave pública divulgada pelo CNJ na documentação do DataJud (não é segredo; pode mudar e por isso é editável)
 DATAJUD_CHAVE_PUBLICA = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=="

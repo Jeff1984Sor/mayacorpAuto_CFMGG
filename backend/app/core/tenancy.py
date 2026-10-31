@@ -1,7 +1,8 @@
 """Um banco por escritório (cliente do MayaJus).
 
-Sem `CONTROLE_DATABASE_URL` o sistema roda como sempre: um banco só (`DATABASE_URL`), a pasta `storage/`.
-Com ele, o banco de controle (app/controle) diz quais escritórios existem e em qual banco mora cada um; o
+Sem o banco `mayajus_controle` (no mesmo servidor do DATABASE_URL) o sistema roda como sempre: um banco só, a
+pasta `storage/`. Quando ele existe, o modo liga sozinho (nada no .env): o banco de controle (app/controle) diz
+quais escritórios existem e em qual banco mora cada um; o
 escritório do pedido atual fica numa ContextVar e é ela que decide o banco de toda sessão (`SessionLocal`,
 `get_db`) e a pasta dos arquivos. Quem define o escritório:
 
@@ -37,13 +38,43 @@ class EscritorioNaoIdentificado(RuntimeError):
     pass
 
 
+BANCO_CONTROLE = "mayajus_controle"
+
 _atual: contextvars.ContextVar[Escritorio | None] = contextvars.ContextVar("escritorio", default=None)
 _engines: dict[str, Engine] = {}
 _trava = threading.Lock()
+_url_forcada: str | None = None  # testes apontam para um controle próprio
+_multi: bool | None = None
+
+
+def forcar_controle(url: str | None) -> None:
+    """Testes: usa este banco de controle (None = volta a detectar)."""
+    global _url_forcada, _multi
+    _url_forcada, _multi = url, None
+
+
+def url_controle() -> str:
+    return _url_forcada or url_do_banco(BANCO_CONTROLE)
+
+
+def _controle_existe() -> bool:
+    from sqlalchemy import text
+
+    from app.core.db import engine
+
+    url = make_url(url_do_banco(BANCO_CONTROLE))
+    if url.get_backend_name() == "sqlite":
+        return Path(url.database or "").exists()
+    with engine.connect() as conn:  # se o servidor estiver fora, falha alto (não liga o modo errado)
+        return bool(conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": BANCO_CONTROLE}))
 
 
 def multi() -> bool:
-    return bool(settings.controle_database_url)
+    """Um banco por escritório? Liga sozinho quando o banco de controle existe (decidido uma vez por processo)."""
+    global _multi
+    if _multi is None:
+        _multi = _url_forcada is not None or _controle_existe()
+    return _multi
 
 
 def atual() -> Escritorio | None:

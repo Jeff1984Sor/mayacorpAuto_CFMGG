@@ -19,8 +19,6 @@ from app.core import tenancy
 
 
 def main() -> None:
-    if not tenancy.multi():
-        sys.exit("Defina CONTROLE_DATABASE_URL no .env para usar um banco por escritório.")
     ap = argparse.ArgumentParser(prog="app.controle.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("migrar")
@@ -38,6 +36,8 @@ def main() -> None:
     p = sub.add_parser("criar-admin", help="o admin da MayaCorp (banco próprio, mesmos módulos + menu MayaCorp)")
     p.add_argument("--admin-nome", required=True)
     p.add_argument("--admin-email", required=True)
+    p.add_argument("--login", help="entrar com este usuário além do e-mail")
+    p.add_argument("--senha-stdin", action="store_true", help="lê a senha da entrada (sem ela, vai convite)")
     p.add_argument("--dominio", action="append", default=[])
     p = sub.add_parser("dominio")
     p.add_argument("--slug", required=True)
@@ -45,6 +45,11 @@ def main() -> None:
     p = sub.add_parser("sincronizar-logins")
     p.add_argument("--slug", required=True)
     a = ap.parse_args()
+    if not tenancy.multi():
+        if a.cmd == "migrar":  # o deploy sempre chama: sem banco de controle, nada a fazer
+            print(f"Sem o banco {tenancy.BANCO_CONTROLE}: um banco só, nada a migrar no controle.")
+            return
+        sys.exit(f"Crie o banco {tenancy.BANCO_CONTROLE} no servidor do MayaJus para usar um banco por escritório.")
 
     try:
         if a.cmd == "migrar":
@@ -58,9 +63,11 @@ def main() -> None:
                                           dias_teste=a.teste, dominios=a.dominio)
             print(f"Escritório {a.slug} criado no banco {service.nome_do_banco(a.slug)}.\nConvite do administrador: {link}")
         elif a.cmd == "criar-admin":
+            senha = sys.stdin.readline().rstrip("\r\n") if a.senha_stdin else None
             _, link = service.provisionar("mayacorp", "MayaCorp", admin_nome=a.admin_nome, admin_email=a.admin_email,
-                                          dominios=a.dominio, tipo="mayacorp")
-            print(f"Admin MayaCorp criado no banco {service.nome_do_banco('mayacorp')}.\nConvite: {link}")
+                                          dominios=a.dominio, tipo="mayacorp", admin_login=a.login, admin_senha=senha)
+            print(f"Admin MayaCorp criado no banco {service.nome_do_banco('mayacorp')}."
+                  + (f"\nConvite: {link}" if link else " Entre com o login e a senha informados."))
         elif a.cmd == "dominio":
             with SessaoControle() as db:
                 c = db.query(Cliente).filter_by(slug=a.slug).one_or_none()

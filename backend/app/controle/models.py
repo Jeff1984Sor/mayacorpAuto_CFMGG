@@ -8,7 +8,6 @@ from decimal import Decimal
 from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, MetaData, Numeric, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
-from app.core.config import settings
 from app.core.db import NAMING, UtcDateTime, agora
 
 
@@ -132,9 +131,9 @@ _fabrica = None
 def SessaoControle():  # noqa: N802 — usado como SessionLocal
     global _engine, _fabrica
     if _fabrica is None:
-        url = settings.controle_database_url
-        if not url:
-            raise RuntimeError("CONTROLE_DATABASE_URL não configurado.")
+        from app.core import tenancy
+
+        url = tenancy.url_controle()
         args = {"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
         _engine = create_engine(url, pool_pre_ping=True, connect_args=args)
         _fabrica = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
