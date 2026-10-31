@@ -1,6 +1,23 @@
 import type { TokenOut } from "./types";
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace(/\/$/, "");
+const API_CONFIGURADA = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace(/\/$/, "");
+
+/**
+ * Fora do localhost a API é a do próprio endereço aberto: o admin MayaCorp e os domínios dos escritórios têm o
+ * mesmo /api (o nginx de cada domínio encaminha) e é o domínio que diz de qual escritório é a tela de login.
+ */
+function apiDoEndereco(): string {
+  if (typeof window === "undefined") return API_CONFIGURADA;
+  const { hostname, origin } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return API_CONFIGURADA;
+  try {
+    return origin + new URL(API_CONFIGURADA).pathname.replace(/\/$/, "");
+  } catch {
+    return API_CONFIGURADA;
+  }
+}
+
+export const API_URL = apiDoEndereco();
 
 const ACCESS = "maya.access";
 const REFRESH = "maya.refresh";
