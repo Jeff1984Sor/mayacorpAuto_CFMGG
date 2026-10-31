@@ -92,6 +92,9 @@ def login(dados: LoginIn, request: Request, db: DB):
                 audit.registrar(db, tenant_id=u.tenant_id, usuario=u, acao="auth.bloqueio", entidade="usuario",
                                 entidade_id=u.id, descricao="Bloqueio temporário por tentativas", ip=ip_cliente(request))
             db.commit()
+        if (esc := tenancy.atual()) is not None and esc.mayacorp:  # quem errou o endereço: o admin é só da MayaCorp
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos. Este endereço é só do admin "
+                                f"da MayaCorp; os escritórios entram por {settings.frontend_url}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos.")
     u.tentativas_falhas = 0
     u.bloqueado_ate = None
