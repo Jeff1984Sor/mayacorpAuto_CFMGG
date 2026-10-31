@@ -45,12 +45,40 @@ export function PlanilhaAcoes({ recurso, rotulo, podeImportar }: { recurso: "con
           <Upload /> Importar
         </Button>
       )}
-      <ImportarDialog open={aberto} onOpenChange={setAberto} recurso={recurso} rotulo={rotulo} />
+      <ImportarPlanilhaDialog
+        open={aberto}
+        onOpenChange={setAberto}
+        rotulo={rotulo}
+        urlImportar={`/faturamento/${recurso}/importar`}
+        urlModelo={`/faturamento/${recurso}/modelo.xlsx`}
+        nomeModelo={`modelo_${recurso}.xlsx`}
+        invalidar={["fat"]}
+        dica="Exporte, ajuste no Excel e importe de volta: linhas com Nº atualizam o registro; linhas sem Nº viram registros novos."
+      />
     </>
   );
 }
 
-function ImportarDialog({ open, onOpenChange, recurso, rotulo }: { open: boolean; onOpenChange: (o: boolean) => void; recurso: string; rotulo: string }) {
+/** Diálogo de importação de planilha .xlsx (arrasta/solta) com resumo: criados, atualizados e linhas com problema. */
+export function ImportarPlanilhaDialog({
+  open,
+  onOpenChange,
+  rotulo,
+  urlImportar,
+  urlModelo,
+  nomeModelo,
+  invalidar,
+  dica,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  rotulo: string;
+  urlImportar: string;
+  urlModelo: string;
+  nomeModelo: string;
+  invalidar: string[];
+  dica: string;
+}) {
   const qc = useQueryClient();
   const [res, setRes] = useState<Resultado | null>(null);
   /* eslint-disable react-hooks/set-state-in-effect -- limpa ao abrir */
@@ -62,11 +90,11 @@ function ImportarDialog({ open, onOpenChange, recurso, rotulo }: { open: boolean
     mutationFn: (f: File) => {
       const fd = new FormData();
       fd.append("arquivo", f);
-      return api.post<Resultado>(`/faturamento/${recurso}/importar`, fd);
+      return api.post<Resultado>(urlImportar, fd);
     },
     onSuccess: (r) => {
       setRes(r);
-      qc.invalidateQueries({ queryKey: ["fat"] });
+      qc.invalidateQueries({ queryKey: invalidar });
     },
   });
   const dz = useDropzone({
@@ -85,7 +113,7 @@ function ImportarDialog({ open, onOpenChange, recurso, rotulo }: { open: boolean
           <>
             <p className="flex items-start gap-2 rounded-xl bg-brand/6 px-3 py-2 text-xs text-info-ink">
               <Info className="mt-0.5 size-3.5 shrink-0" />
-              Exporte, ajuste no Excel e importe de volta: linhas com Nº atualizam o registro; linhas sem Nº viram registros novos.
+              {dica}
             </p>
             <div
               {...dz.getRootProps()}
@@ -95,7 +123,7 @@ function ImportarDialog({ open, onOpenChange, recurso, rotulo }: { open: boolean
               {enviar.isPending ? <Loader2 className="size-7 animate-spin text-info-ink" /> : <FileSpreadsheet className="size-7 text-info-ink" />}
               <p className="text-sm font-medium">{enviar.isPending ? "Importando…" : "Arraste a planilha ou clique para escolher"}</p>
             </div>
-            <Button variant="link" size="sm" className="self-start px-0" onClick={() => baixar(`/faturamento/${recurso}/modelo.xlsx`, {}, `modelo_${recurso}.xlsx`)}>
+            <Button variant="link" size="sm" className="self-start px-0" onClick={() => baixar(urlModelo, {}, nomeModelo)}>
               <Download /> Baixar modelo
             </Button>
           </>

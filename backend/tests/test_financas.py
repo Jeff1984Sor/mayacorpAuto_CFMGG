@@ -141,6 +141,37 @@ def test_planilhas_de_importacao(cliente):  # noqa: F811
     assert ext["entradas"] == "500.00" and ext["saidas"] == "35.00"
 
 
+def test_modelo_e_importacao_de_fornecedores(cliente):  # noqa: F811
+    h = _login(cliente)
+    existente = cliente.post(f"{F}/fornecedores", headers=h, json={"nome": "Contabilidade Antiga", "tipo": "PJ",
+                                                                   "cpf_cnpj": "45.997.418/0001-53", "telefone": "(11) 1111-1111"}).json()
+    r = cliente.get(f"{F}/fornecedores/modelo.xlsx", headers=h)
+    assert r.status_code == 200 and r.content[:2] == b"PK"
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Fornecedores", "Instruções"]
+    ws = wb["Fornecedores"]
+    assert [c.value for c in ws[1]][:3] == ["Nome", "Tipo (PF/PJ)", "CPF/CNPJ"]
+    ws.delete_rows(2)
+    ws.append(["Maria Tradutora", None, "529.982.247-25", "maria@exemplo.com", None, "maria@exemplo.com", None, None, None,
+               "Serviços de tradução", None, "Sim"])
+    ws.append(["Contabilidade Nova", "PJ", "45997418000153", "contab@exemplo.com", None, None, None, None, None, None, None, None])
+    ws.append(["Sem documento certo", "PJ", "123", None, None, None, None, None, None, None, None, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    r = cliente.post(f"{F}/fornecedores/importar", headers=h, files={"arquivo": ("forn.xlsx", buf.getvalue())})
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["criados"] == 1 and res["atualizados"] == 1 and res["qtd_erros"] == 1, res
+    assert "Linha 4" in res["erros"][0] and "CNPJ" in res["erros"][0]
+    assert "Serviços de tradução" in res["categorias_novas"]
+    lista = {f["cpf_cnpj"]: f for f in cliente.get(f"{F}/fornecedores", headers=h).json()}
+    maria = lista["52998224725"]
+    assert maria["tipo"] == "PF" and maria["nome"] == "Maria Tradutora" and maria["categoria_padrao_id"]
+    atual = lista["45997418000153"]
+    assert atual["id"] == existente["id"] and atual["nome"] == "Contabilidade Nova"
+    assert atual["email"] == "contab@exemplo.com" and atual["telefone"] == "(11) 1111-1111"  # célula vazia não apaga
+
+
 def test_recebimento_de_fatura_vira_credito(cliente):  # noqa: F811
     h = _login(cliente)
     conta = _conta(cliente, h, "Conta Recebimentos", saldo="0")

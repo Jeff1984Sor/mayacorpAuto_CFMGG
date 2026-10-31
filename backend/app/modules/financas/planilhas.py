@@ -1,4 +1,4 @@
-"""Planilhas do financeiro: modelos para importar (contas a pagar, extrato) e exportações (extrato, fluxo, DRE, contas)."""
+"""Planilhas do financeiro: modelos para importar (contas a pagar, extrato, fornecedores) e exportações (extrato, fluxo, DRE, contas)."""
 
 import io
 import re
@@ -120,6 +120,41 @@ def modelo_extrato(nome_conta: str) -> bytes:
     return _wb_bytes(wb)
 
 
+# ---------------------------------------------------------------- modelo de fornecedores
+COLUNAS_FORNECEDORES = ["Nome", "Tipo (PF/PJ)", "CPF/CNPJ", "E-mail", "Telefone", "Chave PIX", "Banco", "Agência", "Conta",
+                        "Categoria padrão", "Observação", "Ativo (Sim/Não)"]
+
+
+def modelo_fornecedores() -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Fornecedores"
+    for i, h in enumerate(COLUNAS_FORNECEDORES, start=1):
+        c = ws.cell(1, i, h)
+        c.fill, c.font = CABECALHO, FONTE_CAB
+        ws.column_dimensions[get_column_letter(i)].width = [34, 14, 22, 30, 18, 28, 20, 10, 14, 26, 30, 16][i - 1]
+    ws.append(["Papelaria Exemplo Ltda", "PJ", "11.222.333/0001-81", "contato@papelariaexemplo.com.br", "(11) 3333-4444",
+               "11222333000181", "Banco do Brasil", "1234", "56789-0", "Material de escritório", "Exemplo: apague esta linha", "Sim"])
+    for c in ws[2]:
+        c.number_format = "@"  # texto: preserva zeros à esquerda de CPF/CNPJ, agência e conta
+    ws.freeze_panes = "A2"
+    inst = wb.create_sheet("Instruções")
+    for linha in [
+        "Como preencher (um fornecedor por linha, a partir da linha 2):",
+        "• Nome: obrigatório.",
+        "• Tipo: PF (pessoa física) ou PJ (empresa). Se ficar vazio, é deduzido pelo CPF/CNPJ (11 dígitos = PF).",
+        "• CPF/CNPJ: pode vir com ou sem pontos. Se já existir um fornecedor com esse CPF/CNPJ, ele é atualizado;",
+        "  senão, é criado um novo. Sem CPF/CNPJ, o fornecedor com o mesmo nome é atualizado.",
+        "• Na atualização, células vazias não apagam o que já está cadastrado.",
+        "• Categoria padrão: nome de uma categoria de despesa (criada se ainda não existir).",
+        "• Ativo: Sim ou Não (vazio = Sim para fornecedor novo).",
+        "• Apague a linha de exemplo antes de importar.",
+    ]:
+        inst.append([linha])
+    inst.column_dimensions["A"].width = 110
+    return _wb_bytes(wb)
+
+
 # ---------------------------------------------------------------- leitura
 def ler_data(v) -> date | None:
     if v is None or v == "":
@@ -193,4 +228,20 @@ def colunas_extrato(cabecalho: tuple) -> dict[str, int]:
             pos["descricao"] = i
     if "data" not in pos:
         return {"data": 0, "descricao": 1, "entrada": 2, "saida": 3, "categoria": 4, "_sem_cabecalho": 1}
+    return pos
+
+
+def colunas_fornecedores(cabecalho: tuple) -> dict[str, int]:
+    """Posição de cada coluna do modelo pelo nome do cabeçalho (aceita colunas fora de ordem)."""
+    chaves = {_norm(h): k for h, k in zip(COLUNAS_FORNECEDORES, ("nome", "tipo", "cpf_cnpj", "email", "telefone", "chave_pix",
+                                                                 "banco", "agencia", "conta", "categoria", "observacao", "ativo"),
+                                          strict=True)}
+    sinonimos = {"tipo": "tipo", "cpfcnpj": "cpf_cnpj", "cpf": "cpf_cnpj", "cnpj": "cpf_cnpj", "email": "email", "ativo": "ativo",
+                 "categoria": "categoria", "pix": "chave_pix"}
+    pos: dict[str, int] = {}
+    for i, h in enumerate(cabecalho):
+        n = _norm(h)
+        k = chaves.get(n) or sinonimos.get(n)
+        if k and k not in pos:
+            pos[k] = i
     return pos
