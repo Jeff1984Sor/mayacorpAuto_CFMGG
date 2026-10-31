@@ -200,7 +200,7 @@ function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boo
   const { usuario, pode } = useAuth();
   const { nome_exibicao } = useBrand();
   const pathname = usePathname();
-  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp);
+  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp);
   const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
@@ -422,7 +422,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pode, usuario } = useAuth();
   // bloqueio leve por página: o servidor já recusa os dados, aqui só trocamos a tela por um aviso amigável
   const rota = itemDaRota(pathname);
-  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp));
+  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp));
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha a gaveta ao navegar
   useEffect(() => setGaveta(false), [pathname]);
 

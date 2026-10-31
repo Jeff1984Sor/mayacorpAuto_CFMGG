@@ -181,3 +181,31 @@ def test_desconto_por_indicacao(multi):
                  json={"desconto_por_indicacao": "5", "desconto_maximo": "15"}).status_code == 422  # nunca acima de 10%
     assert c.put(f"/api/admin/clientes/{souza['id']}", headers=adm,
                  json={"nome": souza["nome"], "indicado_por_id": souza["id"]}).status_code == 400  # não indica a si mesmo
+
+
+def test_ia_no_admin(multi, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core import ia
+
+    resposta = {}
+    monkeypatch.setattr(ia, "provedor_ativo", lambda db, tid: SimpleNamespace(nome="gemini", modelo="teste"))
+    monkeypatch.setattr(ia, "gerar_json", lambda p, sistema, usuario, anexo=None: resposta["proxima"])
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+
+    resposta["proxima"] = {"nome": "Ramos Advocacia", "documento": "11.222.333/0001-81", "responsavel": "Dra. Ramos",
+                           "email_financeiro": "nao-e-email", "telefone": "(11) 3333-4444"}
+    r = c.post("/api/admin/ia/ficha", headers=adm, json={"texto": "Ramos Advocacia CNPJ 11.222.333/0001-81 ..."}).json()
+    assert r["campos"]["documento"] == "11222333000181" and "email_financeiro" not in r["campos"]  # e-mail inválido sai
+
+    resposta["proxima"] = {"corpo": "CONTRATANTE: {{cliente_nome}} no plano {{plano}}. " * 3 + "{{inventada}}", "resumo": "ok"}
+    r = c.post("/api/admin/ia/contrato", headers=adm, json={"instrucao": "contrato simples"}).json()
+    assert r["variaveis_desconhecidas"] == ["inventada"]  # o admin vê o que a IA inventou
+    assert c.post("/api/admin/ia/contrato", headers=adm, json={}).status_code == 400
+
+    cliente_id = next(x["id"] for x in c.get("/api/admin/clientes", headers=adm).json() if x["slug"] == "silva")
+    resposta["proxima"] = {"mensagem": "Olá, segue o contrato."}
+    r = c.post("/api/admin/ia/mensagem", headers=adm, json={"titulo": "Contrato", "cliente_id": cliente_id})
+    assert r.json()["mensagem"] == "Olá, segue o contrato."
+    assert c.post("/api/admin/ia/ficha", headers=_login(c), json={"texto": "x" * 20}).status_code == 404  # só no admin

@@ -657,3 +657,85 @@ def status_contrato(kid: int, dados: ContratoStatusIn, ctx: Painel):
 def meta(ctx: Painel) -> dict:
     return {"status": [{"chave": k, "rotulo": v} for k, v in STATUS.items()]}
 
+
+
+# ================================================================ ✨ IA (provedor configurado no próprio admin)
+SISTEMA_ADMIN = ("Você é o assistente comercial da MayaCorp, empresa que vende o MayaJus (sistema de gestão para "
+                 "escritórios de advocacia) por assinatura. Escreva em português do Brasil, claro, profissional e sem "
+                 "inventar dados. Responda SOMENTE com um objeto JSON válido no formato pedido.")
+
+
+class TextoIAIn(BaseModel):
+    texto: str = Field(min_length=10, max_length=8000)
+
+
+class ContratoIAIn(BaseModel):
+    instrucao: str | None = Field(default=None, max_length=2000)
+    corpo: str | None = Field(default=None, max_length=30000)
+
+
+class MensagemIAIn(BaseModel):
+    titulo: str = Field(max_length=200)
+    cliente_id: int
+    instrucao: str | None = Field(default=None, max_length=1000)
+
+
+def _ia(ctx, acao: str, pedido: str) -> dict:
+    from app.core.routes.ia import _chamar
+
+    return _chamar(ctx, f"admin.{acao}", SISTEMA_ADMIN, pedido)
+
+
+@router.post("/ia/ficha")
+def ia_ficha(dados: TextoIAIn, ctx: Painel):
+    """Preenche a ficha do cliente a partir de um texto colado (cartão CNPJ, e-mail, assinatura)."""
+    r = _ia(ctx, "ficha", "Extraia do texto os dados do escritório cliente. Use null para o que não estiver no texto; "
+                          "nunca invente.\nFormato: {\"nome\", \"documento\" (CNPJ ou CPF), \"responsavel\" (pessoa que "
+                          "assina), \"email_financeiro\", \"telefone\"}\nTexto:\n" + dados.texto)
+    campos = {k: str(v).strip() for k, v in r.items()
+              if k in ("nome", "documento", "responsavel", "email_financeiro", "telefone") and v not in (None, "", "null")}
+    if "documento" in campos:
+        dig = re.sub(r"\D", "", campos["documento"])
+        if len(dig) in (11, 14):
+            campos["documento"] = dig
+        else:
+            campos.pop("documento")
+    if "email_financeiro" in campos and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", campos["email_financeiro"]):
+        campos.pop("email_financeiro")
+    return {"campos": campos}
+
+
+@router.post("/ia/contrato")
+def ia_contrato(dados: ContratoIAIn, ctx: Painel):
+    """Escreve ou melhora o texto do contrato usando só as variáveis que o sistema sabe preencher."""
+    if not (dados.instrucao or dados.corpo):
+        raise HTTPException(400, "Diga o que a IA deve fazer ou cole o texto atual.")
+    lista = "\n".join(f"{{{{{k}}}}} = {v}" for k, v in contratos.VARIAVEIS.items())
+    r = _ia(ctx, "contrato",
+            "Escreva (ou melhore, se houver texto atual) um contrato de licença de uso de software por assinatura entre "
+            "a MayaCorp (contratada) e o escritório (contratante). Use os dados do cliente SOMENTE por estas variáveis, "
+            f"exatamente como escritas:\n{lista}\nNão crie outras variáveis nem invente valores. Parágrafos separados "
+            "por uma linha em branco; cláusulas numeradas; sem markdown.\n"
+            f"Pedido: {dados.instrucao or 'revise e deixe mais claro, completo e profissional'}\n"
+            f"Texto atual:\n{dados.corpo or '(nenhum)'}\n"
+            'Formato: {"corpo": str, "resumo": str (o que mudou, 1-2 frases)}')
+    corpo = str(r.get("corpo") or "").strip()
+    if len(corpo) < 50:
+        raise HTTPException(400, "A IA não devolveu um texto utilizável. Tente de novo com outro pedido.")
+    return {"corpo": corpo, "resumo": str(r.get("resumo") or ""), "variaveis_desconhecidas": contratos.desconhecidas(corpo)}
+
+
+@router.post("/ia/mensagem")
+def ia_mensagem(dados: MensagemIAIn, ctx: Painel):
+    """Texto do e-mail que leva o contrato."""
+    with SessaoControle() as db:
+        c = _cliente(db, dados.cliente_id)
+        quem, nome = c.responsavel or "", c.nome
+    r = _ia(ctx, "mensagem", f"Escreva um e-mail curto e cordial enviando o contrato \"{dados.titulo}\" para {nome}"
+                             f"{f', aos cuidados de {quem}' if quem else ''}, pedindo leitura e assinatura. Sem assinatura "
+                             f"no final (ela é adicionada depois). {dados.instrucao or ''}\n"
+                             'Formato: {"mensagem": str}')
+    mensagem = str(r.get("mensagem") or "").strip()
+    if not mensagem:
+        raise HTTPException(400, "A IA não devolveu um texto. Tente de novo.")
+    return {"mensagem": mensagem}

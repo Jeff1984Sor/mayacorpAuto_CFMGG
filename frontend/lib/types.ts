@@ -22,6 +22,8 @@ export interface UsuarioMe {
   foto_url: string | null;
   /** Equipe MayaCorp: gerencia configurações restritas (ex.: IA). */
   equipe_mayacorp: boolean;
+  /** admin MayaCorp: mostra o menu MayaCorp */
+  painel_mayacorp?: boolean;
   /** Preferências de interface salvas no servidor (acompanham o usuário em qualquer computador). */
   preferencias?: { menu_recolhido?: string[] } & Record<string, unknown>;
   perfil_acesso_id: number | null;

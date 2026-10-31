@@ -63,6 +63,8 @@ export interface NavItem {
   atalho?: string;
   /** Só para a equipe MayaCorp (ex.: chave da IA). */
   equipe?: boolean;
+  /** Só no admin MayaCorp (clientes, planos, contratos). */
+  painel?: boolean;
   exato?: boolean;
 }
 
@@ -72,6 +74,14 @@ export interface NavGrupo {
 }
 
 export const NAV: NavGrupo[] = [
+  {
+    titulo: "MayaCorp",
+    itens: [
+      { label: "Clientes MayaJus", href: "/admin/clientes", icone: Building2, painel: true },
+      { label: "Planos e indicação", href: "/admin/planos", icone: BadgeDollarSign, painel: true },
+      { label: "Modelos de contrato", href: "/admin/contratos", icone: ScrollText, painel: true },
+    ],
+  },
   {
     titulo: "Geral",
     itens: [
@@ -174,11 +184,17 @@ export const ICONE_AUTOMACAO: Record<string, LucideIcon> = {
   fingerprint: Fingerprint,
 };
 
-export function navPara(pode: ((permissao: string) => boolean) | undefined, equipeMayaCorp = false): NavGrupo[] {
+export function navPara(
+  pode: ((permissao: string) => boolean) | undefined,
+  equipeMayaCorp = false,
+  painelMayaCorp = false,
+): NavGrupo[] {
   if (!pode) return [];
   return NAV.map((g) => ({
     ...g,
-    itens: g.itens.filter((i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp)),
+    itens: g.itens.filter(
+      (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp),
+    ),
   })).filter((g) => g.itens.length > 0);
 }
 
