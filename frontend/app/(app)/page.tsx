@@ -20,6 +20,7 @@ import {
 import { motion } from "motion/react";
 import Link from "next/link";
 
+import { InicioMayaCorp } from "@/components/admin/inicio";
 import { MayaCorpAssinatura } from "@/components/mayacorp/brand";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,11 @@ function CardAutomacao({ a, i }: { a: AutomacaoCard; i: number }) {
 }
 
 export default function InicioPage() {
+  const { usuario } = useAuth();
+  return usuario?.painel_mayacorp ? <InicioMayaCorp /> : <InicioEscritorio />;
+}
+
+function InicioEscritorio() {
   const { usuario, pode } = useAuth();
   const { nome_exibicao } = useBrand();
   const verPainel = pode("nfse_notas.ver");

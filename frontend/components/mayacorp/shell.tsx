@@ -422,7 +422,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pode, usuario } = useAuth();
   // bloqueio leve por página: o servidor já recusa os dados, aqui só trocamos a tela por um aviso amigável
   const rota = itemDaRota(pathname);
-  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp));
+  const bloqueada = !!rota && ((!!rota.permissao && !pode(rota.permissao)) || (!!rota.equipe && !usuario?.equipe_mayacorp) || (!!rota.painel && !usuario?.painel_mayacorp) || (!!rota.foraDoPainel && !!usuario?.painel_mayacorp));
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha a gaveta ao navegar
   useEffect(() => setGaveta(false), [pathname]);
   // o admin MayaCorp tem endereço próprio: entrou pelo endereço do MayaJus, vai para o login de lá

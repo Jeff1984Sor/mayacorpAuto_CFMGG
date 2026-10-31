@@ -65,7 +65,7 @@ export interface NavItem {
   equipe?: boolean;
   /** Só no admin MayaCorp (clientes, planos, contratos). */
   painel?: boolean;
-  /** Some no admin MayaCorp: lá o item equivalente fica no grupo MayaCorp (um menu só). */
+  /** Some no admin MayaCorp: item de advocacia, ou o equivalente fica no grupo MayaCorp (um menu só). */
   foraDoPainel?: boolean;
   exato?: boolean;
 }
@@ -96,9 +96,9 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, permissao: "clientes.ver", atalho: "G C", foraDoPainel: true },
       { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, permissao: "contratos.ver", foraDoPainel: true },
-      { label: "Casos", href: "/faturamento/casos", icone: Briefcase, permissao: "casos.ver" },
-      { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, permissao: "tarefas.ver", badge: "tarefas" },
-      { label: "Timesheet", href: "/faturamento/timesheet", icone: Clock, permissao: "timesheet.ver" },
+      { label: "Casos", href: "/faturamento/casos", icone: Briefcase, permissao: "casos.ver", foraDoPainel: true },
+      { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, permissao: "tarefas.ver", badge: "tarefas", foraDoPainel: true },
+      { label: "Timesheet", href: "/faturamento/timesheet", icone: Clock, permissao: "timesheet.ver", foraDoPainel: true },
     ],
   },
   {
@@ -147,16 +147,16 @@ export const NAV: NavGrupo[] = [
   {
     titulo: "Tribunais",
     itens: [
-      { label: "Painel", href: "/tribunais", icone: Scale, permissao: "trib_processos.ver", exato: true, atalho: "G T" },
-      { label: "Processos", href: "/tribunais/processos", icone: Gavel, permissao: "trib_processos.ver" },
-      { label: "Buscar pela OAB", href: "/tribunais/varredura", icone: ScanSearch, permissao: "trib_processos.importar" },
-      { label: "Protocolos", href: "/tribunais/protocolos", icone: Stamp, permissao: "trib_protocolos.ver" },
-      { label: "Meu certificado e OAB", href: "/tribunais/meu-certificado", icone: BadgeCheck },
+      { label: "Painel", href: "/tribunais", icone: Scale, permissao: "trib_processos.ver", exato: true, atalho: "G T", foraDoPainel: true },
+      { label: "Processos", href: "/tribunais/processos", icone: Gavel, permissao: "trib_processos.ver", foraDoPainel: true },
+      { label: "Buscar pela OAB", href: "/tribunais/varredura", icone: ScanSearch, permissao: "trib_processos.importar", foraDoPainel: true },
+      { label: "Protocolos", href: "/tribunais/protocolos", icone: Stamp, permissao: "trib_protocolos.ver", foraDoPainel: true },
+      { label: "Meu certificado e OAB", href: "/tribunais/meu-certificado", icone: BadgeCheck, foraDoPainel: true },
     ],
   },
   {
     titulo: "Próximos robôs",
-    itens: [{ label: "Porto Seguro", href: "#", icone: Truck, emBreve: true }],
+    itens: [{ label: "Porto Seguro", href: "#", icone: Truck, emBreve: true, foraDoPainel: true }],
   },
   {
     titulo: "Configurações",
