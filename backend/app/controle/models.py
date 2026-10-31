@@ -161,6 +161,30 @@ class Cobranca(BaseControle):
     cliente: Mapped[Cliente] = relationship()
 
 
+class Solicitacao(BaseControle):
+    """Pedido de cadastro vindo do formulário público (site da MayaCorp). Vira cliente quando aprovado no admin."""
+
+    __tablename__ = "solicitacao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(String(200))  # escritório
+    documento: Mapped[str | None] = mapped_column(String(14))
+    responsavel: Mapped[str] = mapped_column(String(150))
+    email: Mapped[str] = mapped_column(String(200))
+    telefone: Mapped[str | None] = mapped_column(String(30))
+    plano_id: Mapped[int | None] = mapped_column(ForeignKey("plano.id", ondelete="SET NULL"))
+    ciclo: Mapped[str] = mapped_column(String(10), default="mensal")
+    usuarios: Mapped[int | None] = mapped_column(Integer)  # quantas pessoas vão usar (informado)
+    indicacao: Mapped[str | None] = mapped_column(String(200))  # quem indicou (texto livre)
+    mensagem: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(12), default="nova")  # nova | aprovada | recusada
+    cliente_id: Mapped[int | None] = mapped_column(ForeignKey("cliente.id", ondelete="SET NULL"))
+    ip: Mapped[str | None] = mapped_column(String(45))
+    criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
+
+    plano: Mapped["Plano | None"] = relationship()
+
+
 class Dominio(BaseControle):
     """Endereço próprio do escritório (ex.: sistema.cfme.com.br). Quem entra por ele cai direto no escritório."""
 

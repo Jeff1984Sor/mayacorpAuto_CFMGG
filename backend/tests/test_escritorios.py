@@ -343,3 +343,23 @@ def test_cobranca_mercado_pago(multi, monkeypatch):
     assert cobranca.rotina_diaria(date(2026, 11, 6))["avisos"] >= 1
     with SessaoControle() as db:
         assert db.get(Cobranca, kid).avisos == [-3, 0, 3]
+
+
+def test_cadastro_pelo_site(multi):
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    planos = c.get("/api/public/planos").json()  # sem login: o site mostra os planos
+    pro = next(p for p in planos if p["nome"] == "Pro")
+    base = {"nome": "Ramos Advocacia", "documento": "11.222.333/0001-81", "responsavel": "Paula Ramos",
+            "email": "paula@ramos.adv.br", "telefone": "(11) 99999-0000", "plano_id": pro["id"], "ciclo": "mensal",
+            "usuarios": 6, "indicacao": "Silva Advogados", "aceite": True}
+    assert c.post("/api/public/cadastro", json={**base, "aceite": False}).status_code == 400
+    assert c.post("/api/public/cadastro", json={**base, "site": "spam.com"}).status_code == 201  # robô: descartado
+    assert c.post("/api/public/cadastro", json=base).status_code == 201
+    sols = c.get("/api/admin/solicitacoes", headers=adm, params={"status": "nova"}).json()
+    assert [s["nome"] for s in sols] == ["Ramos Advocacia"]
+    r = c.post(f"/api/admin/solicitacoes/{sols[0]['id']}/aprovar", headers=adm, json={"dias_teste": 15})
+    assert r.status_code == 200, r.text
+    cli = r.json()
+    assert cli["status"] == "teste" and cli["plano"]["nome"] == "Pro" and "/primeiro-acesso?token=" in cli["convite"]
+    assert c.post(f"/api/admin/solicitacoes/{sols[0]['id']}/aprovar", headers=adm, json={}).status_code == 400
