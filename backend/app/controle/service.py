@@ -13,7 +13,7 @@ from app.core import tenancy
 from app.core.tenancy import Escritorio
 
 SLUG = re.compile(r"^[a-z][a-z0-9-]{1,38}$")
-ATIVOS = ("teste", "ativo", "suspenso")  # suspenso continua rodando: a cobrança só avisa (decisão da MayaCorp)
+ATIVOS = ("teste", "ativo", "suspenso")  # suspenso continua entrando (a cobrança só avisa); inativo não entra
 _cache: dict[tuple[str, str], tuple[float, Escritorio | None]] = {}
 _TTL = 60
 
@@ -23,7 +23,7 @@ class RegraControle(ValueError):
 
 
 def _esc(c: Cliente | None) -> Escritorio | None:
-    return Escritorio(slug=c.slug, banco=c.banco) if c and c.status in ATIVOS else None
+    return Escritorio(slug=c.slug, banco=c.banco, mayacorp=c.tipo == "mayacorp") if c and c.status in ATIVOS else None
 
 
 def _memo(tipo: str, chave: str, buscar) -> Escritorio | None:
@@ -122,7 +122,7 @@ def sincronizar_todos(slug: str) -> int:
 
 # ---------------------------------------------------------------- escritórios
 def registrar(slug: str, nome: str, *, banco: str | None, status: str = "ativo", dias_teste: int | None = None,
-              dominios: list[str] | None = None) -> Cliente:
+              dominios: list[str] | None = None, tipo: str = "escritorio", **ficha) -> Cliente:
     if not SLUG.match(slug):
         raise RegraControle("Identificador: letras minúsculas, números e hífen (2 a 39), começando com letra.")
     with SessaoControle() as db:
@@ -130,8 +130,10 @@ def registrar(slug: str, nome: str, *, banco: str | None, status: str = "ativo",
             raise RegraControle(f"Já existe o escritório {slug}.")
         if banco is None and db.scalar(select(Cliente).where(Cliente.banco.is_(None))):
             raise RegraControle("Já existe um escritório no banco principal.")
-        c = Cliente(slug=slug, nome=nome, banco=banco, status="teste" if dias_teste else status,
-                    teste_ate=date.today() + timedelta(days=dias_teste) if dias_teste else None)
+        if tipo == "mayacorp" and db.scalar(select(Cliente).where(Cliente.tipo == "mayacorp")):
+            raise RegraControle("O admin da MayaCorp já existe.")
+        c = Cliente(slug=slug, nome=nome, banco=banco, status="teste" if dias_teste else status, tipo=tipo,
+                    teste_ate=date.today() + timedelta(days=dias_teste) if dias_teste else None, **ficha)
         db.add(c)
         db.flush()
         for host in dominios or []:
@@ -192,7 +194,7 @@ def migrar(esc: Escritorio) -> None:
 
 
 def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias_teste: int | None = None,
-                dominios: list[str] | None = None) -> tuple[Cliente, str]:
+                dominios: list[str] | None = None, tipo: str = "escritorio", **ficha) -> tuple[Cliente, str]:
     """Escritório novo: banco próprio, tabelas, identidade e o primeiro administrador (recebe o convite)."""
     from app.core.db import SessionLocal
     from app.core.models import Identidade, Tenant
@@ -202,8 +204,8 @@ def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias
         if db.get(Login, email):
             raise RegraControle(f"O e-mail {email} já é usado em outro escritório.")
     banco = nome_do_banco(slug)
-    cliente = registrar(slug, nome, banco=banco, dias_teste=dias_teste, dominios=dominios)
-    esc = Escritorio(slug=slug, banco=banco)
+    cliente = registrar(slug, nome, banco=banco, dias_teste=dias_teste, dominios=dominios, tipo=tipo, **ficha)
+    esc = Escritorio(slug=slug, banco=banco, mayacorp=tipo == "mayacorp")
     criar_banco(banco)
     migrar(esc)
     with tenancy.usando(esc), SessionLocal() as db:
@@ -247,6 +249,10 @@ def migrar_controle() -> None:
     cfg = Config(str(BASE_DIR / "alembic_controle.ini"))
     cfg.attributes["configure_logger"] = False
     command.upgrade(cfg, "head")
+    from app.controle import planos
+
+    with SessaoControle() as db:
+        planos.garantir_padrao(db)
 
 
 def migrar_todos() -> list[str]:

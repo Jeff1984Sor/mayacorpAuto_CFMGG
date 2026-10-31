@@ -3,6 +3,7 @@
     python -m app.controle.cli migrar                      # controle + banco de cada escritório
     python -m app.controle.cli registrar-principal --slug cfme --nome "CFME Advogados"
     python -m app.controle.cli criar --slug silva --nome "Silva Advogados" --admin-nome "Ana" --admin-email ana@x.com --teste 15
+    python -m app.controle.cli criar-admin --admin-nome "Jefferson" --admin-email voce@mayacorp.com.br --dominio admin.mayajus.com.br
     python -m app.controle.cli dominio --slug cfme --host sistema.cfme.com.br
     python -m app.controle.cli sincronizar-logins --slug cfme
     python -m app.controle.cli listar
@@ -34,6 +35,10 @@ def main() -> None:
     p.add_argument("--admin-email", required=True)
     p.add_argument("--teste", type=int, help="dias de teste grátis")
     p.add_argument("--dominio", action="append", default=[])
+    p = sub.add_parser("criar-admin", help="o admin da MayaCorp (banco próprio, mesmos módulos + menu MayaCorp)")
+    p.add_argument("--admin-nome", required=True)
+    p.add_argument("--admin-email", required=True)
+    p.add_argument("--dominio", action="append", default=[])
     p = sub.add_parser("dominio")
     p.add_argument("--slug", required=True)
     p.add_argument("--host", required=True)
@@ -52,6 +57,10 @@ def main() -> None:
             _, link = service.provisionar(a.slug, a.nome, admin_nome=a.admin_nome, admin_email=a.admin_email,
                                           dias_teste=a.teste, dominios=a.dominio)
             print(f"Escritório {a.slug} criado no banco {service.nome_do_banco(a.slug)}.\nConvite do administrador: {link}")
+        elif a.cmd == "criar-admin":
+            _, link = service.provisionar("mayacorp", "MayaCorp", admin_nome=a.admin_nome, admin_email=a.admin_email,
+                                          dominios=a.dominio, tipo="mayacorp")
+            print(f"Admin MayaCorp criado no banco {service.nome_do_banco('mayacorp')}.\nConvite: {link}")
         elif a.cmd == "dominio":
             with SessaoControle() as db:
                 c = db.query(Cliente).filter_by(slug=a.slug).one_or_none()

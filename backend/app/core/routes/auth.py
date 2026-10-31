@@ -48,7 +48,8 @@ def foto_url(u: Usuario) -> str | None:
 def me_out(u: Usuario) -> UsuarioMe:
     return UsuarioMe.model_validate(u).model_copy(update={
         "foto_url": foto_url(u), "administrador": u.administrador, "permissoes": sorted(u.permissoes),
-        "perfil_acesso_nome": u.perfil_acesso.nome if u.perfil_acesso else None})
+        "perfil_acesso_nome": u.perfil_acesso.nome if u.perfil_acesso else None,
+        "painel_mayacorp": bool(u.administrador and (esc := tenancy.atual()) and esc.mayacorp)})
 
 
 def _tokens(u: Usuario) -> TokenOut:

@@ -54,6 +54,7 @@ class UsuarioMe(Schema):
     perfil_acesso_nome: str | None = None
     administrador: bool = False
     permissoes: list[str] = []
+    painel_mayacorp: bool = False  # admin MayaCorp: mostra o menu MayaCorp (clientes, planos, contratos)
 
 
 class IdentidadePublica(Schema):

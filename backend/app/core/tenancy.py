@@ -30,6 +30,7 @@ from app.core.config import settings
 class Escritorio:
     slug: str
     banco: str | None  # None = o banco principal (DATABASE_URL)
+    mayacorp: bool = False  # o admin da MayaCorp (mesmos módulos + o menu MayaCorp)
 
 
 class EscritorioNaoIdentificado(RuntimeError):
