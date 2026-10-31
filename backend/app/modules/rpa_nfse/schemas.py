@@ -432,11 +432,12 @@ class RaioXOut(Schema):
 
 # ---------- Configurações › Automações ----------
 class ConfigAutomacoesIn(BaseModel):
-    fatura_ativa: bool = True
     fatura_dias_vencimento: int = Field(default=10, ge=0, le=120)
     fatura_vencimento_modo: str = Field(default="dias", pattern="^(dias|emissao)$")
     fatura_instrucoes: str | None = None
     fatura_anexar_email: bool = True
+    fatura_proxima_nh: int | None = Field(default=None, ge=1, le=99999)
+    fatura_proxima_nd: int | None = Field(default=None, ge=1, le=99999)
     relatorio_emissao_ativo: bool = False
     relatorio_destinatarios: list[EmailStr] = []
     relatorio_anexar_planilha: bool = True
@@ -447,11 +448,12 @@ class ConfigAutomacoesIn(BaseModel):
 
 
 class ConfigAutomacoesOut(Schema):
-    fatura_ativa: bool
     fatura_dias_vencimento: int
     fatura_vencimento_modo: str
     fatura_instrucoes: str | None
     fatura_anexar_email: bool
+    fatura_proxima_nh: int  # o número que a próxima NH deste ano vai receber
+    fatura_proxima_nd: int
     relatorio_emissao_ativo: bool
     relatorio_destinatarios: list[str]
     relatorio_anexar_planilha: bool

@@ -24,10 +24,27 @@ from app.modules.rpa_nfse.pix import br_code
 from app.modules.rpa_nfse.qr import QrFlowable
 
 
+def ultimo_numero(db: Session, ano: int, tipo: TipoFatura, *, emissora_id: int | None = None,
+                  tenant_id: int | None = None) -> int:
+    q = select(func.max(Fatura.numero)).where(Fatura.ano == ano, Fatura.tipo == tipo)
+    q = q.where(Fatura.emissora_id == emissora_id) if emissora_id else q.where(Fatura.tenant_id == tenant_id)
+    return db.scalar(q) or 0
+
+
+def numero_definido(cfg: ConfigNfse | None, ano: int, tipo: TipoFatura) -> int:
+    """Próximo número escolhido em Configurações (0 = segue a sequência)."""
+    if not cfg or cfg.fatura_proxima_ano != ano:
+        return 0
+    return (cfg.fatura_proxima_nd if tipo == TipoFatura.despesas else cfg.fatura_proxima_nh) or 0
+
+
 def proximo_numero(db: Session, emissora_id: int, ano: int, tipo: TipoFatura = TipoFatura.honorarios) -> int:
-    """Numeração própria por emissora, tipo (NH / ND) e ano."""
-    return (db.scalar(select(func.max(Fatura.numero)).where(
-        Fatura.emissora_id == emissora_id, Fatura.ano == ano, Fatura.tipo == tipo)) or 0) + 1
+    """Numeração própria por emissora, tipo (NH / ND) e ano. Nunca volta para um número já usado."""
+    from app.modules.rpa_nfse.models import Emissora
+
+    cfg = db.scalar(select(ConfigNfse).join(Emissora, Emissora.tenant_id == ConfigNfse.tenant_id)
+                    .where(Emissora.id == emissora_id))
+    return max(ultimo_numero(db, ano, tipo, emissora_id=emissora_id) + 1, numero_definido(cfg, ano, tipo))
 
 
 def criar(db: Session, nota: Nfse, cfg: ConfigNfse) -> Fatura | None:

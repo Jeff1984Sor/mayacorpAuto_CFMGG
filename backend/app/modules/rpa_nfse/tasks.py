@@ -120,9 +120,7 @@ def _salvar_nota(db, lote: Lote, r: Rps, numero: int, cod: str, simulada: bool, 
     pdf_path.write_bytes(pdf.gerar(nota, db.get(Identidade, lote.tenant_id), link))
     nota.pdf_path = str(pdf_path)
     r.status = StatusRps.emitido
-    cfg = service.config_nfse(db, lote.tenant_id)
-    if cfg.fatura_ativa:
-        fatura.criar(db, nota, cfg)
+    fatura.criar(db, nota, service.config_nfse(db, lote.tenant_id))  # toda NFS-e (lote ou individual) gera a NH
     return nota
 
 

@@ -498,12 +498,14 @@ export interface RaioXOut {
 
 // ---------- Configurações › Automações ----------
 export interface ConfigAutomacoes {
-  fatura_ativa: boolean;
   fatura_dias_vencimento: number;
   /** "dias": N dias após a emissão · "emissao": vence na data de emissão da nota */
   fatura_vencimento_modo: "dias" | "emissao";
   fatura_instrucoes: string | null;
   fatura_anexar_email: boolean;
+  /** número que a próxima NH / ND deste ano vai receber */
+  fatura_proxima_nh: number;
+  fatura_proxima_nd: number;
   relatorio_emissao_ativo: boolean;
   relatorio_destinatarios: string[];
   relatorio_anexar_planilha: boolean;

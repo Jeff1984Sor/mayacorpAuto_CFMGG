@@ -82,7 +82,11 @@ class ConfigNfse(Base, Timestamped):
     confianca_minima: Mapped[int] = mapped_column(Integer, default=85)
 
     # Fatura (Nota de Honorários) gerada para cada NFS-e emitida
-    fatura_ativa: Mapped[bool] = mapped_column(Boolean, default=True)
+    fatura_ativa: Mapped[bool] = mapped_column(Boolean, default=True)  # não é mais usado: toda NFS-e gera a NH
+    # Próximo número definido em Configurações (vale no ano informado; NH e ND têm sequências separadas)
+    fatura_proxima_nh: Mapped[int | None] = mapped_column(Integer)
+    fatura_proxima_nd: Mapped[int | None] = mapped_column(Integer)
+    fatura_proxima_ano: Mapped[int | None] = mapped_column(Integer)
     fatura_dias_vencimento: Mapped[int] = mapped_column(Integer, default=10)
     # "dias": vence N dias após a emissão · "emissao": vence na própria data de emissão da nota (à vista)
     fatura_vencimento_modo: Mapped[str] = mapped_column(String(10), default="dias")

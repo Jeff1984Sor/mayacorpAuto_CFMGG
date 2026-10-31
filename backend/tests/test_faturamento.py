@@ -511,3 +511,27 @@ def test_contrato_com_outro_pagador_e_dividido(cliente):  # noqa: F811
     assert r.status_code == 200 and "canceladas" in r.json()["mensagem"]
     assert cliente.get(f"/api/nfse/faturas/{fats[0]['id']}", headers=h).json()["status"] == "cancelada"
     assert pendentes()["itens"][0]["valor"] == "1000.01"
+
+
+def test_proximo_numero_da_nh_e_da_nd_nas_configuracoes(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "N")
+    cfg = cliente.get("/api/config/automacoes", headers=h).json()
+    assert cfg["fatura_proxima_nh"] >= 1 and cfg["fatura_proxima_nd"] >= 1
+    r = cliente.put("/api/config/automacoes", headers=h, json={**cfg, "fatura_proxima_nh": 500, "fatura_proxima_nd": 70})
+    assert r.status_code == 200, r.text
+    assert (r.json()["fatura_proxima_nh"], r.json()["fatura_proxima_nd"]) == (500, 70)
+
+    cliente.post(f"/api/faturamento/contratos/{contrato['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Parecer", "valor": "900.00", "data_pagamento": "2026-04-10"})
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/despesas", headers=h, json={
+        "data": "2026-04-11", "tipo": "custas", "descricao": "Guia", "valor": "50.00"})
+    params = {"de": "2026-04-01", "ate": "2026-04-30", "cliente_ids": [cli["id"]]}
+    for aba, sigla, numero in (("honorarios", "NH", 500), ("despesas", "ND", 70)):
+        itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params={**params, "aba": aba}).json()["clientes"][0]["contratos"][0]["itens"]
+        fat = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": aba, **params, "chaves": [i["chave"] for i in itens]}).json()["faturas"][0]
+        assert fat["codigo"].startswith(sigla) and fat["codigo"].endswith(f"/{numero:05d}"), fat["codigo"]
+    cfg = cliente.get("/api/config/automacoes", headers=h).json()
+    assert (cfg["fatura_proxima_nh"], cfg["fatura_proxima_nd"]) == (501, 71)  # segue a sequência de cada uma
+    r = cliente.put("/api/config/automacoes", headers=h, json={**cfg, "fatura_proxima_nh": 10})
+    assert r.status_code == 400 and "501 ou maior" in r.json()["detail"]  # não volta para número usado

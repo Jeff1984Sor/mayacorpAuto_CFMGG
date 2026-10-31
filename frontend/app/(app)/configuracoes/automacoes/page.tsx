@@ -133,7 +133,7 @@ export default function AutomacoesPage() {
       <Cartao
         icone={ReceiptText}
         titulo="Fatura (Nota de Honorários)"
-        descricao="Documento de cobrança com PIX que acompanha cada NFS-e."
+        descricao="Toda NFS-e emitida (em lote ou individual) gera a sua Nota de Honorários, com PIX."
         acao={
           pode("faturas.editar") && (
             <Button variant="outline" size="sm" onClick={() => setGerar(true)}>
@@ -142,10 +142,32 @@ export default function AutomacoesPage() {
           )
         }
       >
-        <SwitchRow titulo="Gerar uma fatura por nota" descricao="Criada sozinha assim que a NFS-e é emitida.">
-          <Switch checked={c.fatura_ativa} onCheckedChange={(v) => set("fatura_ativa", v)} />
-        </SwitchRow>
-        <div className={cn("grid gap-4 sm:grid-cols-[200px_1fr]", !c.fatura_ativa && "pointer-events-none opacity-50")}>
+        <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
+          <div className="grid grid-cols-2 gap-4 sm:col-span-2 sm:max-w-md">
+            <Field label="Próxima Nota de Honorários" htmlFor="fat-proxima-nh" dica={`NH ${new Date().getFullYear()}/…`}>
+              <Input
+                id="fat-proxima-nh"
+                type="number"
+                min={1}
+                value={c.fatura_proxima_nh}
+                onChange={(e) => set("fatura_proxima_nh", Math.max(1, Number(e.target.value) || 1))}
+                className="num"
+              />
+            </Field>
+            <Field label="Próxima Nota de Despesas" htmlFor="fat-proxima-nd" dica={`ND ${new Date().getFullYear()}/…`}>
+              <Input
+                id="fat-proxima-nd"
+                type="number"
+                min={1}
+                value={c.fatura_proxima_nd}
+                onChange={(e) => set("fatura_proxima_nd", Math.max(1, Number(e.target.value) || 1))}
+                className="num"
+              />
+            </Field>
+            <p className="col-span-2 -mt-2 text-xs text-muted-foreground">
+              Honorários e Despesas têm sequências separadas, que recomeçam em 1 a cada ano. Não dá para voltar a um número já usado.
+            </p>
+          </div>
           <Field label="Vencimento da fatura" className="sm:col-span-2" dica={
             c.fatura_vencimento_modo === "emissao"
               ? "A fatura vence no mesmo dia em que a NFS-e é gerada (à vista)."

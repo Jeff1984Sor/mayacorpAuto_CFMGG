@@ -11,7 +11,7 @@ from app.core.deps import Admin, Ctx, Operador
 from app.core.schemas import Mensagem, Pagina
 from app.modules.rpa_nfse import conciliacao, fatura, service
 from app.modules.rpa_nfse import extrato as leitor
-from app.modules.rpa_nfse.models import Extrato, LancamentoExtrato, Nfse, StatusLancamento, StatusNfse
+from app.modules.rpa_nfse.models import Extrato, LancamentoExtrato, Nfse, StatusLancamento, StatusNfse, TipoFatura
 from app.modules.rpa_nfse.schemas import (
     BaixaManualIn,
     ConfigAutomacoesIn,
@@ -28,13 +28,20 @@ config_router = APIRouter(prefix="/config", tags=["configurações"])
 
 
 # ======================================================================== configurações das automações
-def _cfg_out(cfg) -> ConfigAutomacoesOut:
-    return ConfigAutomacoesOut.model_validate(cfg)
+def _proxima(db, cfg, tipo: TipoFatura) -> int:
+    ano = date.today().year
+    return max(fatura.ultimo_numero(db, ano, tipo, tenant_id=cfg.tenant_id) + 1, fatura.numero_definido(cfg, ano, tipo))
+
+
+def _cfg_out(db, cfg) -> ConfigAutomacoesOut:
+    campos = {k: getattr(cfg, k) for k in ConfigAutomacoesOut.model_fields if not k.startswith("fatura_proxima")}
+    return ConfigAutomacoesOut(**campos, fatura_proxima_nh=_proxima(db, cfg, TipoFatura.honorarios),
+                               fatura_proxima_nd=_proxima(db, cfg, TipoFatura.despesas))
 
 
 @config_router.get("/automacoes", response_model=ConfigAutomacoesOut)
 def ler_automacoes(ctx: Ctx):
-    return _cfg_out(service.config_nfse(ctx.db, ctx.tenant_id))
+    return _cfg_out(ctx.db, service.config_nfse(ctx.db, ctx.tenant_id))
 
 
 @config_router.put("/automacoes", response_model=ConfigAutomacoesOut)
@@ -42,15 +49,22 @@ def salvar_automacoes(dados: ConfigAutomacoesIn, ctx: Admin):
     cfg = service.config_nfse(ctx.db, ctx.tenant_id)
     if dados.relatorio_emissao_ativo and not dados.relatorio_destinatarios:
         raise HTTPException(400, "Informe ao menos um e-mail para receber o relatório de emissão.")
+    ano = date.today().year
+    for tipo, campo, sigla in ((TipoFatura.honorarios, "fatura_proxima_nh", "NH"), (TipoFatura.despesas, "fatura_proxima_nd", "ND")):
+        pedido = getattr(dados, campo)
+        ultimo = fatura.ultimo_numero(ctx.db, ano, tipo, tenant_id=ctx.tenant_id)
+        if pedido is not None and pedido <= ultimo:
+            raise HTTPException(400, f"A {sigla} {ano}/{ultimo:05d} já existe: a próxima {sigla} precisa ser {ultimo + 1} ou maior.")
     antes = {k: getattr(cfg, k) for k in ConfigAutomacoesIn.model_fields}
     for k, v in dados.model_dump().items():
         setattr(cfg, k, [str(e).lower() for e in v] if k == "relatorio_destinatarios" else v)
+    cfg.fatura_proxima_ano = ano
     depois = {k: getattr(cfg, k) for k in ConfigAutomacoesIn.model_fields}
     ctx.auditar("automacoes.alterar", "config_nfse", ctx.tenant_id,
                 antes={k: v for k, v in antes.items() if depois[k] != v},
                 depois={k: v for k, v in depois.items() if antes[k] != v})
     ctx.db.commit()
-    return _cfg_out(cfg)
+    return _cfg_out(ctx.db, cfg)
 
 
 # ======================================================================== extratos
