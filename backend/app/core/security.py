@@ -13,7 +13,7 @@ from app.core.config import settings
 _hasher = PasswordHash.recommended()
 _fernet = Fernet(settings.master_key.encode())
 
-TokenTipo = Literal["access", "refresh", "reset"]
+TokenTipo = Literal["access", "refresh", "reset", "primeiro"]
 
 
 def hash_senha(senha: str) -> str:
@@ -32,6 +32,7 @@ def criar_token(sub: str, tipo: TokenTipo, extra: dict[str, Any] | None = None) 
         "access": timedelta(minutes=settings.jwt_access_minutes),
         "refresh": timedelta(days=settings.jwt_refresh_days),
         "reset": timedelta(hours=2),
+        "primeiro": timedelta(days=7),  # boas-vindas: o cliente cria o usuário master
     }[tipo]
     now = datetime.now(UTC)
     payload = {"sub": sub, "typ": tipo, "iat": now, "exp": now + duracao, "jti": secrets.token_hex(8)}

@@ -100,6 +100,10 @@ def test_admin_mayacorp(multi):
     lista = c.get("/api/admin/clientes", headers=adm).json()
     assert {x["slug"] for x in lista} == {"cfme", "silva"}  # o próprio admin não aparece como cliente
 
+    # senha do usuário Suporte: definida no admin (nunca no código)
+    assert c.get("/api/admin/suporte", headers=adm).json() == {"senha_definida": False}
+    assert c.put("/api/admin/suporte", headers=adm, json={"senha": "Suporte#Teste1"}).status_code == 200
+
     # cliente novo com plano, início do contrato e teste grátis
     r = c.post("/api/admin/clientes", headers=adm, json={
         "nome": "Souza & Lima Advogados", "documento": "12.345.678/0001-95", "responsavel": "Carla Souza",
@@ -115,8 +119,21 @@ def test_admin_mayacorp(multi):
     tom = tom.get("itens", tom) if isinstance(tom, dict) else tom
     assert [(t["nome"], t["cpf_cnpj"]) for t in tom] == [("Souza & Lima Advogados", "12345678000195")]
     assert c.get("/api/auth/me", headers=adm).json()["endereco_painel"] == "admin.mayajus.test"
-    c.post("/api/auth/reset", json={"token": novo["convite"].split("token=")[1], "senha": "Carla@2026x"})
-    carla = _entrar(c, "carla@souzalima.adv.br", "Carla@2026x")
+    # boas-vindas: o próprio cliente cria o usuário master pelo link (e já entra)
+    assert "/primeiro-acesso?token=" in novo["convite"]
+    tk = novo["convite"].split("token=")[1]
+    info = c.get("/api/auth/primeiro-acesso", params={"token": tk}).json()
+    assert info == {"escritorio": "Souza & Lima Advogados", "email": "carla@souzalima.adv.br"}
+    assert c.post("/api/auth/primeiro-acesso", json={"token": tk, "nome": "Carla Souza", "email": "admin@cfme.com.br",
+                                                      "senha": "Carla@2026x"}).status_code == 409  # e-mail de outro escritório
+    r = c.post("/api/auth/primeiro-acesso", json={"token": tk, "nome": "Carla Souza", "email": "carla@souzalima.adv.br",
+                                                  "login": "carla", "senha": "Carla@2026x"})
+    assert r.status_code == 200 and r.json()["usuario"]["administrador"] is True, r.text
+    assert c.post("/api/auth/primeiro-acesso", json={"token": tk, "nome": "Outra", "email": "x@souzalima.adv.br",
+                                                      "senha": "Outra@2026x"}).status_code == 409  # o link vale uma vez
+    carla = _entrar(c, "carla", "Carla@2026x")
+    # todo escritório novo tem o usuário Suporte da MayaCorp (fora do limite do plano)
+    _entrar(c, "suporte.souza-lima-advogados", "Suporte#Teste1")
 
     # usuários do cliente: criar, zerar a senha
     r = c.post(f"/api/admin/clientes/{cid}/usuarios", headers=adm,
@@ -125,7 +142,8 @@ def test_admin_mayacorp(multi):
     assert c.post(f"/api/admin/clientes/{cid}/usuarios", headers=adm,
                   json={"nome": "Xavier", "email": "admin@cfme.com.br"}).status_code == 409  # e-mail de outro escritório
     usuarios = c.get(f"/api/admin/clientes/{cid}/usuarios", headers=adm).json()
-    assert {u["email"] for u in usuarios} == {"carla@souzalima.adv.br", "beto@souzalima.adv.br"}
+    assert {u["email"] for u in usuarios} == {"carla@souzalima.adv.br", "beto@souzalima.adv.br",
+                                              "suporte+souza-lima-advogados@mayacorp.com.br"}
     uid = next(u["id"] for u in usuarios if u["email"] == "carla@souzalima.adv.br")
     r = c.post(f"/api/admin/clientes/{cid}/usuarios/{uid}/zerar-senha", headers=adm)
     assert r.status_code == 200, r.text

@@ -202,10 +202,11 @@ def migrar(esc: Escritorio) -> None:
         conn.commit()
 
 
-def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias_teste: int | None = None,
+def provisionar(slug: str, nome: str, *, admin_email: str, admin_nome: str = "", dias_teste: int | None = None,
                 dominios: list[str] | None = None, tipo: str = "escritorio", admin_login: str | None = None,
-                admin_senha: str | None = None, **ficha) -> tuple[Cliente, str]:
-    """Escritório novo: banco próprio, tabelas, identidade e o primeiro administrador (recebe o convite)."""
+                admin_senha: str | None = None, primeiro_acesso: bool = False, **ficha) -> tuple[Cliente, str]:
+    """Escritório novo: banco próprio, tabelas, identidade, o usuário Suporte e o administrador. Com primeiro_acesso,
+    o link é o de boas-vindas: o próprio cliente cria o usuário master (admin_email só recebe o e-mail)."""
     from app.core.db import SessionLocal
     from app.core.models import Identidade, Tenant
 
@@ -236,18 +237,55 @@ def provisionar(slug: str, nome: str, *, admin_nome: str, admin_email: str, dias
             db.add(t)
             db.flush()
             db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
-            admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
-            db.commit()
-            uid = admin.id
-            link = "" if admin_senha else _convite(admin)
+            suporte = _usuario_suporte(db, t.id, slug) if tipo != "mayacorp" else None
+            if primeiro_acesso:  # o próprio cliente cria o usuário master pelo link de boas-vindas
+                db.commit()
+                uid, link = None, link_primeiro_acesso(slug, email)
+            else:
+                admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
+                db.commit()
+                uid = admin.id
+                link = "" if admin_senha else _convite(admin)
+            sid = suporte.id if suporte else None
     except Exception:
         with SessaoControle() as db:  # não deixa escritório pela metade no controle (o banco vazio pode ser reaproveitado)
             db.delete(db.get(Cliente, cliente.id))
             db.commit()
         limpar_cache()
         raise
-    sincronizar_usuario(slug, uid, [email, login])
+    if uid:
+        sincronizar_usuario(slug, uid, [email, login])
+    if sid:
+        sincronizar_usuario(slug, sid, [f"suporte+{slug}@mayacorp.com.br", f"suporte.{slug}"])
     return cliente, link
+
+
+def _usuario_suporte(db, tenant_id: int, slug: str):
+    """Usuário "Suporte" da MayaCorp em todo escritório novo (não conta no limite de usuários do plano). A senha é a
+    definida no admin (Planos e indicação › Usuário Suporte); sem ela, o usuário nasce sem senha (use "Zerar senha")."""
+    from app.controle import indicacao
+    from app.core import perfis
+    from app.core.models import Perfil, Usuario
+
+    with SessaoControle() as ctl:
+        senha_hash = indicacao.politica(ctl).senha_suporte_hash
+        ctl.commit()
+    padrao = perfis.garantir_padrao(db, tenant_id)
+    u = Usuario(tenant_id=tenant_id, nome="Suporte", email=f"suporte+{slug}@mayacorp.com.br", login=f"suporte.{slug}",
+                perfil=Perfil.admin, senha_hash=senha_hash, convite_pendente=senha_hash is None, equipe_mayacorp=True)
+    perfis.aplicar(u, padrao["Administrador"])
+    db.add(u)
+    db.flush()
+    return u
+
+
+def link_primeiro_acesso(slug: str, email: str) -> str:
+    from app.core.config import settings
+    from app.core.security import criar_token
+
+    with tenancy.usando(Escritorio(slug=slug, banco=nome_do_banco(slug))):
+        token = criar_token(slug, "primeiro", {"email": email})
+    return f"{settings.frontend_url}/primeiro-acesso?token={token}"
 
 
 def _primeiro_admin(db, tenant_id: int, nome: str, email: str, login: str | None = None, senha: str | None = None):

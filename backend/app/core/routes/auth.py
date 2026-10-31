@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -5,7 +6,8 @@ from typing import Any
 import jwt
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import or_, select
 
 from app.core import audit, tenancy
 from app.core import email as mail
@@ -258,3 +260,69 @@ def foto(uid: int, ctx: Ctx):
     if not u or u.tenant_id != ctx.tenant_id or not u.foto_path or not Path(u.foto_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sem foto.")
     return FileResponse(u.foto_path, headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ---------------------------------------------------------------- primeiro acesso (escritório novo)
+class PrimeiroAcessoIn(BaseModel):
+    token: str
+    nome: str = Field(min_length=3, max_length=150)
+    email: EmailStr
+    login: str | None = Field(default=None, max_length=60)
+    senha: str
+
+
+def _escritorio_sem_master(token: str, db) -> dict[str, Any]:
+    """O link de boas-vindas vale enquanto o escritório não tem o usuário master (além do Suporte da MayaCorp)."""
+    try:
+        payload = decodificar_token(token, "primeiro")
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link inválido ou expirado. Peça um novo à MayaCorp.") from None
+    if tenancy.multi() and definir_pelo_token(token) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link inválido ou expirado. Peça um novo à MayaCorp.")
+    if db.scalar(select(Usuario.id).where(Usuario.equipe_mayacorp.is_(False), Usuario.senha_hash.is_not(None))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "O usuário master deste escritório já foi criado. Entre com ele.")
+    return payload
+
+
+@router.get("/primeiro-acesso")
+def ler_primeiro_acesso(token: str, db: DB):
+    from app.core.models import Identidade
+
+    payload = _escritorio_sem_master(token, db)
+    ident = db.scalar(select(Identidade).limit(1))
+    return {"escritorio": ident.nome_exibicao if ident else "", "email": payload.get("email")}
+
+
+@router.post("/primeiro-acesso", response_model=TokenOut)
+def primeiro_acesso(dados: PrimeiroAcessoIn, request: Request, db: DB):
+    from app.core import perfis
+    from app.core.models import Perfil, Tenant
+    from app.core.security import hash_senha
+
+    _escritorio_sem_master(dados.token, db)
+    if erro := validar_politica_senha(dados.senha):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, erro)
+    email = str(dados.email).lower()
+    login = (dados.login or "").strip().lower() or None
+    if login and not re.match(r"^[a-z0-9._-]{3,60}$", login):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Login: letras, números, ponto, hífen ou sublinhado (3 a 60).")
+    if tenancy.multi():
+        from app.controle import service as controle
+
+        esc = tenancy.atual()
+        if controle.chaves_em_uso([k for k in (email, login) if k], exceto_slug=esc.slug if esc else None):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Este e-mail ou login já é usado no MayaJus. Escolha outro.")
+    ja = [Usuario.email == email] + ([Usuario.login == login] if login else [])
+    if db.scalar(select(Usuario.id).where(or_(*ja))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Este e-mail ou login já existe neste escritório.")
+    tenant = db.scalar(select(Tenant).order_by(Tenant.id))
+    padrao = perfis.garantir_padrao(db, tenant.id)
+    u = Usuario(tenant_id=tenant.id, nome=dados.nome.strip(), email=email, login=login, perfil=Perfil.admin,
+                senha_hash=hash_senha(dados.senha), convite_pendente=False, ultimo_acesso=agora())
+    perfis.aplicar(u, padrao["Administrador"])
+    db.add(u)
+    db.flush()
+    audit.registrar(db, tenant_id=u.tenant_id, usuario=u, acao="auth.primeiro_acesso", entidade="usuario",
+                    entidade_id=u.id, ip=ip_cliente(request), descricao="usuário master criado pelo link de boas-vindas")
+    db.commit()
+    return _tokens(u)

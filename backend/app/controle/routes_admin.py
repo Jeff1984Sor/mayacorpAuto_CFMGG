@@ -76,8 +76,8 @@ class PoliticaIn(BaseModel):
 
 class ClienteNovoIn(FichaIn):
     slug: str | None = Field(default=None, max_length=39)
-    admin_nome: str = Field(min_length=2, max_length=150)
-    admin_email: EmailStr
+    admin_nome: str = Field(default="", max_length=150)  # quem recebe as boas-vindas (opcional)
+    admin_email: EmailStr  # recebe o link de boas-vindas e cria o usuário master
     dias_teste: int | None = Field(default=None, ge=1, le=90)
     dominios: list[str] = []
 
@@ -238,22 +238,52 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
     slug = (dados.slug or _slug_de(nome)).lower()
     try:
         cliente, link = service.provisionar(slug, nome, admin_nome=dados.admin_nome, admin_email=str(dados.admin_email),
-                                            dias_teste=dados.dias_teste, dominios=dados.dominios, **ficha)
+                                            dias_teste=dados.dias_teste, dominios=dados.dominios, primeiro_acesso=True,
+                                            **ficha)
     except service.RegraControle as e:
         _erro(e)
     if teste_ate and not dados.dias_teste:
         with SessaoControle() as db:
             db.get(Cliente, cliente.id).teste_ate = teste_ate
             db.commit()
-    service.enviar_email([str(dados.admin_email)], f"Bem-vindo ao MayaJus — {nome}",
-                f"Olá, {dados.admin_nome}.\n\nO ambiente do {nome} no MayaJus está pronto. Para criar sua senha e "
-                f"entrar, acesse:\n{link}\n\nO link vale por 2 horas; depois disso, use \"Esqueci minha senha\".")
+    _boas_vindas(str(dados.admin_email), dados.admin_nome, nome, link, dados.dias_teste)
     with SessaoControle() as db:
         service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, db.get(Cliente, cliente.id))
     ctx.auditar("admin.cliente.criar", "controle_cliente", cliente.id, descricao=f"{slug}: {nome}")
     ctx.db.commit()
     with SessaoControle() as db:
         return {**_cliente_out(db.get(Cliente, cliente.id)), "convite": link}
+
+
+def _boas_vindas(email: str, pessoa: str, escritorio: str, link: str, dias_teste: int | None = None) -> None:
+    ola = f"Olá, {pessoa.split()[0]}!" if pessoa.strip() else "Olá!"
+    teste = f"\n\nVocê tem {dias_teste} dias de teste grátis, com todos os recursos do plano." if dias_teste else ""
+    service.enviar_email(
+        [email], f"Bem-vindo ao MayaJus — {escritorio}",
+        f"{ola}\n\nO ambiente do {escritorio} no MayaJus está pronto.{teste}\n\nPara começar, crie o seu usuário "
+        f"master (o administrador do escritório) neste link:\n{link}\n\nCom ele você cadastra a equipe, a empresa "
+        "emissora e o certificado digital. O link vale por 7 dias.\n\nQualquer dúvida, é só responder este e-mail."
+        "\n\nEquipe MayaCorp")
+
+
+@router.post("/clientes/{cid}/boas-vindas")
+def reenviar_boas_vindas(cid: int, ctx: Painel):
+    """Link novo de primeiro acesso (enquanto o cliente não criou o usuário master)."""
+    from app.core.models import Usuario
+
+    with SessaoControle() as db:
+        c = _cliente(db, cid)
+        esc, nome, para, pessoa = _esc_do(c), c.nome, c.email_financeiro, c.responsavel or ""
+    with tenancy.usando(esc), SessionLocal() as db:
+        if db.scalar(select(Usuario.id).where(Usuario.equipe_mayacorp.is_(False), Usuario.senha_hash.is_not(None))):
+            raise HTTPException(400, "O cliente já criou o usuário master. Use \"Zerar senha\" na aba Usuários.")
+    if not para:
+        raise HTTPException(400, "Informe o e-mail do financeiro na ficha para reenviar as boas-vindas.")
+    link = service.link_primeiro_acesso(esc.slug, para)
+    _boas_vindas(para, pessoa, nome, link)
+    ctx.auditar("admin.cliente.boas_vindas", "controle_cliente", cid, descricao=para)
+    ctx.db.commit()
+    return {"link": link, "enviado_para": para}
 
 
 @router.get("/clientes/{cid}")
@@ -453,6 +483,34 @@ def salvar_politica(dados: PoliticaIn, ctx: Painel):
                     descricao=f"{dados.desconto_por_indicacao}% por indicação, máximo {dados.desconto_maximo}%")
         ctx.db.commit()
     return ler_politica(ctx)
+
+
+# ================================================================ usuário Suporte
+class SenhaSuporteIn(BaseModel):
+    senha: str = Field(min_length=8, max_length=128)
+
+
+@router.get("/suporte")
+def ler_suporte(ctx: Painel):
+    with SessaoControle() as db:
+        p = indicacao.politica(db)
+        db.commit()
+        return {"senha_definida": bool(p.senha_suporte_hash)}
+
+
+@router.put("/suporte")
+def salvar_suporte(dados: SenhaSuporteIn, ctx: Painel):
+    """Senha do usuário Suporte dos escritórios NOVOS (os que já existem mantêm a deles)."""
+    from app.core.security import hash_senha, validar_politica_senha
+
+    if erro := validar_politica_senha(dados.senha):
+        raise HTTPException(400, erro)
+    with SessaoControle() as db:
+        indicacao.politica(db).senha_suporte_hash = hash_senha(dados.senha)
+        db.commit()
+    ctx.auditar("admin.suporte.senha", "controle_politica", 1, descricao="senha do usuário Suporte alterada")
+    ctx.db.commit()
+    return {"senha_definida": True}
 
 
 # ================================================================ planos

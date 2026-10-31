@@ -327,6 +327,19 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
       qc.invalidateQueries({ queryKey: chave });
     },
   });
+  const boasVindas = useMutation({
+    mutationFn: () =>
+      api.post<{ link: string; enviado_para: string }>(
+        `/admin/clientes/${cli.id}/boas-vindas`,
+      ),
+    onSuccess: (r) =>
+      toast.success(`Boas-vindas reenviadas para ${r.enviado_para}`, {
+        action: {
+          label: "Copiar link",
+          onClick: () => navigator.clipboard.writeText(r.link),
+        },
+      }),
+  });
   const ativo = useMutation({
     mutationFn: ({ u, v }: { u: UsuarioCliente; v: boolean }) =>
       api.post(`/admin/clientes/${cli.id}/usuarios/${u.id}/ativo`, {
@@ -341,9 +354,19 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
         <p className="text-sm text-muted-foreground">
           Usuários do ambiente do cliente
         </p>
-        <Button size="sm" onClick={() => setNovo(true)}>
-          <UserPlus /> Novo usuário
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={boasVindas.isPending}
+            onClick={() => boasVindas.mutate()}
+          >
+            <Mail /> Reenviar boas-vindas
+          </Button>
+          <Button size="sm" onClick={() => setNovo(true)}>
+            <UserPlus /> Novo usuário
+          </Button>
+        </div>
       </div>
       {lista.isPending ? (
         <Skeleton className="m-4 h-32" />

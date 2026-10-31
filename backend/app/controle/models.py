@@ -87,6 +87,8 @@ class PoliticaComercial(BaseControle):
     id: Mapped[int] = mapped_column(primary_key=True)
     desconto_por_indicacao: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("5.00"))  # % por indicado ativo
     desconto_maximo: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("10.00"))  # teto (nunca acima de 10%)
+    # senha do usuário "Suporte" criado em todo escritório novo (hash; definida no admin, nunca no código)
+    senha_suporte_hash: Mapped[str | None] = mapped_column(String(255))
 
 
 class ModeloContrato(BaseControle):

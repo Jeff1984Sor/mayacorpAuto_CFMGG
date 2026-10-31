@@ -11,7 +11,13 @@ import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { type ClienteNovoIn, type ClienteSaaS, type FichaIn, fichaDe, type PlanoOut } from "@/lib/admin";
+import {
+  type ClienteNovoIn,
+  type ClienteSaaS,
+  type FichaIn,
+  fichaDe,
+  type PlanoOut,
+} from "@/lib/admin";
 import { api } from "@/lib/api";
 import { moeda } from "@/lib/format";
 
@@ -37,7 +43,10 @@ const vazio = (): ClienteNovoIn => ({
 const nulo = (v: string | null) => (v && v.trim() ? v.trim() : null);
 
 export function usePlanos() {
-  return useQuery({ queryKey: ["admin", "planos"], queryFn: () => api.get<PlanoOut[]>("/admin/planos") });
+  return useQuery({
+    queryKey: ["admin", "planos"],
+    queryFn: () => api.get<PlanoOut[]>("/admin/planos"),
+  });
 }
 
 /** Novo cliente (cria o ambiente e envia o convite) ou edição da ficha comercial. */
@@ -67,13 +76,16 @@ export function ClienteDialog({
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o formulário ao abrir */
   useEffect(() => {
     if (!open) return;
-    setF(cliente ? { ...vazio(), ...fichaDe(cliente), dias_teste: null } : vazio());
+    setF(
+      cliente ? { ...vazio(), ...fichaDe(cliente), dias_teste: null } : vazio(),
+    );
     setDominio("");
     setColado("");
   }, [open, cliente]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const set = <K extends keyof ClienteNovoIn>(k: K, v: ClienteNovoIn[K]) => setF((o) => ({ ...o, [k]: v }));
+  const set = <K extends keyof ClienteNovoIn>(k: K, v: ClienteNovoIn[K]) =>
+    setF((o) => ({ ...o, [k]: v }));
   const plano = planos.data?.find((p) => p.id === f.plano_id);
 
   const salvar = useMutation({
@@ -105,10 +117,16 @@ export function ClienteDialog({
     onSuccess: (c) => {
       if (cliente) toast.success("Ficha atualizada");
       else
-        toast.success(`Ambiente de ${c.nome} criado. Convite enviado para o administrador.`, {
+        toast.success(`Ambiente de ${c.nome} criado. Boas-vindas enviadas.`, {
           duration: 20000,
-          description: "O link vale por 2 horas. Copie se quiser mandar também pelo WhatsApp.",
-          action: c.convite ? { label: "Copiar convite", onClick: () => navigator.clipboard.writeText(c.convite!) } : undefined,
+          description:
+            "O link vale por 7 dias. Copie se quiser mandar também pelo WhatsApp.",
+          action: c.convite
+            ? {
+                label: "Copiar link",
+                onClick: () => navigator.clipboard.writeText(c.convite!),
+              }
+            : undefined,
         });
       qc.invalidateQueries({ queryKey: ["admin"] });
       onSalvo?.(c);
@@ -120,16 +138,20 @@ export function ClienteDialog({
 
   const buscarCnpj = async () => {
     const dig = (f.documento ?? "").replace(/\D/g, "");
-    if (dig.length !== 14) return toast.error("Digite o CNPJ (14 números) para buscar.");
+    if (dig.length !== 14)
+      return toast.error("Digite o CNPJ (14 números) para buscar.");
     setBuscando(true);
     try {
-      const r = await api.get<{ razao_social: string | null; nome_fantasia: string | null; telefone: string | null; email: string | null }>(
-        `/cnpj/${dig}`,
-      );
+      const r = await api.get<{
+        razao_social: string | null;
+        nome_fantasia: string | null;
+        telefone: string | null;
+        email: string | null;
+      }>(`/cnpj/${dig}`);
       setF((o) => ({
         ...o,
         documento: dig,
-        nome: o.nome.trim() ? o.nome : (r.nome_fantasia || r.razao_social || ""),
+        nome: o.nome.trim() ? o.nome : r.nome_fantasia || r.razao_social || "",
         telefone: o.telefone || r.telefone,
         email_financeiro: o.email_financeiro || r.email,
       }));
@@ -147,16 +169,17 @@ export function ClienteDialog({
       descricao={
         cliente
           ? "Dados comerciais, plano e contrato."
-          : "Cria o banco do escritório, o primeiro administrador e envia o convite por e-mail."
+          : "Cria o ambiente (com o usuário Suporte) e envia as boas-vindas: o cliente cria o próprio usuário master pelo link."
       }
       largura="lg"
       salvando={salvar.isPending}
       rotuloSalvar={cliente ? "Salvar" : "Criar ambiente"}
       onSubmit={(e) => {
         e.preventDefault();
-        if (f.nome.trim().length < 2) return toast.error("Informe o nome do escritório.");
-        if (!cliente && (!f.admin_nome.trim() || !f.admin_email.trim()))
-          return toast.error("Informe o nome e o e-mail do primeiro administrador.");
+        if (f.nome.trim().length < 2)
+          return toast.error("Informe o nome do escritório.");
+        if (!cliente && !f.admin_email.trim())
+          return toast.error("Informe o e-mail que recebe as boas-vindas.");
         salvar.mutate();
       }}
     >
@@ -176,39 +199,88 @@ export function ClienteDialog({
             corpo={() => ({ texto: colado })}
             atual={f}
             aplicar={(r) => {
-              if (!Object.keys(r.campos).length) return void toast.info("A IA não achou dados no texto.");
+              if (!Object.keys(r.campos).length)
+                return void toast.info("A IA não achou dados no texto.");
               setF((o) => ({ ...o, ...r.campos }));
             }}
             restaurar={setF}
           />
         </div>
-        <Field label="Escritório" obrigatorio htmlFor="cli-nome" className="sm:col-span-2">
-          <Input id="cli-nome" value={f.nome} onChange={(e) => set("nome", e.target.value)} autoFocus />
+        <Field
+          label="Escritório"
+          obrigatorio
+          htmlFor="cli-nome"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="cli-nome"
+            value={f.nome}
+            onChange={(e) => set("nome", e.target.value)}
+            autoFocus
+          />
         </Field>
         <Field label="CNPJ / CPF" htmlFor="cli-doc">
           <div className="flex gap-2">
-            <Input id="cli-doc" value={f.documento ?? ""} onChange={(e) => set("documento", e.target.value)} className="font-mono" />
-            <Button type="button" variant="outline" disabled={buscando} onClick={buscarCnpj}>
-              {buscando ? <Loader2 className="animate-spin" /> : <Search />} Receita
+            <Input
+              id="cli-doc"
+              value={f.documento ?? ""}
+              onChange={(e) => set("documento", e.target.value)}
+              className="font-mono"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={buscando}
+              onClick={buscarCnpj}
+            >
+              {buscando ? <Loader2 className="animate-spin" /> : <Search />}{" "}
+              Receita
             </Button>
           </div>
         </Field>
         <Field label="Responsável" htmlFor="cli-resp">
-          <Input id="cli-resp" value={f.responsavel ?? ""} onChange={(e) => set("responsavel", e.target.value)} />
+          <Input
+            id="cli-resp"
+            value={f.responsavel ?? ""}
+            onChange={(e) => set("responsavel", e.target.value)}
+          />
         </Field>
-        <Field label="E-mail do financeiro" htmlFor="cli-email" dica="Recebe contratos e cobranças.">
-          <Input id="cli-email" type="email" value={f.email_financeiro ?? ""} onChange={(e) => set("email_financeiro", e.target.value)} />
+        <Field
+          label="E-mail do financeiro"
+          htmlFor="cli-email"
+          dica="Recebe contratos e cobranças."
+        >
+          <Input
+            id="cli-email"
+            type="email"
+            value={f.email_financeiro ?? ""}
+            onChange={(e) => set("email_financeiro", e.target.value)}
+          />
         </Field>
         <Field label="Telefone" htmlFor="cli-tel">
-          <Input id="cli-tel" value={f.telefone ?? ""} onChange={(e) => set("telefone", e.target.value)} />
+          <Input
+            id="cli-tel"
+            value={f.telefone ?? ""}
+            onChange={(e) => set("telefone", e.target.value)}
+          />
         </Field>
 
         <Field
           label="Plano"
           htmlFor="cli-plano"
-          dica={plano ? `${moeda(f.ciclo === "anual" ? plano.preco_anual : plano.preco_mensal)} por ${f.ciclo === "anual" ? "ano" : "mês"}` : undefined}
+          dica={
+            plano
+              ? `${moeda(f.ciclo === "anual" ? plano.preco_anual : plano.preco_mensal)} por ${f.ciclo === "anual" ? "ano" : "mês"}`
+              : undefined
+          }
         >
-          <NativeSelect id="cli-plano" value={f.plano_id ?? ""} onChange={(e) => set("plano_id", e.target.value ? Number(e.target.value) : null)}>
+          <NativeSelect
+            id="cli-plano"
+            value={f.plano_id ?? ""}
+            onChange={(e) =>
+              set("plano_id", e.target.value ? Number(e.target.value) : null)
+            }
+          >
             <option value="">Sem plano ainda</option>
             {planos.data
               ?.filter((p) => p.ativo || p.id === f.plano_id)
@@ -220,35 +292,67 @@ export function ClienteDialog({
           </NativeSelect>
         </Field>
         <Field label="Cobrança" htmlFor="cli-ciclo">
-          <NativeSelect id="cli-ciclo" value={f.ciclo} onChange={(e) => set("ciclo", e.target.value as FichaIn["ciclo"])}>
+          <NativeSelect
+            id="cli-ciclo"
+            value={f.ciclo}
+            onChange={(e) => set("ciclo", e.target.value as FichaIn["ciclo"])}
+          >
             <option value="mensal">Mensal</option>
             <option value="anual">Anual (2 meses grátis)</option>
           </NativeSelect>
         </Field>
         <Field label="Início do contrato" htmlFor="cli-inicio">
-          <Input id="cli-inicio" type="date" value={f.inicio_contrato ?? ""} onChange={(e) => set("inicio_contrato", e.target.value || null)} />
+          <Input
+            id="cli-inicio"
+            type="date"
+            value={f.inicio_contrato ?? ""}
+            onChange={(e) => set("inicio_contrato", e.target.value || null)}
+          />
         </Field>
         {cliente ? (
           <Field label="Teste grátis até" htmlFor="cli-teste">
-            <Input id="cli-teste" type="date" value={f.teste_ate ?? ""} onChange={(e) => set("teste_ate", e.target.value || null)} />
+            <Input
+              id="cli-teste"
+              type="date"
+              value={f.teste_ate ?? ""}
+              onChange={(e) => set("teste_ate", e.target.value || null)}
+            />
           </Field>
         ) : (
-          <Field label="Teste grátis" htmlFor="cli-dias" dica="Dias; deixe vazio para começar já ativo.">
+          <Field
+            label="Teste grátis"
+            htmlFor="cli-dias"
+            dica="Dias; deixe vazio para começar já ativo."
+          >
             <Input
               id="cli-dias"
               type="number"
               min={1}
               max={90}
               value={f.dias_teste ?? ""}
-              onChange={(e) => set("dias_teste", e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) =>
+                set(
+                  "dias_teste",
+                  e.target.value ? Number(e.target.value) : null,
+                )
+              }
             />
           </Field>
         )}
-        <Field label="Indicado por" htmlFor="cli-indicacao" dica="Quem indicou ganha desconto enquanto este cliente estiver ativo.">
+        <Field
+          label="Indicado por"
+          htmlFor="cli-indicacao"
+          dica="Quem indicou ganha desconto enquanto este cliente estiver ativo."
+        >
           <NativeSelect
             id="cli-indicacao"
             value={f.indicado_por_id ?? ""}
-            onChange={(e) => set("indicado_por_id", e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) =>
+              set(
+                "indicado_por_id",
+                e.target.value ? Number(e.target.value) : null,
+              )
+            }
           >
             <option value="">Ninguém</option>
             {outros.map((c) => (
@@ -261,23 +365,63 @@ export function ClienteDialog({
 
         {!cliente && (
           <>
-            <p className="text-[13px] font-medium text-foreground/80 sm:col-span-2">Primeiro administrador e acesso</p>
-            <Field label="Nome" obrigatorio htmlFor="cli-adm-nome">
-              <Input id="cli-adm-nome" value={f.admin_nome} onChange={(e) => set("admin_nome", e.target.value)} />
+            <p className="text-[13px] font-medium text-foreground/80 sm:col-span-2">
+              Boas-vindas e acesso
+            </p>
+            <Field label="Nome de quem recebe" htmlFor="cli-adm-nome">
+              <Input
+                id="cli-adm-nome"
+                value={f.admin_nome}
+                onChange={(e) => set("admin_nome", e.target.value)}
+              />
             </Field>
-            <Field label="E-mail" obrigatorio htmlFor="cli-adm-email" dica="Recebe o convite e entra com ele.">
-              <Input id="cli-adm-email" type="email" value={f.admin_email} onChange={(e) => set("admin_email", e.target.value)} />
+            <Field
+              label="E-mail das boas-vindas"
+              obrigatorio
+              htmlFor="cli-adm-email"
+              dica="Recebe o link para criar o usuário master."
+            >
+              <Input
+                id="cli-adm-email"
+                type="email"
+                value={f.admin_email}
+                onChange={(e) => set("admin_email", e.target.value)}
+              />
             </Field>
-            <Field label="Domínio próprio" htmlFor="cli-dominio" dica="Opcional. Ex.: sistema.escritorio.com.br">
-              <Input id="cli-dominio" value={dominio} onChange={(e) => setDominio(e.target.value)} className="font-mono" />
+            <Field
+              label="Domínio próprio"
+              htmlFor="cli-dominio"
+              dica="Opcional. Ex.: sistema.escritorio.com.br"
+            >
+              <Input
+                id="cli-dominio"
+                value={dominio}
+                onChange={(e) => setDominio(e.target.value)}
+                className="font-mono"
+              />
             </Field>
-            <Field label="Identificador" htmlFor="cli-slug" dica="Opcional; gerado pelo nome.">
-              <Input id="cli-slug" value={f.slug ?? ""} onChange={(e) => set("slug", e.target.value)} className="font-mono" placeholder="silva-advogados" />
+            <Field
+              label="Identificador"
+              htmlFor="cli-slug"
+              dica="Opcional; gerado pelo nome."
+            >
+              <Input
+                id="cli-slug"
+                value={f.slug ?? ""}
+                onChange={(e) => set("slug", e.target.value)}
+                className="font-mono"
+                placeholder="silva-advogados"
+              />
             </Field>
           </>
         )}
         <Field label="Observação" htmlFor="cli-obs" className="sm:col-span-2">
-          <Textarea id="cli-obs" rows={2} value={f.observacao ?? ""} onChange={(e) => set("observacao", e.target.value)} />
+          <Textarea
+            id="cli-obs"
+            rows={2}
+            value={f.observacao ?? ""}
+            onChange={(e) => set("observacao", e.target.value)}
+          />
         </Field>
       </div>
     </FormDialog>

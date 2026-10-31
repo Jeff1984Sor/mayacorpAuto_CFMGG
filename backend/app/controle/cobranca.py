@@ -95,7 +95,8 @@ def uso(c: Cliente, ano: int, mes: int) -> dict:
     inicio = datetime(ano, mes, 1)
     fim = datetime(ano + (mes == 12), mes % 12 + 1, 1)
     with tenancy.usando(tenancy.Escritorio(slug=c.slug, banco=c.banco)), SessionLocal() as db:
-        usuarios = db.scalar(select(func.count(Usuario.id)).where(Usuario.ativo, Usuario.acesso_sistema)) or 0
+        usuarios = db.scalar(select(func.count(Usuario.id)).where(Usuario.ativo, Usuario.acesso_sistema,
+                                                               Usuario.equipe_mayacorp.is_(False))) or 0
         notas = db.scalar(select(func.count(Nfse.id)).where(Nfse.status == StatusNfse.emitida, Nfse.simulada.is_(False),
                                                             Nfse.data_emissao >= inicio, Nfse.data_emissao < fim)) or 0
     exc_u = max(0, usuarios - p.usuarios) if p and p.usuarios else 0
