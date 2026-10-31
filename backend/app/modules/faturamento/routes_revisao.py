@@ -240,10 +240,11 @@ def aplicar_sugestoes(rid: int, body: dict, ctx: Operador):
 def aprovar(rid: int, ctx: Operador):
     r = _rev(ctx, rid)
     try:
-        fat = service.aprovar(ctx.db, r, ctx.usuario, **_cfg(ctx))
+        fats = service.aprovar(ctx.db, r, ctx.usuario, **_cfg(ctx))
     except service.RegraFaturamento as e:
         _falha(ctx, e)
-    ctx.auditar("faturamento.revisao.aprovar", "fat_revisao", r.id, descricao=f"Revisão #{r.numero} → {fat.codigo}")
+    ctx.auditar("faturamento.revisao.aprovar", "fat_revisao", r.id,
+                descricao=f"Revisão #{r.numero} → {', '.join(f.codigo for f in fats)}")
     ctx.db.commit()
     return _out(ctx, r)
 

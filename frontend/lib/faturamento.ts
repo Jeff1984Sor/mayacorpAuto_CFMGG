@@ -37,8 +37,25 @@ export interface TabelaOut {
   itens: { cargo_id: number; valor_hora: Decimal }[];
 }
 
+export interface PagadorIn {
+  tomador_id: number;
+  percentual: Decimal;
+}
+
+export interface PagadorOut extends PagadorIn {
+  tomador_nome: string;
+}
+
+/** Vazio = o próprio cliente paga; um = outro cliente paga; vários = contrato dividido (soma 100%). */
+export function textoPagadores(pagadores: PagadorOut[]): string | null {
+  if (!pagadores.length) return null;
+  if (pagadores.length === 1) return `Pago por ${pagadores[0].tomador_nome}`;
+  return `Dividido: ${pagadores.map((p) => `${p.tomador_nome} ${Number(p.percentual).toLocaleString("pt-BR")}%`).join(" · ")}`;
+}
+
 export interface ContratoIn {
   tomador_id: number;
+  pagadores: PagadorIn[];
   emissora_id: number | null;
   tabela_preco_id: number | null;
   nome: string;
@@ -49,10 +66,11 @@ export interface ContratoIn {
   observacao: string | null;
 }
 
-export interface ContratoOut extends ContratoIn {
+export interface ContratoOut extends Omit<ContratoIn, "pagadores"> {
   id: number;
   numero: number;
   tomador_nome: string;
+  pagadores: PagadorOut[];
   tabela_preco_nome: string | null;
   qtd_casos: number;
   qtd_regras: number;
@@ -276,6 +294,7 @@ export interface ContratoPendente {
   contrato_id: number;
   contrato_numero: number;
   contrato_nome: string;
+  pagadores: PagadorOut[];
   total: Decimal;
   itens: ItemPendente[];
 }

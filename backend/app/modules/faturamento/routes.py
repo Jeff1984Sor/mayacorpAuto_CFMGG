@@ -24,6 +24,7 @@ from app.modules.faturamento.models import (
     CampoAdicional,
     Caso,
     Contrato,
+    ContratoPagador,
     Despesa,
     FaturaItem,
     Frequencia,
@@ -55,6 +56,7 @@ from app.modules.faturamento.schemas import (
     ContratoIn,
     ContratoOut,
     ContratoPendenteOut,
+    PagadorOut,
     DespesaIn,
     DespesaOut,
     EmitirNfseIn,
@@ -155,11 +157,16 @@ def alterar_tabela(tid: int, dados: TabelaIn, ctx: Admin):
 
 
 # ================================================================ contratos
+def _pagadores_out(c: Contrato) -> list[PagadorOut]:
+    return [PagadorOut(tomador_id=p.tomador_id, tomador_nome=p.tomador.nome if p.tomador else "", percentual=p.percentual)
+            for p in c.pagadores]
+
+
 def _contrato_out(ctx, c: Contrato) -> ContratoOut:
-    campos = {k: getattr(c, k) for k in ContratoOut.model_fields if hasattr(Contrato, k)}
+    campos = {k: getattr(c, k) for k in ContratoOut.model_fields if hasattr(Contrato, k) and k != "pagadores"}
     tabela = ctx.db.get(TabelaPreco, c.tabela_preco_id) if c.tabela_preco_id else None
     return ContratoOut(**campos, tomador_nome=c.tomador.nome if c.tomador else "", tabela_preco_nome=tabela.nome if tabela else None,
-                       qtd_casos=len(c.casos), qtd_regras=len([r for r in c.regras if r.ativo]))
+                       pagadores=_pagadores_out(c), qtd_casos=len(c.casos), qtd_regras=len([r for r in c.regras if r.ativo]))
 
 
 @router.get("/contratos", response_model=list[ContratoOut])
@@ -185,13 +192,35 @@ def _validar_contrato(ctx, dados: ContratoIn):
         _get(ctx, TabelaPreco, dados.tabela_preco_id, "Tabela de preço")
     if dados.data_inicio and dados.data_fim and dados.data_fim < dados.data_inicio:
         raise HTTPException(400, "O fim do contrato deve ser depois do início.")
+    ids = [p.tomador_id for p in dados.pagadores]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(400, "O mesmo pagador aparece duas vezes.")
+    for p in dados.pagadores:
+        _get(ctx, Tomador, p.tomador_id, "Pagador")
+    if dados.pagadores and sum(p.percentual for p in dados.pagadores) != 100:
+        raise HTTPException(400, "A divisão entre os pagadores precisa somar 100%.")
+
+
+def _salvar_pagadores(c: Contrato, dados: ContratoIn) -> None:
+    """Só o próprio cliente com 100% é o padrão: não precisa guardar nada."""
+    pagadores = dados.pagadores
+    if len(pagadores) == 1 and pagadores[0].tomador_id == c.tomador_id:
+        pagadores = []
+    atuais = {p.tomador_id: p for p in c.pagadores}
+    novos = []
+    for ordem, p in enumerate(pagadores):
+        pag = atuais.get(p.tomador_id) or ContratoPagador(tomador_id=p.tomador_id)
+        pag.percentual, pag.ordem = p.percentual, ordem
+        novos.append(pag)
+    c.pagadores = novos
 
 
 @router.post("/contratos", response_model=ContratoOut, status_code=201)
 def criar_contrato(dados: ContratoIn, ctx: Operador):
     _validar_contrato(ctx, dados)
     numero = (ctx.db.scalar(select(func.max(Contrato.numero)).where(Contrato.tenant_id == ctx.tenant_id)) or 0) + 1
-    c = Contrato(tenant_id=ctx.tenant_id, numero=numero, **dados.model_dump())
+    c = Contrato(tenant_id=ctx.tenant_id, numero=numero, **dados.model_dump(exclude={"pagadores"}))
+    _salvar_pagadores(c, dados)
     ctx.db.add(c)
     ctx.db.flush()
     ctx.auditar("faturamento.contrato.criar", "fat_contrato", c.id, descricao=f"#{c.numero} {c.nome}")
@@ -209,8 +238,9 @@ def ler_contrato(cid: int, ctx: Ctx):
 def alterar_contrato(cid: int, dados: ContratoIn, ctx: Operador):
     c = _get(ctx, Contrato, cid, "Contrato")
     _validar_contrato(ctx, dados)
-    for k, v in dados.model_dump().items():
+    for k, v in dados.model_dump(exclude={"pagadores"}).items():
         setattr(c, k, v)
+    _salvar_pagadores(c, dados)
     ctx.auditar("faturamento.contrato.alterar", "fat_contrato", c.id, descricao=f"#{c.numero} {c.nome}")
     ctx.db.commit()
     ctx.db.refresh(c)
@@ -1147,7 +1177,7 @@ def itens_a_faturar(ctx: Ctx, de: date, ate: date, aba: str = Query("honorarios"
             for p in itens:
                 por_tipo[p.tipo] = por_tipo.get(p.tipo, Decimal(0)) + p.valor
             contratos_out.append(ContratoPendenteOut(
-                contrato_id=c.id, contrato_numero=c.numero, contrato_nome=c.nome,
+                contrato_id=c.id, contrato_numero=c.numero, contrato_nome=c.nome, pagadores=_pagadores_out(c),
                 total=sum((p.valor for p in itens), Decimal(0)),
                 itens=[ItemPendenteOut(chave=p.chave, tipo=p.tipo, caso_id=p.caso_id,
                                        caso_numero=caso(p.caso_id).numero if caso(p.caso_id) else None,
@@ -1190,11 +1220,15 @@ def faturar(dados: FaturarIn, ctx: Operador):
 def cancelar_fatura(fid: int, dados: CancelarFaturaIn, ctx: Admin):
     f = _get(ctx, Fatura, fid, "Fatura")
     try:
-        service.cancelar(ctx.db, f, dados.motivo)
+        grupo = service.cancelar(ctx.db, f, dados.motivo)
     except service.RegraFaturamento as e:
         _erro(e)
-    ctx.auditar("faturamento.cancelar", "fatura", f.id, descricao=f"{f.codigo}: {dados.motivo}")
+    for g in grupo:
+        ctx.auditar("faturamento.cancelar", "fatura", g.id, descricao=f"{g.codigo}: {dados.motivo}")
     ctx.db.commit()
+    if len(grupo) > 1:
+        return Mensagem(mensagem=f"{', '.join(g.codigo for g in grupo)} canceladas (contrato dividido). "
+                                 "Os itens voltaram para Itens a faturar.")
     return Mensagem(mensagem=f"{f.codigo} cancelada. Os itens voltaram para Itens a faturar.")
 
 

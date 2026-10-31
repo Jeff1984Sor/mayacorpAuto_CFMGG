@@ -56,8 +56,19 @@ class TabelaOut(Schema):
 
 
 # ---------- contratos e casos
+class PagadorIn(BaseModel):
+    tomador_id: int
+    percentual: Decimal = Field(gt=0, le=100)
+
+
+class PagadorOut(PagadorIn):
+    tomador_nome: str
+
+
 class ContratoIn(BaseModel):
     tomador_id: int
+    # vazio = o próprio cliente paga tudo; um = outro cliente paga; vários = contrato dividido (soma 100%)
+    pagadores: list[PagadorIn] = []
     emissora_id: int | None = None
     tabela_preco_id: int | None = None  # valor/hora das regras por hora
     nome: str = Field(min_length=2, max_length=200)
@@ -73,6 +84,7 @@ class ContratoOut(Schema):
     numero: int
     tomador_id: int
     tomador_nome: str
+    pagadores: list[PagadorOut] = []
     emissora_id: int | None
     tabela_preco_id: int | None
     tabela_preco_nome: str | None = None
@@ -316,6 +328,7 @@ class ContratoPendenteOut(BaseModel):
     contrato_id: int
     contrato_numero: int
     contrato_nome: str
+    pagadores: list[PagadorOut] = []  # vazio = o próprio cliente paga
     total: Decimal
     itens: list[ItemPendenteOut]
 

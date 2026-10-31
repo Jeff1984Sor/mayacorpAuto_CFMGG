@@ -92,8 +92,33 @@ class Contrato(Base, Timestamped):
         viewonly=True,
     )
     casos: Mapped[list["Caso"]] = relationship(back_populates="contrato", order_by="Caso.numero")
+    pagadores: Mapped[list["ContratoPagador"]] = relationship(
+        back_populates="contrato", cascade="all, delete-orphan", order_by="ContratoPagador.ordem")
 
     __table_args__ = (UniqueConstraint("tenant_id", "numero", name="uq_fat_contrato_numero"),)
+
+    def cotas(self) -> list[tuple[int, Decimal]]:
+        """Quem paga e quanto (%). Sem pagadores cadastrados, o próprio cliente paga tudo."""
+        if not self.pagadores:
+            return [(self.tomador_id, Decimal(100))]
+        return [(p.tomador_id, p.percentual) for p in self.pagadores]
+
+
+class ContratoPagador(Base):
+    """Pagador do contrato: outro cliente no lugar do titular, ou a divisão do contrato entre vários (soma 100%)."""
+
+    __tablename__ = "fat_contrato_pagador"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contrato_id: Mapped[int] = mapped_column(ForeignKey("fat_contrato.id", ondelete="CASCADE"), index=True)
+    tomador_id: Mapped[int] = mapped_column(ForeignKey("tomador.id"))
+    percentual: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    ordem: Mapped[int] = mapped_column(Integer, default=0)  # o primeiro é o principal da divisão
+
+    contrato: Mapped[Contrato] = relationship(back_populates="pagadores")
+    tomador = relationship("Tomador")
+
+    __table_args__ = (UniqueConstraint("contrato_id", "tomador_id", name="uq_fat_contrato_pagador"),)
 
 
 class AreaAtuacao(Base, Timestamped):

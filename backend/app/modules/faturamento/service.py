@@ -241,8 +241,26 @@ def _ordenar(por_cliente: dict[int, ClientePendente]) -> list[ClientePendente]:
 
 
 # ---------------------------------------------------------------- faturar
-def criar_fatura(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pendente], tipo: TipoFatura, *,
-                 dias_vencimento: int = 10, vencimento_na_emissao: bool = False, observacao: str | None = None) -> Fatura:
+def _dividir(valor: Decimal, cotas: list[Decimal]) -> list[Decimal]:
+    """Divide o valor pelas cotas (%); a última fica com a diferença do arredondamento para fechar o total."""
+    partes = [(valor * c / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for c in cotas[:-1]]
+    return [*partes, valor - sum(partes, Decimal(0))]
+
+
+def _pct(d: Decimal) -> str:
+    return f"{d:f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def criar_faturas(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pendente], tipo: TipoFatura, *,
+                  dias_vencimento: int = 10, vencimento_na_emissao: bool = False,
+                  observacao: str | None = None) -> list[Fatura]:
+    """Uma fatura por pagador do contrato. Na divisão, cada item sai com a cota do pagador.
+
+    A primeira fatura da divisão é a que "segura" a cobrança (chave da parcela, horas e despesas); as demais
+    ficam ligadas a ela por `rateio` e são canceladas juntas.
+    """
+    import uuid
+
     from app.modules.rpa_nfse import fatura as faturas
     from app.modules.rpa_nfse.service import config_nfse
 
@@ -253,48 +271,63 @@ def criar_fatura(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pend
         select(Emissora.id).where(Emissora.tenant_id == tenant_id, Emissora.ativa).order_by(Emissora.id))
     if not emissora_id:
         raise RegraFaturamento("Cadastre a empresa emissora antes de faturar.")
-    valor = sum((p.valor for p in sel), Decimal(0))
-    if valor <= 0:
+    if sum((p.valor for p in sel), Decimal(0)) <= 0:
         raise RegraFaturamento("A fatura ficaria com valor zero.")
+    cotas = contrato.cotas()
+    rateio = uuid.uuid4().hex if len(cotas) > 1 else None
+    partes = [_dividir(p.valor, [pct for _, pct in cotas]) for p in sel]
+    if rateio:
+        nomes = {t.id: t.nome for t in db.scalars(select(Tomador).where(Tomador.id.in_([t for t, _ in cotas])))}
+        divisao = " · ".join(f"{nomes.get(t, '?')} {_pct(pct)}%" for t, pct in cotas)
+        observacao = "\n".join(x for x in (observacao, f"Contrato dividido entre pagadores: {divisao}.") if x)
     hoje = date.today()
-    fat = Fatura(
-        tenant_id=tenant_id, emissora_id=emissora_id, nfse_id=None, tipo=tipo, origem="faturamento",
-        contrato_id=contrato.id, tomador_id=contrato.tomador_id, ano=hoje.year,
-        numero=faturas.proximo_numero(db, emissora_id, hoje.year, tipo), data_emissao=hoje,
-        data_vencimento=hoje if vencimento_na_emissao else hoje + timedelta(days=dias_vencimento),
-        descricao=_descricao(contrato, sel, tipo), valor=valor, observacao=observacao,
-    )
-    db.add(fat)
-    db.flush()
-    for p in sel:
-        item = FaturaItem(
-            fatura_id=fat.id, tipo=p.tipo, regra_id=p.regra_id, caso_id=p.caso_id, competencia=p.competencia,
-            chave_cobranca=p.chave if p.tipo in ("fixo", "recorrente") else None, data=p.data,
-            descricao=p.descricao, profissional=p.profissional, quantidade=p.quantidade,
-            valor_unitario=p.valor_unitario, valor=p.valor)
-        db.add(item)
+    criadas = []
+    for n, (tomador_id, pct) in enumerate(cotas):
+        principal = n == 0
+        valores = [v[n] for v in partes]
+        valor = sum(valores, Decimal(0))
+        if valor <= 0:
+            raise RegraFaturamento("O valor é pequeno demais para dividir entre os pagadores.")
+        cota = f" (cota de {_pct(pct)}%)" if rateio else ""
+        fat = Fatura(
+            tenant_id=tenant_id, emissora_id=emissora_id, nfse_id=None, tipo=tipo, origem="faturamento",
+            contrato_id=contrato.id, tomador_id=tomador_id, rateio=rateio, ano=hoje.year,
+            numero=faturas.proximo_numero(db, emissora_id, hoje.year, tipo), data_emissao=hoje,
+            data_vencimento=hoje if vencimento_na_emissao else hoje + timedelta(days=dias_vencimento),
+            descricao=_descricao(contrato, sel, tipo, pct if rateio else None), valor=valor, observacao=observacao,
+        )
+        db.add(fat)
         db.flush()
-        modelo = Timesheet if p.tipo == "hora" else Despesa if p.tipo == "despesa" else None
-        if modelo:
-            origem = db.get(modelo, p.origem_id)
-            if not origem or origem.fatura_item_id:
-                raise RegraFaturamento(f"“{p.descricao[:60]}” já foi faturado ou excluído. Atualize a tela.")
-            origem.fatura_item_id = item.id
-    db.flush()
-    db.refresh(fat)
-    faturas.salvar_pdf(db, fat, config_nfse(db, tenant_id))
-    return fat
+        for p, v in zip(sel, valores):
+            item = FaturaItem(
+                fatura_id=fat.id, tipo=p.tipo, regra_id=p.regra_id, caso_id=p.caso_id, competencia=p.competencia,
+                chave_cobranca=p.chave if principal and p.tipo in ("fixo", "recorrente") else None, data=p.data,
+                descricao=p.descricao + cota, profissional=p.profissional, quantidade=p.quantidade,
+                valor_unitario=p.valor_unitario, valor=v)
+            db.add(item)
+            db.flush()
+            modelo = Timesheet if p.tipo == "hora" else Despesa if p.tipo == "despesa" else None
+            if modelo and principal:
+                origem = db.get(modelo, p.origem_id)
+                if not origem or origem.fatura_item_id:
+                    raise RegraFaturamento(f"“{p.descricao[:60]}” já foi faturado ou excluído. Atualize a tela.")
+                origem.fatura_item_id = item.id
+        db.flush()
+        db.refresh(fat)
+        faturas.salvar_pdf(db, fat, config_nfse(db, tenant_id))
+        criadas.append(fat)
+    return criadas
 
 
 def faturar(db: Session, tenant_id: int, *, aba: str, de: date, ate: date, chaves: list[str],
             cliente_ids: list[int] | None = None, tipos: set[str] | None = None, dias_vencimento: int = 10,
             vencimento_na_emissao: bool = False) -> list[Fatura]:
-    """Cria uma fatura por contrato com os itens escolhidos (NH para honorários, ND para despesas)."""
+    """Cria uma fatura por contrato e pagador com os itens escolhidos (NH para honorários, ND para despesas)."""
     tipo = TipoFatura.despesas if aba == "despesas" else TipoFatura.honorarios
     criadas: list[Fatura] = []
     for contrato, sel in _escolhidos(db, tenant_id, aba, de, ate, chaves, cliente_ids, tipos):
-        criadas.append(criar_fatura(db, tenant_id, contrato, sel, tipo, dias_vencimento=dias_vencimento,
-                                    vencimento_na_emissao=vencimento_na_emissao))
+        criadas += criar_faturas(db, tenant_id, contrato, sel, tipo, dias_vencimento=dias_vencimento,
+                                 vencimento_na_emissao=vencimento_na_emissao)
     return criadas
 
 
@@ -462,7 +495,8 @@ def remover_item(db: Session, item: RevisaoItem, apagar_lancamento: bool) -> Non
     item.excluido = True
 
 
-def aprovar(db: Session, rev: Revisao, usuario: Usuario, *, dias_vencimento: int, vencimento_na_emissao: bool) -> Fatura:
+def aprovar(db: Session, rev: Revisao, usuario: Usuario, *, dias_vencimento: int,
+            vencimento_na_emissao: bool) -> list[Fatura]:
     if rev.status != StatusRevisao.em_revisao:
         raise RegraFaturamento("Esta revisão já foi concluída.")
     ativos = [i for i in rev.itens if not i.excluido]
@@ -473,11 +507,14 @@ def aprovar(db: Session, rev: Revisao, usuario: Usuario, *, dias_vencimento: int
                     parcela=i.parcela, quantidade=i.quantidade, valor_unitario=i.valor_unitario,
                     profissional=i.profissional, origem_id=i.origem_id) for i in ativos]
     tipo = TipoFatura.despesas if rev.aba == "despesas" else TipoFatura.honorarios
-    fat = criar_fatura(db, rev.tenant_id, rev.contrato, sel, tipo, dias_vencimento=dias_vencimento,
-                       vencimento_na_emissao=vencimento_na_emissao, observacao=rev.observacao)
-    rev.status, rev.fatura_id, rev.concluida_em = StatusRevisao.faturada, fat.id, date.today()
-    rev.evento(f"Aprovada: gerada a fatura {fat.codigo}.", usuario.nome)
-    return fat
+    fats = criar_faturas(db, rev.tenant_id, rev.contrato, sel, tipo, dias_vencimento=dias_vencimento,
+                         vencimento_na_emissao=vencimento_na_emissao, observacao=rev.observacao)
+    rev.status, rev.fatura_id, rev.concluida_em = StatusRevisao.faturada, fats[0].id, date.today()
+    if len(fats) == 1:
+        rev.evento(f"Aprovada: gerada a fatura {fats[0].codigo}.", usuario.nome)
+    else:
+        rev.evento(f"Aprovada: geradas as faturas {', '.join(f.codigo for f in fats)} (contrato dividido).", usuario.nome)
+    return fats
 
 
 def descartar(rev: Revisao, usuario: Usuario, motivo: str | None) -> None:
@@ -525,11 +562,12 @@ def analisar_com_ia(db: Session, rev: Revisao) -> dict:
     return res
 
 
-def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura) -> str:
+def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota: Decimal | None = None) -> str:
     """Texto da fatura — e, para honorários, a discriminação da futura NFS-e."""
+    parte = f" — cota de {_pct(cota)}%" if cota is not None else ""
     if tipo == TipoFatura.despesas:
-        return f"Reembolso de despesas — contrato #{contrato.numero} {contrato.nome}"
-    linhas = [f"Honorários advocatícios — {contrato.nome}"]
+        return f"Reembolso de despesas — contrato #{contrato.numero} {contrato.nome}{parte}"
+    linhas = [f"Honorários advocatícios — {contrato.nome}{parte}"]
     horas = [p for p in itens if p.tipo == "hora"]
     outros = [p for p in itens if p.tipo != "hora"]
     linhas += [f"- {p.descricao}" for p in outros]
@@ -540,12 +578,26 @@ def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura) -> s
     return "\n".join(linhas)
 
 
-def cancelar(db: Session, fat: Fatura, motivo: str) -> None:
-    """Cancela a fatura e solta os itens: parcelas, horas e despesas voltam a aparecer em Itens a faturar."""
-    if fat.nfse_id:
-        raise RegraFaturamento("Esta fatura já tem NFS-e: cancele a nota (a fatura acompanha).")
-    if fat.status == StatusFatura.paga:
-        raise RegraFaturamento("Fatura paga não pode ser cancelada. Desfaça o pagamento antes.")
+def cancelar(db: Session, fat: Fatura, motivo: str) -> list[Fatura]:
+    """Cancela a fatura e solta os itens: parcelas, horas e despesas voltam a aparecer em Itens a faturar.
+
+    Fatura de contrato dividido cancela junto com as dos outros pagadores (os itens voltam inteiros).
+    """
+    grupo = [fat]
+    if fat.rateio:
+        grupo = list(db.scalars(select(Fatura).where(Fatura.rateio == fat.rateio,
+                                                     Fatura.status != StatusFatura.cancelada).order_by(Fatura.id)))
+    for f in grupo:
+        if f.nfse_id:
+            raise RegraFaturamento(f"{f.codigo} já tem NFS-e: cancele a nota (a fatura acompanha).")
+        if f.status == StatusFatura.paga:
+            raise RegraFaturamento(f"{f.codigo} está paga e não pode ser cancelada. Desfaça o pagamento antes.")
+    for f in grupo:
+        _cancelar_uma(db, f, motivo)
+    return grupo
+
+
+def _cancelar_uma(db: Session, fat: Fatura, motivo: str) -> None:
     for item in list(getattr(fat, "itens", []) or []):
         for modelo in (Timesheet, Despesa):
             for obj in db.scalars(select(modelo).where(modelo.fatura_item_id == item.id)):

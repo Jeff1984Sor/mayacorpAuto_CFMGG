@@ -377,7 +377,8 @@ class Fatura(Base, Timestamped):
     tipo: Mapped[TipoFatura] = mapped_column(_enum(TipoFatura), default=TipoFatura.honorarios, index=True)
     origem: Mapped[str] = mapped_column(String(15), default="nota")  # nota | faturamento
     contrato_id: Mapped[int | None] = mapped_column(ForeignKey("fat_contrato.id"), index=True)
-    tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id"))
+    tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id"))  # quem paga
+    rateio: Mapped[str | None] = mapped_column(String(32), index=True)  # faturas da mesma divisão do contrato
     numero: Mapped[int] = mapped_column(Integer)  # sequencial por emissora, tipo e ano
     ano: Mapped[int] = mapped_column(Integer)
     data_emissao: Mapped[date] = mapped_column(Date)

@@ -30,6 +30,7 @@ import {
   type RevisaoResumo,
   ROTULO_TIPO_REGRA,
   rotuloTipoItem,
+  textoPagadores,
   type TipoRegra,
 } from "@/lib/faturamento";
 import { data, documento, moeda, numero, toNum } from "@/lib/format";
@@ -468,6 +469,9 @@ export default function ItensAFaturarPage() {
                                   <Link href={`/faturamento/contratos/${k.contrato_id}`} className="font-medium hover:underline">
                                     <span className="font-mono text-muted-foreground">#{k.contrato_numero}</span> {k.contrato_nome}
                                   </Link>
+                                  {textoPagadores(k.pagadores) && (
+                                    <span className="ml-2 text-xs text-info-ink">{textoPagadores(k.pagadores)}</span>
+                                  )}
                                 </td>
                                 <td className="px-4 py-2 text-right font-mono text-sm font-medium tabular-nums">{moeda(k.total)}</td>
                               </tr>

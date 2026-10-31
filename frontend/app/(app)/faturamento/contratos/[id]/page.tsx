@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { type CasoOut, type ContratoOut, horasDecimal } from "@/lib/faturamento";
+import { type CasoOut, type ContratoOut, horasDecimal, textoPagadores } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
 import type { FaturaOut, Pagina } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -258,6 +258,9 @@ export default function ContratoPage() {
                   {c.tabela_preco_nome && ` · tabela ${c.tabela_preco_nome}`}
                 </span>
               </p>
+              {textoPagadores(c.pagadores) && (
+                <p className="mt-1 text-sm font-medium text-info-ink">{textoPagadores(c.pagadores)}</p>
+              )}
               {c.objeto && <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{c.objeto}</p>}
             </div>
             {podeEditar && (

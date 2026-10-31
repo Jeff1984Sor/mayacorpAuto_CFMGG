@@ -12,6 +12,7 @@ import {
   useCampos,
 } from "@/components/faturamento/campos-adicionais";
 import { PreencherCasoDialog } from "@/components/faturamento/caso-ia";
+import { erroPagadores, PagadoresCampo } from "@/components/faturamento/pagadores";
 import {
   ComarcaCombo,
   ehJudicial,
@@ -131,6 +132,7 @@ export function ContratoDialog({
   const emissoras = useEmissoras();
   const [f, setF] = useState<ContratoIn>({
     tomador_id: 0,
+    pagadores: [],
     emissora_id: null,
     tabela_preco_id: null,
     nome: "",
@@ -158,6 +160,10 @@ export function ContratoDialog({
       contrato
         ? {
             tomador_id: contrato.tomador_id,
+            pagadores: contrato.pagadores.map((p) => ({
+              tomador_id: p.tomador_id,
+              percentual: p.percentual,
+            })),
             emissora_id: contrato.emissora_id,
             tabela_preco_id: contrato.tabela_preco_id,
             nome: contrato.nome,
@@ -169,6 +175,7 @@ export function ContratoDialog({
           }
         : {
             tomador_id: tomadorId ?? 0,
+            pagadores: [],
             emissora_id: null,
             tabela_preco_id: null,
             nome: "",
@@ -185,6 +192,15 @@ export function ContratoDialog({
 
   const set = <K extends keyof ContratoIn>(k: K, v: ContratoIn[K]) =>
     setF((o) => ({ ...o, [k]: v }));
+  const nomeCliente =
+    contrato?.tomador_nome ??
+    clientes.data?.itens.find((c) => c.id === f.tomador_id)?.nome;
+  const nomesPagadores: Record<number, string> = {
+    ...Object.fromEntries(
+      (contrato?.pagadores ?? []).map((p) => [p.tomador_id, p.tomador_nome]),
+    ),
+    ...(f.tomador_id && nomeCliente ? { [f.tomador_id]: nomeCliente } : {}),
+  };
   const salvar = useMutation({
     mutationFn: () => {
       const body: ContratoIn = {
@@ -220,6 +236,8 @@ export function ContratoDialog({
       onSubmit={(e) => {
         e.preventDefault();
         if (!f.tomador_id) return toast.error("Escolha o cliente.");
+        const erro = erroPagadores(f.pagadores);
+        if (erro) return toast.error(erro);
         salvar.mutate();
       }}
       rodapeExtra={
@@ -289,6 +307,14 @@ export function ContratoDialog({
             value={f.objeto ?? ""}
             onChange={(e) => set("objeto", e.target.value)}
             placeholder="O que o escritório faz por este cliente"
+          />
+        </Field>
+        <Field label="Quem paga" className="sm:col-span-2">
+          <PagadoresCampo
+            tomadorId={f.tomador_id}
+            nomes={nomesPagadores}
+            valor={f.pagadores}
+            onChange={(v) => set("pagadores", v)}
           />
         </Field>
         <Field

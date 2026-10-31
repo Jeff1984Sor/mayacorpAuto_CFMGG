@@ -451,3 +451,56 @@ def test_timesheet_central(cliente):  # noqa: F811
     assert d["resumo"]["meus_minutos_hoje"] >= 120
     assert cliente.get("/api/faturamento/timesheet", headers=h, params={"caso_id": caso["id"], "faturavel": False}).json()["resumo"]["minutos"] == 30
     assert cliente.get("/api/faturamento/timesheet/exportar.xlsx", headers=h).content[:2] == b"PK"
+
+
+def test_contrato_com_outro_pagador_e_dividido(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "P")
+    cid = contrato["id"]
+    assert contrato["pagadores"] == []  # padrão: o próprio cliente paga
+    outro = cliente.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Holding Pagadora"}).json()
+    base = {"tomador_id": cli["id"], "nome": contrato["nome"]}
+
+    # a divisão precisa fechar 100% e não repetir pagador
+    r = cliente.put(f"/api/faturamento/contratos/{cid}", headers=h, json={**base, "pagadores": [
+        {"tomador_id": cli["id"], "percentual": "60"}, {"tomador_id": outro["id"], "percentual": "30"}]})
+    assert r.status_code == 400 and "100%" in r.json()["detail"]
+    # o próprio cliente com 100% é o padrão: não guarda nada
+    r = cliente.put(f"/api/faturamento/contratos/{cid}", headers=h, json={**base, "pagadores": [
+        {"tomador_id": cli["id"], "percentual": "100"}]})
+    assert r.json()["pagadores"] == []
+
+    cliente.post(f"/api/faturamento/contratos/{cid}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Parecer", "valor": "1000.01", "data_pagamento": "2026-03-10"})
+    cliente.post(f"/api/faturamento/contratos/{cid}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Consulta", "valor": "500.00", "data_pagamento": "2026-03-20"})
+    params = {"de": "2026-03-01", "ate": "2026-03-31", "cliente_ids": [cli["id"]]}
+
+    def pendentes():
+        return cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]
+
+    # outro cliente paga tudo: a NH sai em nome dele
+    r = cliente.put(f"/api/faturamento/contratos/{cid}", headers=h, json={**base, "pagadores": [
+        {"tomador_id": outro["id"], "percentual": "100"}]})
+    assert r.status_code == 200 and r.json()["pagadores"][0]["tomador_nome"] == "Holding Pagadora"
+    itens = pendentes()["itens"]
+    consulta = next(i["chave"] for i in itens if i["descricao"] == "Consulta")
+    fats = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params, "chaves": [consulta]}).json()["faturas"]
+    assert [(f["tomador_nome"], f["valor"]) for f in fats] == [("Holding Pagadora", "500.00")]
+
+    # dividido 60/40: uma fatura por pagador, os centavos fecham o total
+    r = cliente.put(f"/api/faturamento/contratos/{cid}", headers=h, json={**base, "pagadores": [
+        {"tomador_id": cli["id"], "percentual": "60"}, {"tomador_id": outro["id"], "percentual": "40"}]})
+    assert [p["percentual"] for p in r.json()["pagadores"]] == ["60.00", "40.00"]
+    pend = pendentes()
+    assert len(pend["pagadores"]) == 2
+    parecer = pend["itens"][0]["chave"]
+    fats = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params, "chaves": [parecer]}).json()["faturas"]
+    assert [(f["tomador_nome"], f["valor"]) for f in fats] == [("Cliente Faturamento P", "600.01"), ("Holding Pagadora", "400.00")]
+    assert cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"] == []  # não cobra de novo
+
+    # cancelar uma cancela a divisão inteira e o item volta inteiro
+    r = cliente.post(f"/api/faturamento/faturas/{fats[1]['id']}/cancelar", headers=h, json={"motivo": "refazer"})
+    assert r.status_code == 200 and "canceladas" in r.json()["mensagem"]
+    assert cliente.get(f"/api/nfse/faturas/{fats[0]['id']}", headers=h).json()["status"] == "cancelada"
+    assert pendentes()["itens"][0]["valor"] == "1000.01"
