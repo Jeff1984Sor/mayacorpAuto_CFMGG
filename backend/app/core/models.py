@@ -155,7 +155,7 @@ class ConfigNotificacao(Base, Timestamped):
     __tablename__ = "config_notificacao"
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), primary_key=True)
-    remetente_nome: Mapped[str] = mapped_column(String(150), default="CFME Advogados")
+    remetente_nome: Mapped[str] = mapped_column(String(150), default="MayaJus")  # nasce com o nome da Identidade
     remetente_email: Mapped[str] = mapped_column(String(200), default="nao-responda@mayacorp.com.br")
     smtp_host: Mapped[str | None] = mapped_column(String(200))
     smtp_porta: Mapped[int] = mapped_column(Integer, default=587)

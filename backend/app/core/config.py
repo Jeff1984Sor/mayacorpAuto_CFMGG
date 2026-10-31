@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
-    smtp_from: str = "CFME Advogados <nao-responda@mayacorp.com.br>"
+    smtp_from: str = "MayaJus <nao-responda@mayacorp.com.br>"
 
     frontend_url: str = "http://localhost:3000"
 

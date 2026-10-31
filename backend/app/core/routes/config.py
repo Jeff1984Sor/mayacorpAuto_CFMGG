@@ -507,10 +507,13 @@ def definir_senha(uid: int, dados: DefinirSenhaIn, ctx: Admin):
 # ---------------------------------------------------------------- notificações
 def _notif(ctx) -> ConfigNotificacao:
     n = ctx.db.get(ConfigNotificacao, ctx.tenant_id)
+    nome = (ident := ctx.db.get(Identidade, ctx.tenant_id)) and ident.nome_exibicao
     if not n:
-        n = ConfigNotificacao(tenant_id=ctx.tenant_id, avisos_destinatarios=[])
+        n = ConfigNotificacao(tenant_id=ctx.tenant_id, avisos_destinatarios=[], remetente_nome=nome or "MayaJus")
         ctx.db.add(n)
         ctx.db.flush()
+    elif nome and n.remetente_nome == "CFME Advogados" and nome != "CFME Advogados" and not n.smtp_host:
+        n.remetente_nome = nome  # nascia com o nome da CFME fixo; corrige quem ainda não configurou
     return n
 
 
