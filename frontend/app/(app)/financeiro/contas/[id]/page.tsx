@@ -90,7 +90,18 @@ export default function ExtratoPage() {
     placeholderData: (p) => p,
   });
   const remover = useMutation({
-    mutationFn: (lid: number) => api.del<{ mensagem: string }>(`/financeiro/lancamentos/${lid}`),
+    mutationFn: async (lid: number) => {
+      const l = excluir!;
+      if (l.origem === "fatura" && l.fatura_id) {
+        await api.del(`/nfse/faturas/${l.fatura_id}/baixa`);
+        return { mensagem: `Pagamento da ${l.fatura_codigo ?? "fatura"} desfeito: a fatura voltou a ficar em aberto.` };
+      }
+      if (l.origem === "conta_pagar" && l.conta_pagar_id) {
+        await api.post(`/financeiro/contas-pagar/${l.conta_pagar_id}/reabrir`);
+        return { mensagem: "Conta a pagar reaberta: o débito saiu do extrato." };
+      }
+      return api.del<{ mensagem: string }>(`/financeiro/lancamentos/${lid}`);
+    },
     onSuccess: (r) => {
       toast.success(r.mensagem);
       setExcluir(null);
@@ -307,6 +318,19 @@ export default function ExtratoPage() {
                     <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap text-danger-ink tabular-nums">{!ent ? moeda(l.valor) : ""}</td>
                     <td className={cn("px-3 py-2.5 text-right font-mono whitespace-nowrap tabular-nums", toNum(l.saldo) < 0 && "text-danger-ink")}>{moeda(l.saldo)}</td>
                     <td className="px-3 py-2.5">
+                      <div className="flex items-center justify-end gap-0.5">
+                      {podeExcluir && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Excluir ${l.descricao}`}
+                          title={l.origem === "fatura" ? "Desfazer recebimento" : l.origem === "conta_pagar" ? "Reabrir conta a pagar" : "Excluir"}
+                          className="text-muted-foreground opacity-60 group-hover:opacity-100 hover:text-danger-ink"
+                          onClick={() => setExcluir(l)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      )}
                       {(podeEditar || podeExcluir) && (l.editavel || l.origem === "estorno") && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${l.descricao}`} className="opacity-60 group-hover:opacity-100" />}>
@@ -331,6 +355,7 @@ export default function ExtratoPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -352,7 +377,7 @@ export default function ExtratoPage() {
           </table>
         </div>
       </section>
-      <p className="mt-2 text-xs text-muted-foreground">Lançamentos de faturas, contas a pagar e transferências são alterados na tela de origem.</p>
+      <p className="mt-2 text-xs text-muted-foreground">A lixeira desfaz pela origem: no recebimento de fatura, a fatura volta a ficar em aberto; no pagamento de conta, a conta a pagar é reaberta; na transferência, as duas pontas saem.</p>
 
       <LancamentoDialog open={!!lanc} onOpenChange={(o) => !o && setLanc(null)} contaId={cid} lancamento={lanc?.l ?? null} />
       <TransferenciaDialog open={transf} onOpenChange={setTransf} origemId={cid} />
@@ -380,9 +405,26 @@ export default function ExtratoPage() {
       <ConfirmDialog
         open={!!excluir}
         onOpenChange={(o) => !o && setExcluir(null)}
-        titulo="Excluir este lançamento?"
-        descricao={excluir ? `${excluir.descricao} · ${moeda(excluir.valor)} em ${data(excluir.data)}` : ""}
-        confirmar="Excluir"
+        titulo={
+          excluir?.origem === "fatura"
+            ? "Desfazer o recebimento desta fatura?"
+            : excluir?.origem === "conta_pagar"
+              ? "Reabrir a conta a pagar?"
+              : "Excluir este lançamento?"
+        }
+        descricao={
+          excluir
+            ? `${excluir.descricao} · ${moeda(excluir.valor)} em ${data(excluir.data)}. ` +
+              (excluir.origem === "fatura"
+                ? `O crédito sai da conta e a ${excluir.fatura_codigo ?? "fatura"} volta a ficar em aberto (a cobrar).`
+                : excluir.origem === "conta_pagar"
+                  ? "O débito sai da conta e a conta volta para “em aberto” em Contas a pagar."
+                  : excluir.origem === "transferencia"
+                    ? "As duas pontas da transferência saem juntas."
+                    : "Não tem volta.")
+            : ""
+        }
+        confirmar={excluir?.origem === "fatura" ? "Desfazer recebimento" : excluir?.origem === "conta_pagar" ? "Reabrir conta" : "Excluir"}
         destrutivo
         carregando={remover.isPending}
         onConfirm={() => excluir && remover.mutate(excluir.id)}
