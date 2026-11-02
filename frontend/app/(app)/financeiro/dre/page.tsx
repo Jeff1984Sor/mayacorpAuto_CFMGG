@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, ChevronRight, ChevronsDownUp, ChevronsUpDown, FileSpreadsheet, Info, ListOrdered, Percent, TrendingUp, Wallet } from "lucide-react";
+import { ArrowLeftRight, ChevronRight, ChevronsDownUp, ChevronsUpDown, FileSpreadsheet, Info, ListOrdered, Minus, Percent, Plus, TrendingUp, Wallet } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
@@ -24,7 +24,15 @@ interface LinhaDre {
   tipo: "grupo" | "subtotal";
   total: number;
   meses: Record<string, number>;
-  itens?: { categoria: string; total: number; meses: Record<string, number> }[];
+  itens?: { categoria: string; total: number; meses: Record<string, number>; filhos?: NoDre[] }[];
+}
+
+/** Abaixo da categoria: Cliente › Contrato › Caso (receitas de fatura) ou Favorecido › Subcategoria › Descrição. */
+interface NoDre {
+  nome: string;
+  total: number;
+  meses: Record<string, number>;
+  filhos: NoDre[];
 }
 
 interface Dre {
@@ -41,6 +49,73 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const rotuloMes = (m: string) => `${MESES[Number(m.slice(5)) - 1]}/${m.slice(2, 4)}`;
 const inicioAno = () => new Date(new Date().getFullYear(), 0, 1).toLocaleDateString("sv-SE");
 const hoje = () => new Date().toLocaleDateString("sv-SE");
+
+const NIVEL = ["text-xs", "text-xs text-foreground/90", "text-[11px] text-muted-foreground", "text-[11px] text-muted-foreground"];
+
+/** Linhas da árvore abaixo de uma categoria, abrindo com + / −. */
+function Nos({
+  nos,
+  base,
+  nivel,
+  meses,
+  mensal,
+  receita,
+  abertos,
+  alternar,
+}: {
+  nos: NoDre[];
+  base: string;
+  nivel: number;
+  meses: string[];
+  mensal: boolean;
+  receita: number;
+  abertos: Set<string>;
+  alternar: (k: string) => void;
+}) {
+  return (
+    <>
+      {nos.map((n) => {
+        const k = `${base}›${n.nome}`;
+        const aberto = abertos.has(k);
+        const tem = n.filhos.length > 0;
+        return (
+          <Fragment key={k}>
+            <tr className={cn("border-b bg-muted/5", NIVEL[Math.min(nivel, 3)], tem && "cursor-pointer hover:bg-accent/30")} onClick={() => tem && alternar(k)}>
+              <td className="sticky left-0 z-10 bg-card py-1.5 pr-4" style={{ paddingLeft: 44 + nivel * 18 }}>
+                <span className="flex items-center gap-1.5">
+                  {tem ? (
+                    <span className="grid size-4 shrink-0 place-items-center rounded border text-muted-foreground">
+                      {aberto ? <Minus className="size-3" /> : <Plus className="size-3" />}
+                    </span>
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                  <span className="truncate" title={n.nome}>
+                    {n.nome}
+                  </span>
+                </span>
+              </td>
+              {meses.map((m) => (
+                <td key={m} className="px-3 py-1.5 text-right whitespace-nowrap">
+                  <Valor v={n.meses[m]} />
+                </td>
+              ))}
+              <td className="px-4 py-1.5 text-right whitespace-nowrap">
+                <Valor v={n.total} />
+              </td>
+              {!mensal && (
+                <td className="px-3 py-1.5 text-right text-muted-foreground tabular-nums">
+                  {receita ? `${((n.total / receita) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : ""}
+                </td>
+              )}
+            </tr>
+            {aberto && <Nos nos={n.filhos} base={k} nivel={nivel + 1} meses={meses} mensal={mensal} receita={receita} abertos={abertos} alternar={alternar} />}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
 
 function Valor({ v, forte, neutro }: { v: number | undefined; forte?: boolean; neutro?: boolean }) {
   if (v == null || Math.abs(v) < 0.005) return <span className="text-muted-foreground/50">—</span>;
@@ -212,9 +287,27 @@ export default function DrePage() {
                             )}
                           </tr>
                           {aberto &&
-                            l.itens?.map((it) => (
-                              <tr key={`${l.chave}-${it.categoria}`} className={cn("border-b text-xs", transf ? "bg-muted/20 text-muted-foreground" : "bg-muted/10")}>
-                                <td className="sticky left-0 z-10 bg-card py-2 pr-4 pl-11">{it.categoria}</td>
+                            l.itens?.map((it) => {
+                              const k = `${l.chave}›${it.categoria}`;
+                              const temFilhos = !transf && !!it.filhos?.length;
+                              return (
+                              <Fragment key={k}>
+                              <tr
+                                className={cn("border-b text-xs", transf ? "bg-muted/20 text-muted-foreground" : "bg-muted/10", temFilhos && "cursor-pointer hover:bg-accent/30")}
+                                onClick={() => temFilhos && alternar(k)}
+                              >
+                                <td className="sticky left-0 z-10 bg-card py-2 pr-4 pl-6">
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    {temFilhos ? (
+                                      <span className="grid size-4 shrink-0 place-items-center rounded border text-muted-foreground">
+                                        {abertos.has(k) ? <Minus className="size-3" /> : <Plus className="size-3" />}
+                                      </span>
+                                    ) : (
+                                      <span className="w-4" />
+                                    )}
+                                    {it.categoria}
+                                  </span>
+                                </td>
                                 {r.meses.map((m) => (
                                   <td key={m} className="px-3 py-2 text-right whitespace-nowrap">
                                     <Valor v={it.meses[m]} neutro={transf} />
@@ -229,7 +322,12 @@ export default function DrePage() {
                                   </td>
                                 )}
                               </tr>
-                            ))}
+                              {temFilhos && abertos.has(k) && (
+                                <Nos nos={it.filhos!} base={k} nivel={0} meses={r.meses} mensal={mensal} receita={r.receita_bruta} abertos={abertos} alternar={alternar} />
+                              )}
+                              </Fragment>
+                              );
+                            })}
                         </Fragment>
                       );
                     })}

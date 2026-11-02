@@ -104,6 +104,59 @@ ESTRUTURA_DRE = [
 ]
 
 
+def _caminhos(db: Session, lc: Lancamento, cache: dict) -> list[tuple[list[str], Decimal]]:
+    """Abaixo da categoria: receita de fatura → Cliente › Contrato › Caso (o valor dividido entre os casos da fatura,
+    na proporção dos itens); demais → Favorecido › Subcategoria › Descrição."""
+    if lc.fatura_id:
+        if lc.fatura_id not in cache:
+            from app.modules.rpa_nfse.models import Fatura
+
+            f = db.get(Fatura, lc.fatura_id)
+            cliente = (f.tomador.nome if f and f.tomador else None) or lc.favorecido or "(sem cliente)"
+            contrato = "(sem contrato)"
+            if f and f.contrato_id:
+                from app.modules.faturamento.models import Contrato
+
+                c = db.get(Contrato, f.contrato_id)
+                contrato = f"#{c.numero} {c.nome}" if c else contrato
+            itens = list(getattr(f, "itens", None) or []) if f else []
+            soma = sum((i.valor for i in itens), ZERO)
+            if itens and soma:
+                partes: dict[str, Decimal] = defaultdict(lambda: ZERO)
+                for i in itens:
+                    partes[f"Caso #{i.caso.numero} — {i.caso.titulo}" if i.caso else "(sem caso)"] += i.valor / soma
+                cache[lc.fatura_id] = [([cliente, contrato, k], v) for k, v in partes.items()]
+            else:
+                cache[lc.fatura_id] = [([cliente, contrato, "(sem caso)"], Decimal(1))]
+        return cache[lc.fatura_id]
+    quem = (lc.fornecedor.nome if lc.fornecedor else None) or lc.favorecido
+    if not quem and lc.funcionario_id:
+        from app.core.models import Usuario
+
+        u = db.get(Usuario, lc.funcionario_id)
+        quem = u.nome if u else None
+    sub = lc.subcategoria.nome if lc.subcategoria else None
+    caminho = [quem or "(sem favorecido)"] + ([sub] if sub else []) + [lc.descricao or "(sem descrição)"]
+    return [(caminho, Decimal(1))]
+
+
+def _somar(raiz: dict, caminho: list[str], mes: str, valor: Decimal) -> None:
+    no = raiz
+    for nome in caminho:
+        n = no.setdefault(nome, {"_v": defaultdict(lambda: ZERO), "_f": {}})
+        n["_v"][mes] += valor
+        n["_v"]["total"] += valor
+        no = n["_f"]
+
+
+def _nos(raiz: dict, meses: list[str]) -> list[dict]:
+    out = []
+    for nome, n in sorted(raiz.items(), key=lambda kv: -abs(kv[1]["_v"]["total"])):
+        out.append({"nome": nome, "total": q2(n["_v"]["total"]), "meses": {k: q2(n["_v"].get(k, ZERO)) for k in meses},
+                    "filhos": _nos(n["_f"], meses)})
+    return out
+
+
 def dre(db: Session, tenant_id: int, *, de: date, ate: date, mensal: bool = False, conta_ids: list[int] | None = None) -> dict:
     """DRE gerencial: lançamentos do extrato agrupados pela linha da DRE de cada categoria.
 
@@ -120,6 +173,8 @@ def dre(db: Session, tenant_id: int, *, de: date, ate: date, mensal: bool = Fals
         meses.append(m.strftime("%Y-%m"))
         m = somar_meses(m, 1, 1)
     valores: dict[str, dict[str, dict[str, Decimal]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: ZERO)))
+    arvores: dict[tuple[str, str], dict] = {}  # (grupo, categoria) → nós abaixo da categoria
+    cache_fatura: dict[int, list[tuple[list[str], Decimal]]] = {}
     for lc in lancs:
         sinal = lc.valor if lc.tipo == TipoLancamento.credito else -lc.valor
         if lc.origem == "transferencia":
@@ -131,6 +186,10 @@ def dre(db: Session, tenant_id: int, *, de: date, ate: date, mensal: bool = Fals
         mes = lc.data.strftime("%Y-%m")
         valores[grupo][nome][mes] += sinal
         valores[grupo][nome]["total"] += sinal
+        if grupo != "transferencias":
+            raiz = arvores.setdefault((grupo, nome), {})
+            for caminho, parte in _caminhos(db, lc, cache_fatura):
+                _somar(raiz, caminho, mes, sinal * parte)
     linhas, acumulado = [], defaultdict(lambda: ZERO)
     for chave, rotulo, _ in ESTRUTURA_DRE:
         if chave.startswith("="):
@@ -142,7 +201,8 @@ def dre(db: Session, tenant_id: int, *, de: date, ate: date, mensal: bool = Fals
         itens = []
         for nome, porm in sorted(cats.items(), key=lambda kv: -abs(kv[1]["total"])):
             itens.append({"categoria": nome, "total": q2(porm["total"]),
-                          "meses": {k: q2(porm.get(k, ZERO)) for k in meses} if mensal else {}})
+                          "meses": {k: q2(porm.get(k, ZERO)) for k in meses} if mensal else {},
+                          "filhos": _nos(arvores.get((chave, nome), {}), meses if mensal else [])})
             for k, v in porm.items():
                 tot[k] += v
         for k, v in tot.items():

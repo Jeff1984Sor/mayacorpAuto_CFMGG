@@ -608,3 +608,28 @@ def test_inativar_e_excluir_cliente_com_tudo(cliente):  # noqa: F811
     dep = cliente.get(f"/api/nfse/tomadores/{cli2['id']}/dependencias", headers=h).json()
     assert dep["bloqueio"] and "Inative" in dep["bloqueio"]
     assert cliente.delete(f"/api/nfse/tomadores/{cli2['id']}", headers=h, params={"tudo": True}).status_code == 409
+
+
+def test_dre_abre_cliente_contrato_caso(cliente):  # noqa: F811
+    h = _login(cliente)
+    conta = cliente.post("/api/financeiro/contas", headers=h, json={"nome": "Conta DRE"}).json()
+    cli = cliente.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Cliente da DRE"}).json()
+    ct = cliente.post("/api/faturamento/contratos", headers=h, json={"tomador_id": cli["id"], "nome": "Contrato DRE"}).json()
+    caso = cliente.post(f"/api/faturamento/contratos/{ct['id']}/casos", headers=h, json={"titulo": "Caso DRE"}).json()
+    hoje = date.today().isoformat()
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Parecer DRE", "valor": "500.00", "data_pagamento": hoje})
+    params = {"de": hoje, "ate": hoje, "cliente_ids": [cli["id"]]}
+    itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]["itens"]
+    nh = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params,
+                                                                    "chaves": [i["chave"] for i in itens]}).json()["faturas"][0]
+    r = cliente.post(f"/api/nfse/faturas/{nh['id']}/baixa", headers=h, json={"data": hoje, "conta_bancaria_id": conta["id"]})
+    assert r.status_code == 200, r.text
+    dre = cliente.get("/api/financeiro/dre", headers=h, params={"de": hoje, "ate": hoje, "conta_ids": [conta["id"]]}).json()
+    # sem categoria de recebimento configurada no teste, o crédito cai em "Não classificado": a árvore é a mesma
+    itens = [i for x in dre["linhas"] for i in x.get("itens", [])]
+    no_cliente = next(f for i in itens for f in i["filhos"] if f["nome"] == "Cliente da DRE")
+    assert no_cliente["total"] == 500
+    no_contrato = no_cliente["filhos"][0]
+    assert no_contrato["nome"].endswith("Contrato DRE")
+    assert no_contrato["filhos"][0]["nome"] == f"Caso #{caso['numero']} — Caso DRE"
