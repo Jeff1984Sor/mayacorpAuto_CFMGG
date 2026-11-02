@@ -253,16 +253,11 @@ export function RegraDialog({
               })}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
-              <Field label="Descrição" obrigatorio htmlFor="regra-descricao">
-                <Input id="regra-descricao" value={f.descricao} onChange={(e) => set("descricao", e.target.value)} placeholder="ex.: Mensalidade do contencioso" autoFocus />
+            {f.tipo !== "hora" && (
+              <Field label="Valor (R$)" obrigatorio htmlFor="regra-valor" className="sm:max-w-[220px]">
+                <Input id="regra-valor" inputMode="decimal" value={f.valor ?? ""} onChange={(e) => set("valor", e.target.value)} placeholder="0,00" className="font-mono" autoFocus />
               </Field>
-              {f.tipo !== "hora" && (
-                <Field label="Valor (R$)" obrigatorio htmlFor="regra-valor">
-                  <Input id="regra-valor" inputMode="decimal" value={f.valor ?? ""} onChange={(e) => set("valor", e.target.value)} placeholder="0,00" className="font-mono" />
-                </Field>
-              )}
-            </div>
+            )}
 
             <AnimatePresence mode="wait" initial={false}>
               {f.tipo === "fixo" && (
@@ -386,8 +381,15 @@ export function RegraDialog({
               )}
             </AnimatePresence>
 
-            <Field label="Observação interna" htmlFor="regra-obs">
-              <Textarea id="regra-obs" rows={2} value={f.observacao ?? ""} onChange={(e) => set("observacao", e.target.value)} />
+            <Field label="Descrição" obrigatorio htmlFor="regra-descricao" dica={`Sai na fatura e na nota fiscal. ${f.descricao.length}/300`}>
+              <Textarea
+                id="regra-descricao"
+                rows={3}
+                maxLength={300}
+                value={f.descricao}
+                onChange={(e) => set("descricao", e.target.value)}
+                placeholder="ex.: Mensalidade do contencioso"
+              />
             </Field>
           </div>
 
