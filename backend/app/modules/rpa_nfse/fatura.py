@@ -144,6 +144,51 @@ def _brl(v) -> str:
     return "R$ " + f"{Decimal(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _hhmm(minutos: int | None) -> str:
+    m = int(minutos or 0)
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def _detalhes_dos_itens(fat: Fatura, itens: list) -> dict:
+    """Para o PDF: por item, quem trabalhou, o cargo (categoria), os minutos exatos e a descrição do lançamento de
+    horas; e a linha "Caso: #n • campo: valor" de cada caso (campos adicionais, como Segurado/Produto/Aviso)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import object_session
+
+    from app.core.models import Cargo, Usuario
+    from app.modules.faturamento.models import CampoAdicional, Timesheet
+
+    db = object_session(fat)
+    out: dict = {"itens": {}, "casos": []}
+    if db is None:
+        return out
+    ids = [i.id for i in itens if i.tipo == "hora"]
+    if ids:
+        q = (select(Timesheet.fatura_item_id, Timesheet.minutos, Timesheet.descricao, Usuario.nome, Cargo.nome)
+             .join(Usuario, Usuario.id == Timesheet.profissional_id).outerjoin(Cargo, Cargo.id == Usuario.cargo_id)
+             .where(Timesheet.fatura_item_id.in_(ids)))
+        for fid, minutos, desc, nome, cargo in db.execute(q):
+            out["itens"][fid] = {"minutos": minutos, "descricao": desc, "profissional": nome, "categoria": cargo}
+    for i in itens:  # horas sem lançamento ligado: minutos pela quantidade
+        if i.tipo == "hora" and i.id not in out["itens"] and i.quantidade:
+            out["itens"][i.id] = {"minutos": int(round(i.quantidade * 60))}
+    casos = {i.caso.id: i.caso for i in itens if i.caso}
+    if casos:
+        campos = list(db.scalars(select(CampoAdicional).where(CampoAdicional.tenant_id == fat.tenant_id)
+                                 .order_by(CampoAdicional.ordem, CampoAdicional.id)))
+        for c in sorted(casos.values(), key=lambda c: c.numero):
+            valores = c.campos or {}
+            partes = [f"<b>Caso:</b> #{c.numero}"]
+            for campo in campos:
+                v = valores.get(str(campo.id), valores.get(campo.id))
+                if v not in (None, "", []):
+                    partes.append(f"<b>{campo.nome}:</b> {', '.join(map(str, v)) if isinstance(v, list) else v}")
+            if len(partes) == 1:
+                partes.append(c.titulo)
+            out["casos"].append(" &nbsp;•&nbsp; ".join(partes))
+    return out
+
+
 def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_RIGHT
@@ -243,40 +288,62 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
                                f"&nbsp;•&nbsp; <b>Verificação NFS-e:</b> {nota.cod_verificacao}", p_sm))
     story.append(Spacer(1, 5 * mm))
 
-    # ---- item
+    # ---- item(s)
     linhas_itens = list(getattr(fat, "itens", []) or [])
-    if linhas_itens:  # fatura gerada em Itens a faturar: uma linha por parcela, hora ou despesa
-        itens = [[Paragraph("Data", p_th), Paragraph("Descrição", p_th), Paragraph("Qtd.", p_th_r), Paragraph("Valor (R$)", p_th_r)]]
+    if linhas_itens:  # fatura de Itens a faturar: uma linha por lançamento, com a descrição completa embaixo
+        extra = _detalhes_dos_itens(fat, linhas_itens)
+        for linha_caso in extra["casos"]:
+            story.insert(-1, Paragraph(linha_caso, p_sm))
+        cab = ["Data", "Integrante", "Categoria", "Hora Prof.", "Horas", "Valor (R$)"]
+        itens = [[Paragraph(x, p_th_r if i in (3, 5) else p_th) for i, x in enumerate(cab)]]
+        estilo = [("LINEABOVE", (0, 0), (-1, 0), 1.0, DARK), ("LINEBELOW", (0, 0), (-1, 0), 1.0, DARK),
+                  ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 3),
+                  ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                  ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("LEFTPADDING", (4, 0), (4, -1), 12)]
         for it in linhas_itens:
-            texto = it.descricao.replace("\n", "<br/>")
-            if it.caso_id and it.caso:
-                texto += f"<br/><font size=6 color='#666666'>Caso #{it.caso.numero} — {it.caso.titulo}</font>"
-            if it.profissional:
-                texto += f"<br/><font size=6 color='#666666'>{it.profissional}</font>"
-            qtd = f"{it.quantidade:.2f}h".replace(".", ",") if it.quantidade else ""
+            x = extra["itens"].get(it.id, {})
+            hora = _brl(it.valor_unitario) if it.valor_unitario and it.tipo == "hora" else ""
             itens.append([Paragraph(d(it.data or it.competencia) if (it.data or it.competencia) else "", p_sm),
-                          Paragraph(texto, p), Paragraph(qtd, p_r), Paragraph(_brl(it.valor).replace("R$ ", ""), p_r)])
-        t = Table(itens, colWidths=[20 * mm, LARG - 20 * mm - 18 * mm - 30 * mm, 18 * mm, 30 * mm], repeatRows=1)
+                          Paragraph(x.get("profissional") or it.profissional or "", p_sm),
+                          Paragraph(x.get("categoria") or "", p_sm), Paragraph(hora, p_sm_r),
+                          Paragraph(_hhmm(x.get("minutos")) if x.get("minutos") else "", p_sm),
+                          Paragraph(_brl(it.valor), p_sm_r)])
+            texto = (x.get("descricao") or it.descricao or "").replace("\n", "<br/>")
+            itens.append([Paragraph(texto, p_sm), "", "", "", "", ""])
+            n = len(itens) - 1
+            estilo += [("SPAN", (0, n), (-1, n)), ("LINEBELOW", (0, n), (-1, n), 0.5, colors.HexColor("#BBBBBB")),
+                       ("BOTTOMPADDING", (0, n), (-1, n), 6)]
+        t = Table(itens, colWidths=[22 * mm, 34 * mm, 42 * mm, 24 * mm, 18 * mm, LARG - 140 * mm], repeatRows=1)
+        t.setStyle(TableStyle(estilo))
+        story += [t, Spacer(1, 4 * mm)]
+        total_min = sum(v.get("minutos") or 0 for v in extra["itens"].values())
     else:
         desc = (fat.descricao or "").replace("\n", "<br/>")
         itens = [[Paragraph("Descrição", p_th), Paragraph("Valor (R$)", p_th_r)],
                  [Paragraph(desc, p), Paragraph(_brl(fat.valor).replace("R$ ", ""), p_r)]]
         t = Table(itens, colWidths=[LARG - 35 * mm, 35 * mm])
-    t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, 0), 1.0, DARK), ("LINEBELOW", (0, 0), (-1, 0), 1.0, DARK),
-                           ("LINEBELOW", (0, 1), (-1, -1), 0.5, DARK), ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                           ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                           ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    story += [t, Spacer(1, 3 * mm)]
+        t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, 0), 1.0, DARK), ("LINEBELOW", (0, 0), (-1, 0), 1.0, DARK),
+                               ("LINEBELOW", (0, 1), (-1, -1), 0.5, DARK), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                               ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        story += [t, Spacer(1, 3 * mm)]
+        total_min = 0
 
-    # ---- totais
-    tot = [[Paragraph("Subtotal", p_sm_r), Paragraph(_brl(fat.valor), p_r)]]
+    # ---- totais (à direita: total de horas e TOTAL A PAGAR em destaque)
+    tot = []
+    if total_min:
+        tot.append([Paragraph("Total de horas", p_sm_r), Paragraph(f"<b>{_hhmm(total_min)}</b>", p_sm_r)])
+    if fat.desconto or fat.juros:
+        tot.append([Paragraph("Subtotal", p_sm_r), Paragraph(_brl(fat.valor), p_sm_r)])
     if fat.desconto:
-        tot.append([Paragraph("Desconto", p_sm_r), Paragraph("- " + _brl(fat.desconto), p_r)])
+        tot.append([Paragraph("Desconto", p_sm_r), Paragraph("- " + _brl(fat.desconto), p_sm_r)])
     if fat.juros:
-        tot.append([Paragraph("Juros/multa", p_sm_r), Paragraph(_brl(fat.juros), p_r)])
-    tot.append([Paragraph("<b>Total a pagar</b>", p_r), Paragraph(_brl(fat.total), p_total)])
-    tt = Table(tot, colWidths=[LARG - 40 * mm, 40 * mm])
-    tt.setStyle(TableStyle([("LINEABOVE", (0, -1), (-1, -1), 1.0, DARK), ("TOPPADDING", (0, 0), (-1, -1), 2),
+        tot.append([Paragraph("Juros/multa", p_sm_r), Paragraph(_brl(fat.juros), p_sm_r)])
+    tot.append([Paragraph("<b>TOTAL A PAGAR</b>", ParagraphStyle("tap", parent=p_sm_r, textColor=DARK)),
+                Paragraph(_brl(fat.total), ParagraphStyle("tav", parent=p_total, fontSize=13, leading=16, textColor=DARK))])
+    tt = Table(tot, colWidths=[50 * mm, 34 * mm], hAlign="RIGHT")
+    tt.setStyle(TableStyle([("LINEABOVE", (0, -1), (-1, -1), 1.0, DARK), ("TOPPADDING", (0, 0), (-1, -1), 3),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                             ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     story += [tt, Spacer(1, 8 * mm)]
 
@@ -302,16 +369,38 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
                                ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8)]))
     story.append(caixa)
 
-    def rodape(c, docu):
-        c.saveState()
-        c.setFont("Helvetica", 6.5)
-        c.setFillColor(CINZA)
-        c.drawString(18 * mm, 10 * mm, f"{e.razao_social} • {fat.codigo}" + (f" • NFS-e {nota.numero}" if nota else ""))
-        c.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Página {docu.page}  •  Uma solução MayaCorp")
-        c.restoreState()
+    marca = ident.nome_exibicao if ident and ident.nome_exibicao else e.razao_social
+
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    class ComTotalDePaginas(rl_canvas.Canvas):
+        """Rodapé "Página X de Y": guarda as páginas e desenha o rodapé no fim, quando o total é conhecido."""
+
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self._paginas = []
+
+        def showPage(self):  # noqa: N802 — nome da API do reportlab
+            self._paginas.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._paginas)
+            for estado in self._paginas:
+                self.__dict__.update(estado)
+                self.setStrokeColor(CINZA)
+                self.setLineWidth(0.5)
+                self.line(18 * mm, 14 * mm, A4[0] - 18 * mm, 14 * mm)
+                self.setFont("Helvetica", 7)
+                self.setFillColor(CINZA)
+                self.drawString(18 * mm, 10 * mm, f"{marca} • MayaJus")
+                self.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Página {self._pageNumber} de {total}")
+                super().showPage()
+            super().save()
 
     buf = BytesIO()
-    SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm,
-                      title=f"Nota de Honorários {fat.codigo}").build(story, onFirstPage=rodape, onLaterPages=rodape)
+    SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=20 * mm,
+                      title=f"{'Nota de Despesas' if despesas else 'Nota de Honorários'} {fat.codigo}").build(
+        story, canvasmaker=ComTotalDePaginas)
     return buf.getvalue()
 

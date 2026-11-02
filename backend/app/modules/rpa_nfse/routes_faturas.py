@@ -112,18 +112,22 @@ def _nome_arquivo(texto: str) -> str:
     return limpo[:120].strip() or "sem nome"
 
 
+def _titulo_da_fatura(f: Fatura) -> str:
+    """Título do caso (um caso só), senão o nome do contrato, senão o cliente: nomeia a pasta e o PDF."""
+    casos = {i.caso.id: i.caso for i in (getattr(f, "itens", None) or []) if i.caso}
+    if len(casos) == 1:
+        return next(iter(casos.values())).titulo
+    if f.contrato_id and (contrato := faturas._contrato(f)):
+        return contrato.nome
+    return faturas.dados_cliente(f).get("nome") or f.codigo
+
+
 def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
     """Pasta raiz = título do caso; dentro, "NH - <título>.pdf" / "ND - <título>.pdf" e os comprovantes das despesas."""
     from app.modules.faturamento.models import Despesa
 
     itens = list(getattr(f, "itens", None) or [])
-    casos = {i.caso.id: i.caso for i in itens if i.caso}
-    if len(casos) == 1:
-        titulo = next(iter(casos.values())).titulo
-    elif f.contrato_id and (contrato := faturas._contrato(f)):
-        titulo = contrato.nome
-    else:
-        titulo = faturas.dados_cliente(f).get("nome") or f.codigo
+    titulo = _titulo_da_fatura(f)
     if not f.pdf_path or not Path(f.pdf_path).exists():
         faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
         ctx.db.commit()
@@ -197,8 +201,10 @@ def pdf(fid: int, ctx: Ctx):
     if not f.pdf_path or not Path(f.pdf_path).exists():
         faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
         ctx.db.commit()
-    return FileResponse(f.pdf_path, media_type="application/pdf", filename=f"Fatura_{f.codigo.replace(' ', '_').replace('/', '-')}.pdf",
-                        content_disposition_type="inline")
+    sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
+    nome = (f"{sigla} - {_nome_arquivo(_titulo_da_fatura(f))}.pdf" if getattr(f, "itens", None)
+            else f"Fatura_{f.codigo.replace(' ', '_').replace('/', '-')}.pdf")
+    return FileResponse(f.pdf_path, media_type="application/pdf", filename=nome, content_disposition_type="inline")
 
 
 class FaturaPatch(BaseModel):
