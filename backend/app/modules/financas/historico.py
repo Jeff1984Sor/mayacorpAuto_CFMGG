@@ -340,8 +340,9 @@ def importar(ctx, conta: ContaBancaria, grupos: list[dict], linhas: list[dict]) 
         papel, nome = g.get("papel"), (g.get("nome") or "").strip()[:200]
         v = {"favorecido": nome or None}
         eid = g.get("existente_id")
+        cadastrar = g.get("cadastrar") is not False  # "Não, só anotar o nome" na pergunta do cliente
         if papel == "fornecedor" and nome:
-            if not eid and ctx.pode("fornecedores.editar"):
+            if not eid and cadastrar and ctx.pode("fornecedores.editar"):
                 f = Fornecedor(tenant_id=ctx.tenant_id, nome=nome, tipo="PJ")
                 ctx.db.add(f)
                 ctx.db.flush()
@@ -349,12 +350,12 @@ def importar(ctx, conta: ContaBancaria, grupos: list[dict], linhas: list[dict]) 
                 criados["fornecedores"].append(nome)
             v["fornecedor_id"] = eid
         elif papel == "profissional" and nome:
-            if not eid and ctx.pode("cfg_profissionais.editar"):
+            if not eid and cadastrar and ctx.pode("cfg_profissionais.editar"):
                 u = convidar_usuario(UsuarioConviteIn(nome=nome, email=_email_sem_acesso(ctx, nome), acesso_sistema=False), ctx)
                 eid = u.id
                 criados["profissionais"].append(nome)
             v["funcionario_id"] = eid
-        elif papel == "cliente" and nome and not eid and ctx.pode("clientes.editar"):
+        elif papel == "cliente" and nome and not eid and cadastrar and ctx.pode("clientes.editar"):
             t = Tomador(tenant_id=ctx.tenant_id, tipo="PJ", nome=nome, emails=[], enderecos=[], contatos=[], telefones=[])
             ctx.db.add(t)
             ctx.db.flush()
