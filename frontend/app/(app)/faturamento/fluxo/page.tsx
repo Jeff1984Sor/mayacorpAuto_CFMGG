@@ -35,7 +35,7 @@ type Filtro = ColunaFluxo | "todos";
 
 const STATUS: { k: ColunaFluxo; l: string; icone: React.ComponentType<{ className?: string }>; tom: string; pill: "warning" | "brand" | "neutral" | "danger" | "success" }[] = [
   { k: "em_revisao", l: "Em revisão", icone: FileSearch, tom: "bg-warning/12 text-warning-ink", pill: "warning" },
-  { k: "aguardando_nfse", l: "Aguardando NFS-e", icone: FileText, tom: "bg-brand/12 text-info-ink", pill: "brand" },
+  { k: "aguardando_nfse", l: "Emitida", icone: FileText, tom: "bg-brand/12 text-info-ink", pill: "brand" },
   { k: "a_receber", l: "A receber", icone: Wallet, tom: "bg-navy/10 text-foreground dark:bg-brand/15", pill: "neutral" },
   { k: "vencidas", l: "Vencidas", icone: AlertTriangle, tom: "bg-danger/10 text-danger-ink", pill: "danger" },
   { k: "pagas", l: "Pagas", icone: CheckCircle2, tom: "bg-success/10 text-success-ink", pill: "success" },
@@ -57,6 +57,8 @@ function detalhe(l: Linha) {
       return <span className="font-medium text-danger-ink">{l.dias} dia(s) em atraso</span>;
     case "pagas":
       return <>pago em {data(l.pago_em ?? l.data)}</>;
+    case "aguardando_nfse":
+      return <>aguardando NFS-e{l.vencimento ? <> · vence {data(l.vencimento)}</> : null}</>;
     default:
       return l.vencimento ? <>vence {data(l.vencimento)}</> : null;
   }
@@ -190,7 +192,7 @@ export default function FluxoPage() {
               </>
             ) : (
               <span className="text-muted-foreground">
-                {numero(emitiveis.length)} fatura(s) aguardando NFS-e: marque as caixinhas para gerar as notas de uma vez.
+                {numero(emitiveis.length)} fatura(s) emitida(s) sem NFS-e: marque as caixinhas para gerar as notas de uma vez.
               </span>
             )}
           </div>

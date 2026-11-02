@@ -88,7 +88,7 @@ export const ROTULO_DIM: Record<Dimensao, string> = {
 };
 
 export const ROTULO_SITUACAO: Record<Situacao, string> = {
-  aberta: "Aberta",
+  aberta: "Emitida",
   vencida: "Vencida",
   paga: "Paga",
   cancelada: "Cancelada",

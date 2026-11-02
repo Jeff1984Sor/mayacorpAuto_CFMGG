@@ -27,7 +27,7 @@ import type { FaturaOut, ResumoFaturas, SituacaoFatura } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const CARDS: { s: SituacaoFatura; l: string; i: React.ComponentType<{ className?: string }>; tom: string }[] = [
-  { s: "aberta", l: "Em aberto", i: Wallet, tom: "bg-brand/12 text-info-ink" },
+  { s: "aberta", l: "Emitidas", i: Wallet, tom: "bg-brand/12 text-info-ink" },
   { s: "vencida", l: "Vencidas", i: AlarmClock, tom: "bg-danger/10 text-danger-ink" },
   { s: "paga", l: "Pagas", i: CheckCircle2, tom: "bg-success/10 text-success-ink" },
   { s: "cancelada", l: "Canceladas", i: CircleSlash, tom: "bg-muted text-muted-foreground" },

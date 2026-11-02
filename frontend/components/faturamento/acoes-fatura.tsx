@@ -144,7 +144,7 @@ export function AcoesFatura({ f, pago }: { f: FluxoCard; pago: boolean }) {
           dlg === "nfse"
             ? f.origem === "nota"
               ? "A nota é cancelada na Prefeitura e a fatura é cancelada junto."
-              : "A nota é cancelada na Prefeitura e a fatura volta para “Aguardando NFS-e”: emita outra nota ou cancele a fatura."
+              : "A nota é cancelada na Prefeitura e a fatura volta para “Emitida”: emita outra nota ou cancele a fatura."
             : "Os itens (parcelas, horas e despesas) voltam para Itens a faturar."
         }
         confirmar={dlg === "nfse" ? "Cancelar NFS-e" : "Cancelar fatura"}

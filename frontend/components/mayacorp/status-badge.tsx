@@ -39,7 +39,7 @@ const MAPA: Record<string, [string, Tom, boolean?]> = {
   emitida: ["Emitida", "success"],
   cancelada: ["Cancelada", "neutral"],
   // fatura
-  aberta: ["Aberta", "brand"],
+  aberta: ["Emitida", "brand"],
   vencida: ["Vencida", "danger"],
   paga: ["Paga", "success"],
   // lançamento do extrato
