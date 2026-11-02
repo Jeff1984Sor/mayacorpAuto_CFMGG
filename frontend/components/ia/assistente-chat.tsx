@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Play, SendHorizonal, Sparkles, X } from "lucide-react";
+import { Check, Loader2, Paperclip, Play, SendHorizonal, Sparkles, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ImportarPlanilha } from "@/components/ia/importar-planilha";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -38,7 +39,7 @@ function lerConversa(chave: string): Msg[] {
   }
 }
 
-const SUGESTOES = ["O que precisa da minha atenção aqui?", "Resuma em 3 pontos", "Quais os próximos passos?"];
+const SUGESTOES = ["Cadastrar a partir de uma planilha", "O que precisa da minha atenção aqui?", "Resuma em 3 pontos", "Quais os próximos passos?"];
 
 /** Conversa com o assistente sobre a tela atual; ações propostas só rodam com "Executar". */
 export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titulo: string; conteudo: () => string }) {
@@ -48,6 +49,8 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
   const chave = chaveConversa(usuario?.id, tela);
   const [msgs, setMsgs] = useState<Msg[]>(() => lerConversa(chave));
   const [texto, setTexto] = useState("");
+  const [planilha, setPlanilha] = useState<{ arquivo: File; pedido: string; id: number } | null>(null);
+  const seletor = useRef<HTMLInputElement>(null);
   const fim = useRef<HTMLDivElement>(null);
   useEffect(() => {
     fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -57,7 +60,16 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
     } catch {
       /* navegador sem armazenamento (aba anônima etc.): a conversa vale só enquanto o painel está aberto */
     }
-  }, [msgs, chave]);
+  }, [msgs, chave, planilha]);
+
+  // planilha anexada (clipe ou arrastar): o texto digitado vira o pedido ("são os profissionais")
+  const anexar = (arquivo: File | undefined) => {
+    if (!arquivo) return;
+    const pedido = texto.trim();
+    setMsgs((m) => [...m, { papel: "usuario", texto: `📎 ${arquivo.name}${pedido ? ` — ${pedido}` : ""}` }]);
+    setTexto("");
+    setPlanilha({ arquivo, pedido, id: Date.now() });
+  };
 
   const enviar = useMutation({
     mutationFn: (historico: Msg[]) =>
@@ -111,7 +123,7 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
         {msgs.length === 0 && (
           <div className="flex flex-wrap gap-1.5">
             {SUGESTOES.map((s) => (
-              <button key={s} type="button" onClick={() => mandar(s)} className="rounded-full border bg-background px-2.5 py-1 text-xs transition hover:border-brand hover:text-info-ink">
+              <button key={s} type="button" onClick={() => (s.startsWith("Cadastrar a partir") ? seletor.current?.click() : mandar(s))} className="rounded-full border bg-background px-2.5 py-1 text-xs transition hover:border-brand hover:text-info-ink">
                 {s}
               </button>
             ))}
@@ -159,6 +171,18 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
             </div>
           </motion.div>
         ))}
+        {planilha && (
+          <ImportarPlanilha
+            key={planilha.id}
+            arquivo={planilha.arquivo}
+            pedido={planilha.pedido}
+            tela={tela}
+            onFim={(resumo) => {
+              if (resumo) setMsgs((m) => [...m, { papel: "assistente", texto: resumo }]);
+              setPlanilha(null);
+            }}
+          />
+        )}
         {enviar.isPending && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" /> Pensando…
@@ -167,12 +191,38 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
         <div ref={fim} />
       </div>
       <form
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          anexar(e.dataTransfer.files?.[0]);
+        }}
         className="sticky bottom-0 mt-3 flex items-end gap-2 border-t bg-background/95 p-3 backdrop-blur"
         onSubmit={(e) => {
           e.preventDefault();
           mandar(texto);
         }}
       >
+        <input
+          ref={seletor}
+          type="file"
+          accept=".xlsx,.xlsm,.csv"
+          className="hidden"
+          onChange={(e) => {
+            anexar(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          disabled={!isOperador || !!planilha}
+          title="Anexar planilha para cadastrar em lote (.xlsx ou .csv)"
+          aria-label="Anexar planilha"
+          onClick={() => seletor.current?.click()}
+        >
+          <Paperclip />
+        </Button>
         <textarea
           aria-label="Mensagem para o assistente"
           value={texto}
@@ -184,7 +234,7 @@ export function AssistenteChat({ tela, titulo, conteudo }: { tela: string; titul
             }
           }}
           rows={2}
-          placeholder="Pergunte ou peça algo… ex.: “lança 2h de reunião no caso 15”"
+          placeholder="Pergunte, peça algo ou anexe uma planilha 📎 para cadastrar em lote"
           className="min-h-10 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20"
         />
         <Button type="submit" size="icon" disabled={!texto.trim() || enviar.isPending} aria-label="Enviar">

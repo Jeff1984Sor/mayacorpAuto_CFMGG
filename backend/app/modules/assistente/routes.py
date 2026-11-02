@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 
@@ -126,6 +126,10 @@ SISTEMA = (
     "Quando o usuário pedir para FAZER algo, proponha ações do catálogo com parâmetros completos (ids das referências, "
     "datas AAAA-MM-DD, valores numéricos) e um rótulo claro do que será feito; o usuário confirma antes. "
     "Se faltar um dado obrigatório (ex.: categoria), pergunte em vez de propor. Para perguntas, não proponha ações. "
+    "CADASTRO EM LOTE: você importa planilhas (.xlsx ou .csv) de profissionais, clientes, fornecedores, contratos, "
+    "casos, horas, despesas, contas a pagar, categorias, contas bancárias e tarefas. Se o usuário quiser cadastrar "
+    "vários de uma vez ou falar de planilha, diga que sim: é só anexar o arquivo no clipe 📎 ao lado da mensagem (ou "
+    "arrastar para cá); você entende as colunas, mostra a prévia e ele confirma. Nunca diga que não é possível. "
     'Responda SOMENTE JSON: {"resposta": "texto (pode usar listas com -)", "acoes": [{"tipo": "...", "rotulo": "...", '
     '"parametros": {...}}]}'
 )
@@ -283,3 +287,57 @@ def executar(dados: ExecutarIn, ctx: Operador):
     except (KeyError, ValueError, ArithmeticError) as e:
         raise HTTPException(400, f"Faltou ou está errado um dado da ação: {e}") from None
     raise HTTPException(400, "Ação desconhecida.")
+
+
+# ================================================================ planilha anexada no assistente (qualquer tela)
+MAX_PLANILHA = 10 * 1024 * 1024
+
+
+async def _ler_anexo(arquivo) -> tuple[list[str], list[list]]:
+    from app.modules.assistente import importacao
+
+    conteudo = await arquivo.read()
+    if len(conteudo) > MAX_PLANILHA:
+        raise HTTPException(400, "Planilha grande demais (máximo de 10 MB).")
+    return importacao.ler_tabela(arquivo.filename or "", conteudo)
+
+
+def _mapa(texto: str | None) -> dict[str, int] | None:
+    if not texto:
+        return None
+    try:
+        return {str(k): int(v) for k, v in json.loads(texto).items() if v is not None and str(v) != ""}
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(400, "Mapeamento de colunas inválido.") from None
+
+
+@router.post("/planilha")
+async def previa_planilha(ctx: Ctx, arquivo: UploadFile = File(...), tela: str = Form(""), pedido: str = Form(""),
+                          alvo: str | None = Form(None), mapeamento: str | None = Form(None)):
+    """Entende a planilha (o que é e qual coluna vai em cada campo) e mostra a prévia, sem gravar nada."""
+    from app.modules.assistente import importacao
+
+    cab, linhas = await _ler_anexo(arquivo)
+    if alvo:
+        a = importacao.ALVOS.get(alvo)
+        if not a or not ctx.pode(a.permissao):
+            raise HTTPException(403, "Seu perfil de acesso não permite este cadastro.")
+        mapa, obs = _mapa(mapeamento) or importacao._mapear_por_nome(a, cab), None
+    else:
+        a, mapa, obs = importacao.entender(ctx, tela[:300], pedido[:2000], cab, linhas)
+    out = importacao.previa(a, mapa, cab, linhas)
+    out["observacao"] = obs
+    out["opcoes"] = [{"chave": x.chave, "rotulo": x.rotulo} for x in importacao.alvos_do(ctx)]
+    return out
+
+
+@router.post("/planilha/importar")
+async def importar_planilha(ctx: Ctx, arquivo: UploadFile = File(...), alvo: str = Form(...), mapeamento: str = Form(...)):
+    """Cadastra as linhas válidas (depois do clique em Importar), uma a uma pelas rotas do sistema."""
+    from app.modules.assistente import importacao
+
+    a = importacao.ALVOS.get(alvo)
+    if not a:
+        raise HTTPException(400, "Cadastro desconhecido.")
+    cab, linhas = await _ler_anexo(arquivo)
+    return importacao.importar(ctx, a, _mapa(mapeamento) or {}, linhas)
