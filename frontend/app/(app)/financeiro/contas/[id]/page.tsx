@@ -15,6 +15,7 @@ import {
   Receipt,
   Scale,
   Trash2,
+  Undo2,
   Upload,
   Wallet,
   Sparkles,
@@ -34,6 +35,7 @@ import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Pill } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,6 +50,7 @@ const ORIGEM: Record<string, { l: string; tom: "brand" | "info" | "success" | "n
   conta_pagar: { l: "Conta a pagar", tom: "warning" },
   transferencia: { l: "Transferência", tom: "info" },
   importacao: { l: "Importado", tom: "neutral" },
+  estorno: { l: "Estorno", tom: "brand" },
 };
 
 function LinkOrigem({ l }: { l: LancamentoOut }) {
@@ -91,6 +94,18 @@ export default function ExtratoPage() {
     onSuccess: (r) => {
       toast.success(r.mensagem);
       setExcluir(null);
+      qc.invalidateQueries({ queryKey: ["fin"] });
+    },
+  });
+  const [estornar, setEstornar] = useState<LancamentoOut | null>(null);
+  const [motivoEstorno, setMotivoEstorno] = useState("");
+  const estorno = useMutation({
+    mutationFn: (l: LancamentoOut) =>
+      api.post<LancamentoOut>(`/financeiro/lancamentos/${l.id}/estornar`, { motivo: motivoEstorno.trim() || null }),
+    onSuccess: (r) => {
+      toast.success(`Estorno lançado: ${r.descricao}`);
+      setEstornar(null);
+      setMotivoEstorno("");
       qc.invalidateQueries({ queryKey: ["fin"] });
     },
   });
@@ -268,6 +283,7 @@ export default function ExtratoPage() {
                       <p className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate">{l.descricao}</span>
                         {o && <Pill tom={o.tom}>{o.l}</Pill>}
+                        {l.estornado_por_id && <Pill tom="warning">estornado</Pill>}
                       </p>
                       <p className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
                         {l.favorecido_nome && <span>{l.favorecido_nome}</span>}
@@ -291,15 +307,20 @@ export default function ExtratoPage() {
                     <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap text-danger-ink tabular-nums">{!ent ? moeda(l.valor) : ""}</td>
                     <td className={cn("px-3 py-2.5 text-right font-mono whitespace-nowrap tabular-nums", toNum(l.saldo) < 0 && "text-danger-ink")}>{moeda(l.saldo)}</td>
                     <td className="px-3 py-2.5">
-                      {(podeEditar || podeExcluir) && l.editavel && (
+                      {(podeEditar || podeExcluir) && (l.editavel || l.origem === "estorno") && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Ações de ${l.descricao}`} className="opacity-60 group-hover:opacity-100" />}>
                             <MoreHorizontal />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {podeEditar && (
+                            {podeEditar && l.editavel && (
                               <DropdownMenuItem onClick={() => setLanc({ l })}>
                                 <Pencil /> Editar
+                              </DropdownMenuItem>
+                            )}
+                            {podeEditar && l.editavel && !l.estornado_por_id && (
+                              <DropdownMenuItem onClick={() => setEstornar(l)}>
+                                <Undo2 /> Estornar
                               </DropdownMenuItem>
                             )}
                             {podeExcluir && (
@@ -335,6 +356,26 @@ export default function ExtratoPage() {
 
       <LancamentoDialog open={!!lanc} onOpenChange={(o) => !o && setLanc(null)} contaId={cid} lancamento={lanc?.l ?? null} />
       <TransferenciaDialog open={transf} onOpenChange={setTransf} origemId={cid} />
+      <ConfirmDialog
+        open={!!estornar}
+        onOpenChange={(o) => {
+          if (!o) {
+            setEstornar(null);
+            setMotivoEstorno("");
+          }
+        }}
+        titulo={`Estornar “${estornar?.descricao ?? ""}”?`}
+        descricao={
+          estornar
+            ? `Entra hoje um ${estornar.tipo === "debito" ? "crédito" : "débito"} de ${moeda(estornar.valor)}, com a mesma categoria, e o saldo volta. O lançamento original fica no histórico marcado como estornado.`
+            : ""
+        }
+        confirmar="Estornar"
+        carregando={estorno.isPending}
+        onConfirm={() => estornar && estorno.mutate(estornar)}
+      >
+        <Input value={motivoEstorno} onChange={(e) => setMotivoEstorno(e.target.value)} placeholder="Motivo (opcional), ex.: lançado em dobro" />
+      </ConfirmDialog>
       <ImportarExtratoDialog open={importar} onOpenChange={setImportar} contaId={cid} contaNome={c.nome} />
       <ConfirmDialog
         open={!!excluir}

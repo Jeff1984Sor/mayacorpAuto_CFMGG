@@ -82,6 +82,8 @@ class LancamentoOut(Schema):
     conta_pagar_id: int | None = None
     saldo: Decimal | None = None
     editavel: bool = True
+    estorno_de_id: int | None = None
+    estornado_por_id: int | None = None  # o lançamento que estornou este
 
 
 class ExtratoOut(BaseModel):
@@ -323,3 +325,8 @@ class ReceitaInformadaIn(BaseModel):
 class SimularImpostoIn(BaseModel):
     valor: Decimal = Field(gt=0)
     mes: date
+
+
+class EstornoIn(BaseModel):
+    data: date | None = None  # vazio = hoje
+    motivo: str | None = Field(default=None, max_length=500)

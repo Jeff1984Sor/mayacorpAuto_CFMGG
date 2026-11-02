@@ -123,6 +123,8 @@
 }
 
 .dark {
+  /* controles nativos (lista do select, calendário, barras de rolagem) também no tema escuro */
+  color-scheme: dark;
   /* Dark #0F1729 é o fundo; superfícies derivam dele + Gray #F7F8FC */
   --background: #0f1729;
   --foreground: #f7f8fc;
@@ -153,6 +155,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  /* lista aberta do <select>: o navegador pinta à parte; sem isto, no tema escuro as opções ficavam claras em fundo branco */
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
   }
   body {
     @apply bg-background text-foreground;

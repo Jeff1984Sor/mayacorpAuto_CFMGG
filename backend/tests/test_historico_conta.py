@@ -47,3 +47,20 @@ def test_historico_com_raio_x(cliente):  # noqa: F811
                       files={"arquivo": ("extrato.ofx", OFX.encode(), "application/octet-stream")}).json()
     assert a2["totais"]["ja_lancados"] == 7
     assert next(g for g in a2["grupos"] if g["papel"] == "profissional")["existente_id"] == usuarios["Mariana Souza"]["id"]
+
+
+def test_estornar_lancamento(cliente):  # noqa: F811
+    h = _login(cliente)
+    conta = cliente.post("/api/financeiro/contas", headers=h, json={"nome": "Conta Estorno", "saldo_inicial": "1000"}).json()
+    lc = cliente.post(f"/api/financeiro/contas/{conta['id']}/lancamentos", headers=h, json={
+        "data": "2026-11-01", "descricao": "Compra errada", "tipo": "debito", "valor": "250.00"}).json()
+    r = cliente.post(f"/api/financeiro/lancamentos/{lc['id']}/estornar", headers=h, json={"motivo": "lançado em dobro"})
+    assert r.status_code == 201, r.text
+    est = r.json()
+    assert est["tipo"] == "credito" and est["valor"] == "250.00" and est["estorno_de_id"] == lc["id"]
+    assert est["descricao"] == "Estorno: Compra errada"
+    assert cliente.post(f"/api/financeiro/lancamentos/{lc['id']}/estornar", headers=h, json={}).status_code == 400
+    assert cliente.post(f"/api/financeiro/lancamentos/{est['id']}/estornar", headers=h, json={}).status_code == 400
+    ext = cliente.get(f"/api/financeiro/contas/{conta['id']}/extrato", headers=h, params={"de": "2026-10-01", "ate": "2026-12-31"}).json()
+    orig = next(x for x in ext["linhas"] if x["id"] == lc["id"])
+    assert orig["estornado_por_id"] == est["id"]

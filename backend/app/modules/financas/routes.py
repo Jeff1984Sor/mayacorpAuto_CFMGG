@@ -39,6 +39,7 @@ from app.modules.financas.schemas import (
     ContaPagarIn,
     ContaPagarOut,
     ContasPagarListaOut,
+    EstornoIn,
     ExcluirContaIn,
     ExtratoOut,
     FornecedorIn,
@@ -178,7 +179,8 @@ def _lanc_out(ctx, lc: Lancamento, saldo: Decimal | None = None) -> LancamentoOu
         "categoria_nome": lc.categoria.nome if lc.categoria else None,
         "subcategoria_nome": lc.subcategoria.nome if lc.subcategoria else None, "favorecido_nome": fav,
         "fatura_codigo": fat.codigo if fat else None, "conta_pagar_id": cp, "saldo": saldo,
-        "editavel": lc.origem in ("manual", "importacao")})
+        "editavel": lc.origem in ("manual", "importacao"),
+        "estornado_por_id": ctx.db.scalar(select(Lancamento.id).where(Lancamento.estorno_de_id == lc.id).limit(1))})
 
 
 @router.get("/contas/{cid}/extrato", response_model=ExtratoOut)
@@ -1148,3 +1150,33 @@ def importar_historico(cid: int, dados: HistoricoIn, ctx: Operador):
     r = historico.importar(ctx, c, dados.grupos, dados.linhas)
     r["saldo_calculado"] = str(historico.saldo_conferencia(ctx, c))
     return r
+
+
+
+@router.post("/lancamentos/{lid}/estornar", response_model=LancamentoOut, status_code=201)
+def estornar_lancamento(lid: int, dados: EstornoIn, ctx: Operador):
+    """Lança o movimento contrário (mesmo valor, sentido oposto), ligado ao original: o histórico fica e o saldo volta."""
+    lc = _get(ctx, Lancamento, lid, "Lançamento")
+    if lc.estorno_de_id:
+        raise HTTPException(400, "Este lançamento já é um estorno. Para desfazer, exclua-o.")
+    if ctx.db.scalar(select(Lancamento.id).where(Lancamento.estorno_de_id == lc.id).limit(1)):
+        raise HTTPException(400, "Este lançamento já foi estornado.")
+    if lc.origem == "conta_pagar":
+        raise HTTPException(400, "Este débito veio do pagamento de uma conta: use “Reabrir” em Contas a pagar.")
+    if lc.origem == "fatura":
+        raise HTTPException(400, "Este crédito veio da baixa de uma fatura: use “Desfazer pagamento” na fatura.")
+    if lc.origem == "transferencia":
+        raise HTTPException(400, "Transferência entre contas: exclua-a (as duas pontas saem juntas).")
+    quando = dados.data or date.today()
+    novo = Lancamento(
+        tenant_id=ctx.tenant_id, conta_id=lc.conta_id, data=quando, descricao=f"Estorno: {lc.descricao}"[:255],
+        tipo=TipoLancamento.credito if lc.tipo == TipoLancamento.debito else TipoLancamento.debito, valor=lc.valor,
+        categoria_id=lc.categoria_id, subcategoria_id=lc.subcategoria_id, fornecedor_id=lc.fornecedor_id,
+        funcionario_id=lc.funcionario_id, favorecido=lc.favorecido, documento=lc.documento,
+        observacao=dados.motivo or None, origem="estorno", estorno_de_id=lc.id, criado_por_id=ctx.usuario.id)
+    ctx.db.add(novo)
+    ctx.db.flush()
+    ctx.auditar("financeiro.lancamento.estornar", "fin_lancamento", lc.id,
+                descricao=f"{lc.descricao}: {lc.valor} estornado em {quando:%d/%m/%Y}" + (f" ({dados.motivo})" if dados.motivo else ""))
+    ctx.db.commit()
+    return _lanc_out(ctx, novo)

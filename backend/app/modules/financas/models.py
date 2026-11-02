@@ -152,6 +152,7 @@ class Lancamento(Base, Timestamped):
     observacao: Mapped[str | None] = mapped_column(Text)
     origem: Mapped[str] = mapped_column(String(15), default="manual")  # manual | conta_pagar | fatura | transferencia | importacao
     transferencia_par_id: Mapped[int | None] = mapped_column(ForeignKey("fin_lancamento.id", ondelete="SET NULL"))
+    estorno_de_id: Mapped[int | None] = mapped_column(ForeignKey("fin_lancamento.id", ondelete="SET NULL"), index=True)  # este estorna aquele
     fatura_id: Mapped[int | None] = mapped_column(ForeignKey("fatura.id", ondelete="SET NULL"), index=True)
     criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
 

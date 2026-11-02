@@ -80,6 +80,8 @@ export interface LancamentoOut extends Omit<LancamentoIn, "valor"> {
   conta_pagar_id: number | null;
   saldo: Decimal | null;
   editavel: boolean;
+  estorno_de_id?: number | null;
+  estornado_por_id?: number | null;
 }
 
 export interface ExtratoOut {
