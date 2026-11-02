@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
 
 from app.core import tenancy
@@ -1110,3 +1110,41 @@ def simular_imposto(emissora_id: int, dados: SimularImpostoIn, ctx: Ctx):
 
 
 
+
+
+# ================================================================ histórico da conta com IA
+@router.post("/contas/{cid}/historico/analisar")
+async def analisar_historico(cid: int, ctx: Operador, arquivo: UploadFile = File(...)):
+    """Lê o extrato antigo e mostra o raio-x: quem é cada favorecido, o que já está cadastrado e o que falta."""
+    from app.modules.financas import historico
+
+    c = _get(ctx, ContaBancaria, cid, "Conta")
+    if not ctx.pode("contas_bancarias.editar"):
+        raise HTTPException(403, "Seu perfil de acesso não permite lançar na conta.")
+    conteudo = await arquivo.read()
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(400, "Extrato maior que 15 MB.")
+    movs = historico.ler_extrato(arquivo.filename or "", conteudo)
+    if len(movs) > 20000:
+        raise HTTPException(400, "Extrato grande demais (mais de 20 mil movimentos): divida por ano.")
+    return historico.analisar(ctx, c, movs)
+
+
+class HistoricoIn(BaseModel):
+    grupos: list[dict]
+    linhas: list[dict]
+
+
+@router.post("/contas/{cid}/historico/importar")
+def importar_historico(cid: int, dados: HistoricoIn, ctx: Operador):
+    """Cadastra o que faltava (fornecedores, profissionais sem login, clientes, categorias) e lança o histórico."""
+    from app.modules.financas import historico
+
+    c = _get(ctx, ContaBancaria, cid, "Conta")
+    if not ctx.pode("contas_bancarias.editar"):
+        raise HTTPException(403, "Seu perfil de acesso não permite lançar na conta.")
+    if len(dados.linhas) > 20000:
+        raise HTTPException(400, "Movimentos demais de uma vez.")
+    r = historico.importar(ctx, c, dados.grupos, dados.linhas)
+    r["saldo_calculado"] = str(historico.saldo_conferencia(ctx, c))
+    return r

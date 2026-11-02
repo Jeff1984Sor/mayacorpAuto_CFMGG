@@ -17,6 +17,7 @@ import {
   Trash2,
   Upload,
   Wallet,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -164,6 +165,9 @@ export default function ExtratoPage() {
                 </Button>
                 <Button variant="outline" onClick={() => setTransf(true)}>
                   <ArrowLeftRight /> Transferência
+                </Button>
+                <Button variant="outline" className="border-brand/40 text-info-ink" render={<Link href={`/financeiro/contas/${cid}/historico`} />}>
+                  <Sparkles /> Importar histórico com IA
                 </Button>
               </>
             )}
