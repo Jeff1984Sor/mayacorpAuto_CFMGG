@@ -210,6 +210,7 @@ function ClienteBusca({
     queryKey: ["tomadores-picker-pagador", busca],
     queryFn: () =>
       api.get<Pagina<TomadorOut>>("/nfse/tomadores", {
+        situacao: "ativos",
         q: busca,
         por_pagina: 30,
       }),

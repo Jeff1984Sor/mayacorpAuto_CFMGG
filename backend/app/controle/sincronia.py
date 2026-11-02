@@ -21,6 +21,9 @@ def _anotar(session, _ctx) -> None:
         estado = inspect(obj)
         if obj in session.new or estado.attrs.email.history.has_changes() or estado.attrs.login.history.has_changes():
             session.info.setdefault(_CHAVE, {})[obj.id] = [obj.login, obj.email]
+    for obj in session.deleted:  # excluído de vez: sai do catálogo (o e-mail fica livre para outro escritório)
+        if isinstance(obj, Usuario):
+            session.info.setdefault(_CHAVE, {})[obj.id] = []
 
 
 @event.listens_for(SessaoDoEscritorio, "after_commit")

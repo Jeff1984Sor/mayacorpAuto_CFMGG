@@ -207,6 +207,7 @@ export type EmissoraIn = Omit<EmissoraOut, "id" | "saude_ok" | "saude_msg" | "al
 };
 
 export interface TomadorOut {
+  ativo?: boolean;
   id: number;
   tipo: "PF" | "PJ" | "EX";
   nome: string;

@@ -15,6 +15,7 @@ import { Field } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
+import { BotaoExcluir } from "@/components/admin/excluir";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -183,6 +184,14 @@ function PlanoDialog({
             aria-label="Plano ativo"
           />{" "}
           Ativo
+          {edit?.p && (
+            <BotaoExcluir
+              url={`/admin/planos/${edit.p.id}`}
+              titulo={`Excluir o plano ${edit.p.nome}?`}
+              descricao="Só sai se nenhum cliente estiver nele. Para tirar da venda sem apagar, desligue “Ativo”."
+              onFeito={onClose}
+            />
+          )}
         </label>
       }
     >

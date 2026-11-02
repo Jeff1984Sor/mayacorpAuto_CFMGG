@@ -148,8 +148,20 @@ def excluir_conta_bancaria(cid: int, ctx: Admin):
         ctx.auditar("financeiro.conta.desativar", "fin_conta", c.id, descricao=c.nome)
         ctx.db.commit()
         return Mensagem(mensagem=f"A conta tem {qtd} lançamento(s): foi desativada (o histórico fica).")
-    ctx.auditar("financeiro.conta.excluir", "fin_conta", c.id, descricao=c.nome)
-    ctx.db.delete(c)
+    from sqlalchemy.exc import IntegrityError
+
+    nome = c.nome
+    try:  # contas a pagar apontando para ela: só desativa
+        with ctx.db.begin_nested():
+            ctx.db.delete(c)
+            ctx.db.flush()
+    except IntegrityError:
+        c = _get(ctx, ContaBancaria, cid, "Conta")
+        c.ativo = False
+        ctx.auditar("financeiro.conta.desativar", "fin_conta", c.id, descricao=nome)
+        ctx.db.commit()
+        return Mensagem(mensagem="A conta está ligada a contas a pagar: foi desativada (o histórico fica).")
+    ctx.auditar("financeiro.conta.excluir", "fin_conta", cid, descricao=nome)
     ctx.db.commit()
     return Mensagem(mensagem="Conta excluída.")
 

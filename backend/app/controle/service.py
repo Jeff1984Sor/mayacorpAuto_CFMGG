@@ -5,6 +5,7 @@ do banco de um escritório novo. Usado pela API, pelo worker, pelo deploy e (em 
 import re
 import time
 from datetime import date, timedelta
+from pathlib import Path
 
 from sqlalchemy import select, text
 
@@ -463,3 +464,49 @@ def planos_robos() -> list[str]:
     from app.controle.planos import ROBOS
 
     return list(ROBOS)
+
+
+def excluir_escritorio(slug: str) -> None:
+    """Apaga de vez um escritório (cliente de teste ou cadastrado por engano): o banco dele, o registro no controle
+    (domínios, logins, contratos, cobranças) e guarda os arquivos em storage/excluidos/. Só inativo, nunca o principal."""
+    import shutil
+    from datetime import datetime
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+
+    from app.core.config import settings
+
+    with SessaoControle() as db:
+        c = db.scalar(select(Cliente).where(Cliente.slug == slug))
+        if c is None:
+            raise RegraControle("Escritório não encontrado.")
+        if c.banco is None or c.tipo == "mayacorp":
+            raise RegraControle("O escritório principal e o admin da MayaCorp não podem ser excluídos.")
+        if c.status != "inativo":
+            raise RegraControle("Inative o escritório antes de excluir (ninguém entra enquanto está inativo).")
+        banco = c.banco
+    eng = tenancy._engines.pop(banco, None)
+    if eng is not None:
+        eng.dispose()
+    url = make_url(settings.database_url)
+    if url.get_backend_name() == "sqlite":
+        Path(make_url(tenancy.url_do_banco(banco)).database).unlink(missing_ok=True)
+    else:
+        if not re.match(r"^[a-z][a-z0-9_]{1,62}$", banco):
+            raise RegraControle("Nome de banco inválido.")
+        adm = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+        try:
+            with adm.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{banco}" WITH (FORCE)'))
+        finally:
+            adm.dispose()
+    pasta = Path(settings.storage_dir) / "clientes" / slug  # mesma regra de tenancy.pasta_base()
+    if pasta.exists():
+        destino = pasta.parent.parent / "excluidos" / f"{slug}-{datetime.now():%Y%m%d%H%M%S}"
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(pasta), str(destino))
+    with SessaoControle() as db:
+        db.delete(db.scalar(select(Cliente).where(Cliente.slug == slug)))
+        db.commit()
+    limpar_cache()

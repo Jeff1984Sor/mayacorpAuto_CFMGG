@@ -237,3 +237,17 @@ def recusar(sid: int, ctx: Painel):
         ctx.auditar("admin.solicitacao.recusar", "controle_solicitacao", sid, descricao=s.nome)
         ctx.db.commit()
         return _sol_out(s)
+
+
+@admin.delete("/solicitacoes/{sid}")
+def excluir_solicitacao(sid: int, ctx: Painel):
+    with SessaoControle() as db:
+        s = db.get(Solicitacao, sid)
+        if not s:
+            raise HTTPException(404, "Solicitação não encontrada.")
+        nome = s.nome
+        db.delete(s)
+        db.commit()
+    ctx.auditar("admin.solicitacao.excluir", "controle_solicitacao", sid, descricao=nome)
+    ctx.db.commit()
+    return {"mensagem": "Solicitação excluída."}

@@ -18,6 +18,7 @@ import { Field } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
+import { BotaoExcluir } from "@/components/admin/excluir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ClienteSaaS, PlanoOut } from "@/lib/admin";
@@ -181,6 +182,12 @@ export default function SolicitacoesPage() {
                       </Button>
                     </>
                   )}
+                  <BotaoExcluir
+                    icone
+                    url={`/admin/solicitacoes/${s.id}`}
+                    titulo={`Excluir a solicitação de ${s.nome}?`}
+                    descricao={s.cliente_id ? "O cliente já criado continua; só some este registro." : "Some da lista (spam ou cadastro repetido)."}
+                  />
                   {s.cliente_id && (
                     <Button
                       size="sm"

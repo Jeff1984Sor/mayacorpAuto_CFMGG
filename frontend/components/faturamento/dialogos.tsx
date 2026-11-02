@@ -147,6 +147,7 @@ export function ContratoDialog({
     queryKey: ["tomadores-picker-contrato", buscaCli],
     queryFn: () =>
       api.get<Pagina<TomadorOut>>("/nfse/tomadores", {
+        situacao: "ativos",
         q: buscaCli,
         por_pagina: 30,
       }),

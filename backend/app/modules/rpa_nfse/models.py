@@ -160,6 +160,7 @@ class Tomador(Base, Timestamped):
     contatos: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # pessoas de contato
     telefones: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     observacoes: Mapped[str | None] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha
 
     __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)
 

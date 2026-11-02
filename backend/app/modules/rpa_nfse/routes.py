@@ -148,9 +148,21 @@ def excluir_emissora(eid: int, ctx: Admin):
         ctx.auditar("emissora.inativar", "emissora", e.id, descricao=e.razao_social)
         ctx.db.commit()
         return Mensagem(mensagem="A emissora tem histórico de notas, então foi apenas inativada.")
-    ctx.auditar("emissora.excluir", "emissora", e.id, descricao=e.razao_social, antes=audit.snapshot(e))
-    ctx.db.query(ParametroFiscal).filter(ParametroFiscal.emissora_id == e.id).delete()
-    ctx.db.delete(e)
+    from sqlalchemy.exc import IntegrityError
+
+    snap = audit.snapshot(e)
+    try:  # contratos, faturas, contas bancárias ligadas: fica o histórico, a emissora só é inativada
+        with ctx.db.begin_nested():
+            ctx.db.query(ParametroFiscal).filter(ParametroFiscal.emissora_id == e.id).delete()
+            ctx.db.delete(e)
+            ctx.db.flush()
+    except IntegrityError:
+        e = _do_tenant(ctx, Emissora, eid)
+        e.ativa = False
+        ctx.auditar("emissora.inativar", "emissora", e.id, descricao=e.razao_social)
+        ctx.db.commit()
+        return Mensagem(mensagem="A emissora está ligada a contratos, faturas ou contas: foi apenas inativada.")
+    ctx.auditar("emissora.excluir", "emissora", eid, descricao=snap.get("razao_social"), antes=snap)
     ctx.db.commit()
     return Mensagem(mensagem="Emissora excluída.")
 
@@ -238,8 +250,10 @@ def _tomador_out(ctx, t: Tomador, stats: tuple[int, Decimal] | None = None) -> T
     )
 
 
-def _filtro_tomadores(ctx, q: str | None, incompleto: bool | None):
+def _filtro_tomadores(ctx, q: str | None, incompleto: bool | None, situacao: str | None = None):
     f = [Tomador.tenant_id == ctx.tenant_id]
+    if situacao in ("ativos", "inativos"):
+        f.append(Tomador.ativo.is_(situacao == "ativos"))
     if q:
         like = f"%{q}%"
         dig = so_digitos(q)
@@ -255,10 +269,10 @@ def _filtro_tomadores(ctx, q: str | None, incompleto: bool | None):
 
 @router.get("/tomadores", response_model=Pagina[TomadorOut])
 def listar_tomadores(
-    ctx: Ctx, q: str | None = None, incompleto: bool | None = None,
+    ctx: Ctx, q: str | None = None, incompleto: bool | None = None, situacao: str | None = None,
     pagina: int = Query(1, ge=1), por_pagina: int = Query(25, ge=1, le=200),
 ):
-    f = _filtro_tomadores(ctx, q, incompleto)
+    f = _filtro_tomadores(ctx, q, incompleto, situacao)
     total = ctx.db.scalar(select(func.count()).select_from(Tomador).where(*f)) or 0
     itens = list(ctx.db.scalars(select(Tomador).where(*f).order_by(Tomador.nome).offset((pagina - 1) * por_pagina).limit(por_pagina)))
     stats = {
@@ -404,16 +418,35 @@ def salvar_tomador(tid: int, dados: TomadorIn, ctx: Operador):
     return _tomador_out(ctx, t)
 
 
+@router.get("/tomadores/{tid}/dependencias")
+def dependencias_tomador(tid: int, ctx: Ctx):
+    """O que está ligado ao cliente (para a tela mostrar antes de excluir) e se algo impede a exclusão."""
+    from app.modules.faturamento import exclusao
+
+    return exclusao.dependencias(ctx.db, _do_tenant(ctx, Tomador, tid))
+
+
 @router.delete("/tomadores/{tid}", response_model=Mensagem)
-def excluir_tomador(tid: int, ctx: Admin):
+def excluir_tomador(tid: int, ctx: Admin, tudo: bool = False):
+    """Exclui o cliente. Com contratos/casos ligados, só com `tudo=true` (apaga junto o que nasceu dele). Com nota ou
+    fatura, nunca: é histórico fiscal (inative o cliente)."""
+    from app.modules.faturamento import exclusao
+
     t = _do_tenant(ctx, Tomador, tid)
-    if ctx.db.scalar(select(Nfse.id).where(Nfse.tomador_id == t.id).limit(1)):
-        raise HTTPException(409, "Este cliente tem notas emitidas e não pode ser excluído.")
-    ctx.db.query(Rps).filter(Rps.tomador_id == t.id).update({Rps.tomador_id: None})
-    ctx.auditar("tomador.excluir", "tomador", t.id, descricao=t.nome, antes=audit.snapshot(t))
-    ctx.db.delete(t)
+    dep = exclusao.dependencias(ctx.db, t)
+    if dep["bloqueio"]:
+        raise HTTPException(409, dep["bloqueio"])
+    if (dep["contratos"] or dep["revisoes"]) and not tudo:
+        raise HTTPException(409, f"{t.nome} tem {dep['contratos']} contrato(s) e {dep['casos']} caso(s). Confirme "
+                                 "“Excluir com tudo” para apagar junto, ou inative o cliente.")
+    ctx.auditar("tomador.excluir", "tomador", t.id, antes=audit.snapshot(t),
+                descricao=f"{t.nome}" + (f" com {dep['contratos']} contrato(s), {dep['casos']} caso(s), {dep['horas']} "
+                                         f"lançamento(s) de horas, {dep['despesas']} despesa(s) e {dep['tarefas']} tarefa(s)"
+                                         if dep["contratos"] else ""))
+    arquivos = exclusao.excluir_cliente(ctx.db, t)
     ctx.db.commit()
-    return Mensagem(mensagem="Cliente excluído.")
+    exclusao.apagar_arquivos(arquivos)
+    return Mensagem(mensagem="Cliente excluído" + (" com tudo o que estava ligado a ele." if dep["contratos"] else "."))
 
 
 @router.get("/tomadores/{tid}/notas", response_model=list[NfseOut])

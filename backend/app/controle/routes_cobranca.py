@@ -240,6 +240,21 @@ def cancelar(kid: int, ctx: Painel):
         return _cob_out(k)
 
 
+@admin.delete("/cobrancas/{kid}")
+def excluir_cobranca(kid: int, ctx: Painel):
+    """Cobrança criada por engano. Paga não sai: é receita (cancele a baixa manual antes, se foi engano)."""
+    with SessaoControle() as db:
+        k = _cob(db, kid)
+        if k.status == "paga":
+            raise HTTPException(409, "Cobrança paga não pode ser excluída.")
+        desc = f"{k.cliente.nome}: {k.descricao}"
+        db.delete(k)
+        db.commit()
+    ctx.auditar("admin.cobranca.excluir", "controle_cobranca", kid, descricao=desc)
+    ctx.db.commit()
+    return {"mensagem": "Cobrança excluída."}
+
+
 def _cob(db, kid: int) -> Cobranca:
     k = db.get(Cobranca, kid)
     if not k:

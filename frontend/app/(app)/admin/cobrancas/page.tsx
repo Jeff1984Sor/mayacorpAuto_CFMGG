@@ -32,6 +32,7 @@ import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { KpiCard } from "@/components/mayacorp/kpi-card";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
+import { BotaoExcluir } from "@/components/admin/excluir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -276,6 +277,14 @@ export default function CobrancasPage() {
                               <Ban />
                             </Button>
                           </>
+                        )}
+                        {k.status !== "paga" && (
+                          <BotaoExcluir
+                            icone
+                            url={`/admin/cobrancas/${k.id}`}
+                            titulo="Excluir a cobrança?"
+                            descricao={`${k.cliente_nome}: ${k.descricao}. Use para cobrança criada por engano; o link do Mercado Pago deixa de valer para nós.`}
+                          />
                         )}
                       </div>
                     </td>

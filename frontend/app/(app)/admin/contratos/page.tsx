@@ -17,6 +17,7 @@ import { Field } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
+import { BotaoExcluir } from "@/components/admin/excluir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -274,6 +275,14 @@ function ModeloDialog({
             aria-label="Modelo ativo"
           />{" "}
           Ativo
+          {edit?.m && (
+            <BotaoExcluir
+              url={`/admin/modelos-contrato/${edit.m.id}`}
+              titulo={`Excluir o modelo “${edit.m.nome}”?`}
+              descricao="Os contratos já gerados com ele continuam como estão."
+              onFeito={onClose}
+            />
+          )}
         </label>
       }
     >

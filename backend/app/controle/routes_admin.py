@@ -823,3 +823,69 @@ def ia_mensagem(dados: MensagemIAIn, ctx: Painel):
     if not mensagem:
         raise HTTPException(400, "A IA não devolveu um texto. Tente de novo.")
     return {"mensagem": mensagem}
+
+
+# ================================================================ exclusões
+@router.delete("/clientes/{cid}")
+def excluir_cliente_saas(cid: int, ctx: Painel, confirmar: str = ""):
+    """Apaga o escritório de vez (banco, usuários, domínios, contratos, cobranças). Só inativo e com o identificador
+    digitado de novo, porque não tem volta."""
+    with SessaoControle() as db:
+        c = _cliente(db, cid)
+        slug, nome = c.slug, c.nome
+    if confirmar.strip().lower() != slug:
+        raise HTTPException(400, f"Para confirmar, digite o identificador do escritório: {slug}")
+    try:
+        service.excluir_escritorio(slug)
+    except service.RegraControle as e:
+        _erro(e)
+    ctx.auditar("admin.cliente.excluir", "controle_cliente", cid, descricao=f"{slug}: {nome} (banco apagado)")
+    ctx.db.commit()
+    return {"mensagem": f"{nome} foi excluído, com o banco e os acessos."}
+
+
+@router.delete("/planos/{pid}")
+def excluir_plano(pid: int, ctx: Painel):
+    with SessaoControle() as db:
+        p = db.get(Plano, pid)
+        if not p:
+            raise HTTPException(404, "Plano não encontrado.")
+        n = db.scalar(select(func.count(Cliente.id)).where(Cliente.plano_id == pid)) or 0
+        if n:
+            raise HTTPException(409, f"{n} cliente(s) estão no plano {p.nome}: inative o plano (some da venda e do "
+                                     "“Meu plano”) ou mude esses clientes de plano antes.")
+        nome = p.nome
+        db.delete(p)
+        db.commit()
+    ctx.auditar("admin.plano.excluir", "controle_plano", pid, descricao=nome)
+    ctx.db.commit()
+    return {"mensagem": f"Plano {nome} excluído."}
+
+
+@router.delete("/modelos-contrato/{mid}")
+def excluir_modelo(mid: int, ctx: Painel):
+    """Os contratos já gerados guardam o próprio texto: continuam como estão."""
+    with SessaoControle() as db:
+        m = db.get(ModeloContrato, mid)
+        if not m:
+            raise HTTPException(404, "Modelo não encontrado.")
+        nome = m.nome
+        db.delete(m)
+        db.commit()
+    ctx.auditar("admin.modelo_contrato.excluir", "controle_modelo", mid, descricao=nome)
+    ctx.db.commit()
+    return {"mensagem": f"Modelo “{nome}” excluído."}
+
+
+@router.delete("/contratos/{kid}")
+def excluir_contrato_cliente(kid: int, ctx: Painel):
+    with SessaoControle() as db:
+        k = _contrato(db, kid)
+        if k.status in ("enviado", "assinado"):
+            raise HTTPException(409, "Contrato já enviado ou assinado é documento: cancele em vez de excluir.")
+        titulo = k.titulo
+        db.delete(k)
+        db.commit()
+    ctx.auditar("admin.contrato.excluir", "controle_contrato", kid, descricao=titulo)
+    ctx.db.commit()
+    return {"mensagem": "Contrato excluído."}

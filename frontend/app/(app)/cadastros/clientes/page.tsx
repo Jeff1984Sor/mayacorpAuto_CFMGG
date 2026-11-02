@@ -9,7 +9,9 @@ import {
   Loader2,
   MapPin,
   MoreHorizontal,
+  Archive,
   Pencil,
+  RotateCcw,
   Plus,
   Trash2,
   Upload,
@@ -247,7 +249,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   const salvar = useMutation({
     mutationFn: (v: Form) => {
       // o PUT substitui as listas: elas vão sempre, completas
-      const body = { ...v, cpf_cnpj: soDigitos(v.cpf_cnpj) || null, cep: soDigitos(v.cep) || null, ...paraApi(listas) };
+      const body = { ...v, cpf_cnpj: soDigitos(v.cpf_cnpj) || null, cep: soDigitos(v.cep) || null, ...paraApi(listas), ativo: cliente?.ativo ?? true };
       return cliente ? api.put(`/nfse/tomadores/${cliente.id}`, body) : api.post("/nfse/tomadores", body);
     },
     onSuccess: () => {
@@ -433,11 +435,23 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
   );
 }
 
+interface Dependencias {
+  notas: number;
+  faturas: number;
+  contratos: number;
+  casos: number;
+  horas: number;
+  despesas: number;
+  tarefas: number;
+  revisoes: number;
+  bloqueio: string | null;
+}
+
 export default function ClientesPage() {
   const { pode } = useAuth();
   const podeEditar = pode("clientes.editar");
   const qc = useQueryClient();
-  const lista = usePaginado<TomadorOut>("tomadores", "/nfse/tomadores");
+  const lista = usePaginado<TomadorOut>("tomadores", "/nfse/tomadores", { situacao: "ativos" });
   const [editar, setEditar] = useState<TomadorOut | null>(null);
   const [novo, setNovo] = useState(false);
   const [excluir, setExcluir] = useState<TomadorOut | null>(null);
@@ -470,14 +484,40 @@ export default function ClientesPage() {
     },
   });
   const exportar = useMutation({ mutationFn: () => baixar("/nfse/tomadores/exportar", {}, "clientes.xlsx") });
+  const deps = useQuery({
+    queryKey: ["tomadores", "dependencias", excluir?.id],
+    queryFn: () => api.get<Dependencias>(`/nfse/tomadores/${excluir!.id}/dependencias`),
+    enabled: !!excluir,
+  });
   const remover = useMutation({
-    mutationFn: (id: number) => api.del(`/nfse/tomadores/${id}`),
-    onSuccess: () => {
-      toast.success("Cliente excluído");
+    mutationFn: (id: number) => api.del<{ mensagem: string }>(`/nfse/tomadores/${id}?tudo=true`),
+    onSuccess: (r) => {
+      toast.success(r.mensagem);
       setExcluir(null);
+      qc.invalidateQueries();
+    },
+  });
+  const ativar = useMutation({
+    mutationFn: async ({ c, ativo }: { c: TomadorOut; ativo: boolean }) => {
+      const atual = await api.get<TomadorOut>(`/nfse/tomadores/${c.id}`);
+      return api.put(`/nfse/tomadores/${c.id}`, { ...atual, ativo });
+    },
+    onSuccess: (_, { c, ativo }) => {
+      toast.success(ativo ? `${c.nome} reativado` : `${c.nome} inativado: some das listas de escolha`);
       qc.invalidateQueries({ queryKey: ["tomadores"] });
     },
   });
+  const d = deps.data;
+  const ligados = d
+    ? [
+        [d.contratos, "contrato(s)"],
+        [d.casos, "caso(s)"],
+        [d.horas, "lançamento(s) de horas"],
+        [d.despesas, "despesa(s)"],
+        [d.tarefas, "tarefa(s)"],
+        [d.revisoes, "revisão(ões) em aberto"],
+      ].filter(([n]) => (n as number) > 0)
+    : [];
 
   const filtroInc = lista.filtros.incompleto ? "inc" : "todos";
 
@@ -521,6 +561,15 @@ export default function ClientesPage() {
       <TableCard>
         <Toolbar>
           <SearchInput value={lista.q} onChange={lista.setQ} placeholder="Nome, CPF/CNPJ ou e-mail" />
+          <Segmented
+            value={String(lista.filtros.situacao ?? "ativos")}
+            onChange={(v) => lista.setFiltro("situacao", v)}
+            opcoes={[
+              { value: "ativos", label: "Ativos" },
+              { value: "inativos", label: "Inativos" },
+              { value: "todos", label: "Todos" },
+            ]}
+          />
           <Segmented
             value={filtroInc}
             onChange={(v) => lista.setFiltro("incompleto", v === "inc" ? true : undefined)}
@@ -579,6 +628,7 @@ export default function ClientesPage() {
                           <div className="min-w-0">
                             <p className="flex items-center gap-1.5 truncate font-medium">
                               <span className="truncate">{c.nome}</span>
+                              {c.ativo === false && <Pill>inativo</Pill>}
                               {c.incompleto && (
                                 <Pill tom="warning">
                                   <AlertCircle className="size-3" /> incompleto
@@ -633,6 +683,11 @@ export default function ClientesPage() {
                             <DropdownMenuItem onClick={() => setEditar(c)}>
                               <Pencil /> {podeEditar ? "Editar" : "Ver"}
                             </DropdownMenuItem>
+                            {podeEditar && (
+                              <DropdownMenuItem onClick={() => ativar.mutate({ c, ativo: c.ativo === false })}>
+                                {c.ativo === false ? <RotateCcw /> : <Archive />} {c.ativo === false ? "Reativar" : "Inativar"}
+                              </DropdownMenuItem>
+                            )}
                             {pode("clientes.excluir") && (
                               <>
                                 <DropdownMenuSeparator />
@@ -666,12 +721,43 @@ export default function ClientesPage() {
         open={!!excluir}
         onOpenChange={(o) => !o && setExcluir(null)}
         titulo={`Excluir ${excluir?.nome ?? ""}?`}
-        descricao="Clientes com notas emitidas não podem ser excluídos (guarda fiscal)."
-        confirmar="Excluir"
+        descricao={
+          !d
+            ? "Conferindo o que está ligado a este cliente…"
+            : d.bloqueio
+              ? d.bloqueio
+              : ligados.length
+                ? "Também serão apagados, sem volta:"
+                : "Nada está ligado a este cliente. A exclusão não pode ser desfeita."
+        }
+        confirmar={ligados.length ? "Excluir com tudo" : "Excluir"}
         destrutivo
+        desabilitado={!d || !!d.bloqueio}
         carregando={remover.isPending}
         onConfirm={() => excluir && remover.mutate(excluir.id)}
-      />
+      >
+        {d && !d.bloqueio && ligados.length > 0 && (
+          <ul className="list-disc space-y-0.5 pl-5 text-sm">
+            {ligados.map(([n, r]) => (
+              <li key={r as string}>
+                <b>{n as number}</b> {r as string}
+              </li>
+            ))}
+          </ul>
+        )}
+        {d?.bloqueio && excluir?.ativo !== false && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              ativar.mutate({ c: excluir!, ativo: false });
+              setExcluir(null);
+            }}
+          >
+            <Archive /> Inativar em vez de excluir
+          </Button>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

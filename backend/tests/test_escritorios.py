@@ -429,3 +429,41 @@ def test_robos_liberados_por_escritorio(multi):
     r = c.put(f"/api/admin/clientes/{silva['id']}", headers=adm, json={**ficha, "robos": ["nfse_lote", "inventado"]})
     assert r.status_code == 200 and r.json()["robos"] == ["nfse_lote"], r.text
     assert c.get("/api/auth/me", headers=ana).json()["robos"] == ["nfse_lote"]
+
+
+def test_exclusoes_do_admin_e_profissional(multi):
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    r = c.post("/api/admin/clientes", headers=adm, json={"nome": "Escritorio Para Apagar", "admin_email": "x@apagar.adv.br",
+                                                         "dominios": [], "dias_teste": 5})
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+    assert c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "escritorio-para-apagar"}).status_code == 400  # ativo
+    c.post(f"/api/admin/clientes/{cid}/status", headers=adm, json={"status": "inativo"})
+    assert c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "errado"}).status_code == 400
+    r = c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "escritorio-para-apagar"})
+    assert r.status_code == 200, r.text
+    assert c.get(f"/api/admin/clientes/{cid}", headers=adm).status_code == 404
+    # o e-mail ficou livre no catálogo
+    from app.controle import service
+    assert service.chaves_em_uso(["x@apagar.adv.br"], exceto_slug="silva") == []
+
+    # plano com cliente não sai; modelo e solicitação saem
+    planos = c.get("/api/admin/planos", headers=adm).json()
+    usado = next(p for p in planos if p["nome"] == "Pro")
+    assert c.delete(f"/api/admin/planos/{usado['id']}", headers=adm).status_code == 409
+    m = c.post("/api/admin/modelos-contrato", headers=adm, json={"nome": "Modelo descartável", "corpo": "x" * 30}).json()
+    assert c.delete(f"/api/admin/modelos-contrato/{m['id']}", headers=adm).status_code == 200
+    c.post("/api/public/cadastro", json={"nome": "Spam Ltda", "responsavel": "Fulano Spam", "email": "s@spam.com",
+                                         "telefone": "11999990000", "aceite": True}, headers={"x-forwarded-for": "10.7.7.7"})
+    sid = next(s["id"] for s in c.get("/api/admin/solicitacoes", headers=adm).json() if s["nome"] == "Spam Ltda")
+    assert c.delete(f"/api/admin/solicitacoes/{sid}", headers=adm).status_code == 200
+
+    # profissional: sem histórico sai de vez; consigo mesmo, não
+    ana = _entrar(c, "ana@silva.adv.br", "Silva@2026x")
+    u = c.post("/api/config/usuarios", headers=ana, json={"nome": "Engano Silva", "email": "engano@silva.adv.br",
+                                                          "acesso_sistema": False}).json()
+    r = c.delete(f"/api/config/usuarios/{u['id']}", headers=ana, params={"definitivo": True})
+    assert r.status_code == 200, r.text
+    eu = c.get("/api/auth/me", headers=ana).json()
+    assert c.delete(f"/api/config/usuarios/{eu['id']}", headers=ana, params={"definitivo": True}).status_code == 400

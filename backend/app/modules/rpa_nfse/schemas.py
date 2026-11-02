@@ -136,6 +136,7 @@ class TomadorIn(BaseModel):
     enderecos: list[EnderecoIn] = []
     contatos: list[ContatoIn] = []
     telefones: list[TelefoneIn] = []
+    ativo: bool = True
 
     _d = field_validator("cpf_cnpj", "cep", "im")(_digitos)
 
@@ -144,6 +145,7 @@ class TomadorOut(Schema):
     id: int
     tipo: str
     nome: str
+    ativo: bool = True
     cpf_cnpj: str | None
     im: str | None
     ie: str | None

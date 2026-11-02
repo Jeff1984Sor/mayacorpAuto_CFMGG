@@ -255,10 +255,22 @@ def excluir_contrato(cid: int, ctx: Admin):
         ctx.auditar("faturamento.contrato.desativar", "fat_contrato", c.id, descricao=f"#{c.numero} {c.nome}")
         ctx.db.commit()
         return Mensagem(mensagem="Contrato com casos ou faturas: foi desativado.")
-    for r in ctx.db.scalars(select(RegraCobranca).where(RegraCobranca.contrato_id == cid)):
-        ctx.db.delete(r)
-    ctx.db.delete(c)
-    ctx.auditar("faturamento.contrato.excluir", "fat_contrato", cid, descricao=f"#{c.numero} {c.nome}")
+    from sqlalchemy.exc import IntegrityError
+
+    nome = f"#{c.numero} {c.nome}"
+    try:  # revisão em aberto ou outro vínculo: só desativa
+        with ctx.db.begin_nested():
+            for r in ctx.db.scalars(select(RegraCobranca).where(RegraCobranca.contrato_id == cid)):
+                ctx.db.delete(r)
+            ctx.db.delete(c)
+            ctx.db.flush()
+    except IntegrityError:
+        c = _get(ctx, Contrato, cid, "Contrato")
+        c.ativo = False
+        ctx.auditar("faturamento.contrato.desativar", "fat_contrato", c.id, descricao=nome)
+        ctx.db.commit()
+        return Mensagem(mensagem="Contrato com revisão ou outro vínculo: foi desativado.")
+    ctx.auditar("faturamento.contrato.excluir", "fat_contrato", cid, descricao=nome)
     ctx.db.commit()
     return Mensagem(mensagem="Contrato excluído.")
 

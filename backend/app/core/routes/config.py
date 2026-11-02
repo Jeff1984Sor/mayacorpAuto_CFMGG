@@ -320,12 +320,28 @@ def alterar_usuario(uid: int, dados: UsuarioPatch, ctx: Admin):
 
 
 @router.delete("/usuarios/{uid}", response_model=Mensagem)
-def desativar_usuario(uid: int, ctx: Admin):
+def desativar_usuario(uid: int, ctx: Admin, definitivo: bool = False):
+    """Desativa (padrão). Com `definitivo=true`, apaga de vez quem nunca deixou rastro (horas, tarefas, auditoria...);
+    quem tem histórico só pode ser desativado."""
+    from sqlalchemy.exc import IntegrityError
+
     u = _usuario(ctx, uid)
     if u.id == ctx.usuario.id:
-        raise HTTPException(400, "Você não pode desativar a si mesmo.")
-    if u.perfil == Perfil.admin and not _sobra_admin(ctx, u):
+        raise HTTPException(400, "Você não pode desativar nem excluir a si mesmo.")
+    if u.perfil == Perfil.admin and u.ativo and not _sobra_admin(ctx, u):
         raise HTTPException(400, "É preciso manter pelo menos um Administrador ativo.")
+    if definitivo:
+        nome, snap = u.nome, audit.snapshot(u)
+        try:
+            with ctx.db.begin_nested():
+                ctx.db.delete(u)
+                ctx.db.flush()
+        except IntegrityError:
+            raise HTTPException(409, f"{nome} já tem histórico no sistema (horas, tarefas, notas ou auditoria) e não pode "
+                                     "ser excluído(a). Use Desativar: some das listas e não entra mais.") from None
+        ctx.auditar("usuario.excluir", "usuario", uid, descricao=nome, antes=snap)
+        ctx.db.commit()
+        return Mensagem(mensagem=f"{nome} foi excluído(a).")
     u.ativo = False
     ctx.auditar("usuario.desativar", "usuario", u.id, descricao=u.nome)
     ctx.db.commit()

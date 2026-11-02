@@ -567,3 +567,44 @@ def test_proximo_numero_da_nh_e_da_nd_nas_configuracoes(cliente):  # noqa: F811
     assert (cfg["fatura_proxima_nh"], cfg["fatura_proxima_nd"]) == (501, 71)  # segue a sequência de cada uma
     r = cliente.put("/api/config/automacoes", headers=h, json={**cfg, "fatura_proxima_nh": 10})
     assert r.status_code == 400 and "501 ou maior" in r.json()["detail"]  # não volta para número usado
+
+
+def test_inativar_e_excluir_cliente_com_tudo(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli = cliente.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Cadastrado por engano"}).json()
+    ct = cliente.post("/api/faturamento/contratos", headers=h, json={"tomador_id": cli["id"], "nome": "Errado"}).json()
+    caso = cliente.post(f"/api/faturamento/contratos/{ct['id']}/casos", headers=h, json={"titulo": "Caso errado"}).json()
+    assert cliente.post(f"/api/faturamento/casos/{caso['id']}/timesheet", headers=h, json={
+        "data": "2026-02-03", "minutos": 30, "descricao": "Teste"}).status_code == 201
+    desp = cliente.post(f"/api/faturamento/casos/{caso['id']}/despesas", headers=h, json={
+        "data": "2026-02-04", "tipo": "custas", "descricao": "Guia", "valor": "10"}).json()
+    cliente.post(f"/api/faturamento/despesas/{desp['id']}/comprovante", headers=h,
+                 files={"arquivo": ("g.pdf", b"%PDF-1.4", "application/pdf")})
+    cliente.post("/api/faturamento/tarefas", headers=h, json={"titulo": "Tarefa errada", "caso_id": caso["id"]})
+
+    # inativar: some da lista de ativos, continua em "todos"
+    atual = cliente.get(f"/api/nfse/tomadores/{cli['id']}", headers=h).json()
+    assert cliente.put(f"/api/nfse/tomadores/{cli['id']}", headers=h, json={**atual, "ativo": False}).status_code == 200
+    ativos = cliente.get("/api/nfse/tomadores", headers=h, params={"q": "por engano", "situacao": "ativos"}).json()
+    assert ativos["total"] == 0
+    assert cliente.get("/api/nfse/tomadores", headers=h, params={"q": "por engano"}).json()["total"] == 1
+
+    dep = cliente.get(f"/api/nfse/tomadores/{cli['id']}/dependencias", headers=h).json()
+    assert (dep["contratos"], dep["casos"], dep["horas"], dep["despesas"], dep["tarefas"], dep["bloqueio"]) == (1, 1, 1, 1, 1, None)
+    assert cliente.delete(f"/api/nfse/tomadores/{cli['id']}", headers=h).status_code == 409  # sem "com tudo"
+    r = cliente.delete(f"/api/nfse/tomadores/{cli['id']}", headers=h, params={"tudo": True})
+    assert r.status_code == 200, r.text
+    assert cliente.get(f"/api/nfse/tomadores/{cli['id']}", headers=h).status_code == 404
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).status_code == 404
+
+    # com fatura: histórico fiscal, só inativar
+    cli2, contrato2, _ = _base(cliente, h, "D")
+    hoje = date.today().isoformat()
+    cliente.post(f"/api/faturamento/contratos/{contrato2['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Parecer 2", "valor": "100.00", "data_pagamento": hoje})
+    params = {"de": hoje, "ate": hoje, "cliente_ids": [cli2["id"]]}
+    itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]["itens"]
+    cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params, "chaves": [i["chave"] for i in itens]})
+    dep = cliente.get(f"/api/nfse/tomadores/{cli2['id']}/dependencias", headers=h).json()
+    assert dep["bloqueio"] and "Inative" in dep["bloqueio"]
+    assert cliente.delete(f"/api/nfse/tomadores/{cli2['id']}", headers=h, params={"tudo": True}).status_code == 409

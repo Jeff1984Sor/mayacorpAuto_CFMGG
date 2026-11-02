@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BriefcaseBusiness, ChevronRight, KeyRound, ShieldCheck, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, Users, UserX } from "lucide-react";
+import { BriefcaseBusiness, ChevronRight, KeyRound, ShieldCheck, Mail, MoreHorizontal, Pencil, UserCheck, UserPlus, Users, UserX, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -92,6 +92,16 @@ export default function ProfissionaisPage() {
   const [dialogo, setDialogo] = useState<{ u: UsuarioOut | null } | null>(null);
   const [senhaDe, setSenhaDe] = useState<UsuarioOut | null>(null);
   const [desativar, setDesativar] = useState<UsuarioOut | null>(null);
+  const [excluir, setExcluir] = useState<UsuarioOut | null>(null);
+  const remover = useMutation({
+    mutationFn: (id: number) => api.del<{ mensagem: string }>(`/config/usuarios/${id}?definitivo=true`),
+    onSuccess: (r) => {
+      toast.success(r.mensagem);
+      setExcluir(null);
+      qc.invalidateQueries({ queryKey: ["usuarios"] });
+    },
+    onError: () => setExcluir(null),
+  });
   const lista = useQuery({ queryKey: ["usuarios"], queryFn: () => api.get<UsuarioOut[]>("/config/usuarios"), refetchInterval: 60_000 });
   const cargos = useQuery({ queryKey: ["cargos"], queryFn: () => api.get<CargoOut[]>("/config/cargos") });
   const perfis = usePerfisAcesso(pode("cfg_perfis.ver"));
@@ -331,6 +341,9 @@ export default function ProfissionaisPage() {
                                   <UserCheck /> Reativar
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem variant="destructive" onClick={() => setExcluir(u)}>
+                                <Trash2 /> Excluir
+                              </DropdownMenuItem>
                             </>
                           )}
                         </DropdownMenuContent>
@@ -392,6 +405,16 @@ export default function ProfissionaisPage() {
         destrutivo
         carregando={patch.isPending}
         onConfirm={() => desativar && patch.mutate({ id: desativar.id, ativo: false })}
+      />
+      <ConfirmDialog
+        open={!!excluir}
+        onOpenChange={(o) => !o && setExcluir(null)}
+        titulo={`Excluir ${excluir?.nome ?? ""} de vez?`}
+        descricao="Só dá para excluir quem nunca lançou horas, tarefas ou outras ações (cadastro feito por engano). Quem já tem histórico deve ser desativado."
+        confirmar="Excluir"
+        destrutivo
+        carregando={remover.isPending}
+        onConfirm={() => excluir && remover.mutate(excluir.id)}
       />
     </div>
   );

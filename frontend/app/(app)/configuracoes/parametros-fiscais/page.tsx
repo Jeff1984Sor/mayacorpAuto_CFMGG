@@ -48,7 +48,7 @@ function TomadorPicker({ value, onChange }: { value: number | null; onChange: (i
   const busca = useDebounce(q, 250);
   const r = useQuery({
     queryKey: ["tomadores-picker", busca, value],
-    queryFn: () => api.get<Pagina<TomadorOut>>("/nfse/tomadores", { q: busca, por_pagina: 20 }),
+    queryFn: () => api.get<Pagina<TomadorOut>>("/nfse/tomadores", { q: busca, por_pagina: 20, situacao: "ativos" }),
   });
   return (
     <div className="grid gap-2">

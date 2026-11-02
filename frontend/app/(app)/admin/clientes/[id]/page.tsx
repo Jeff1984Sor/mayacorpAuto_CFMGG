@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Pill } from "@/components/mayacorp/status-badge";
+import { BotaoExcluir } from "@/components/admin/excluir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,6 +50,7 @@ import { data, dataHora, documento, moeda, toNum } from "@/lib/format";
 
 export default function FichaClientePage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const abaInicial = useSearchParams().get("aba") ?? "uso";
   const qc = useQueryClient();
   const [editar, setEditar] = useState(false);
@@ -154,6 +156,16 @@ export default function FichaClientePage() {
                   </option>
                 ))}
             </NativeSelect>
+            {cli.status === "inativo" && !cli.banco_principal && (
+              <BotaoExcluir
+                url={`/admin/clientes/${cli.id}`}
+                titulo={`Excluir ${cli.nome} de vez?`}
+                descricao="Apaga o banco do escritório com tudo dentro (usuários, clientes, notas, faturas), os domínios, contratos e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
+                digitar={cli.slug}
+                rotulo="Excluir escritório"
+                onFeito={() => router.push("/admin/clientes")}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -685,6 +697,14 @@ function AbaContratos({ cli }: { cli: ClienteSaaS }) {
               >
                 PDF
               </Button>
+              {(k.status === "rascunho" || k.status === "cancelado") && (
+                <BotaoExcluir
+                  icone
+                  url={`/admin/contratos/${k.id}`}
+                  titulo={`Excluir “${k.titulo}”?`}
+                  descricao="O contrato some da ficha do cliente."
+                />
+              )}
               {k.status === "rascunho" && (
                 <Button variant="ghost" size="sm" onClick={() => setAberto(k)}>
                   <Pencil /> Revisar

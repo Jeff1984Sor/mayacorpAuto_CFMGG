@@ -942,7 +942,7 @@ export function useConfigTribunais(ativo = true) {
 export function useClientesBusca(q: string, ativo = true) {
   return useQuery({
     queryKey: [K, "clientes", q],
-    queryFn: () => api.get<Pagina<TomadorOut>>("/nfse/tomadores", { q, por_pagina: 20 }),
+    queryFn: () => api.get<Pagina<TomadorOut>>("/nfse/tomadores", { q, por_pagina: 20, situacao: "ativos" }),
     enabled: ativo,
   });
 }
