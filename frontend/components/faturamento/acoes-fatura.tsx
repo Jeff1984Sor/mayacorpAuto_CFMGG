@@ -160,3 +160,82 @@ export function AcoesFatura({ f, pago }: { f: FluxoCard; pago: boolean }) {
     </div>
   );
 }
+
+/** Baixa em lote no Fluxo: mesma data e conta para todas; cada fatura recebe o próprio total. */
+export function BaixaEmLote({ faturas, onClose }: { faturas: FluxoCard[]; onClose: (feito: boolean) => void }) {
+  const qc = useQueryClient();
+  const { pode } = useAuth();
+  const [dataPg, setDataPg] = useState(hoje());
+  const [conta, setConta] = useState("");
+  const aberto = faturas.length > 0;
+  const contas = useQuery({
+    queryKey: ["fin", "contas"],
+    queryFn: () => api.get<{ id: number; nome: string; ativo: boolean }[]>("/financeiro/contas"),
+    enabled: aberto && pode("contas_bancarias.ver"),
+    meta: { silencioso: true },
+  });
+  const baixar = useMutation({
+    mutationFn: async () => {
+      const erros: string[] = [];
+      for (const f of faturas) {
+        try {
+          await api.post(`/nfse/faturas/${f.id}/baixa`, { data: dataPg, valor: null, conta_bancaria_id: conta ? Number(conta) : null });
+        } catch (e) {
+          erros.push(`${f.titulo}: ${e instanceof Error ? e.message : "erro"}`);
+        }
+      }
+      return erros;
+    },
+    onSuccess: (erros) => {
+      const ok = faturas.length - erros.length;
+      if (ok) toast.success(`${ok} fatura(s) pagas em ${dataPg.split("-").reverse().join("/")}`);
+      if (erros.length) toast.error(`${erros.length} não entraram`, { description: erros.join(" · "), duration: 12000 });
+      qc.invalidateQueries({ queryKey: ["fat"] });
+      qc.invalidateQueries({ queryKey: ["faturas"] });
+      onClose(true);
+    },
+  });
+  const total = faturas.reduce((t, f) => t + toNum(f.valor), 0);
+  return (
+    <FormDialog
+      open={aberto}
+      onOpenChange={(o) => !o && onClose(false)}
+      titulo={`Dar baixa em ${faturas.length} fatura(s)`}
+      descricao={`Total ${moeda(total)}. Cada fatura é baixada pelo valor total dela; as que têm NFS-e recebem a baixa junto.`}
+      rotuloSalvar="Registrar pagamentos"
+      salvando={baixar.isPending}
+      onSubmit={(e) => {
+        e.preventDefault();
+        baixar.mutate();
+      }}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Data do pagamento" obrigatorio htmlFor="lote-data">
+          <Input id="lote-data" type="date" required max={hoje()} value={dataPg} onChange={(e) => setDataPg(e.target.value)} />
+        </Field>
+        {(contas.data?.length ?? 0) > 0 && (
+          <Field label="Conta bancária" htmlFor="lote-conta" dica="Vazio = conta padrão de recebimento.">
+            <NativeSelect id="lote-conta" value={conta} onChange={(e) => setConta(e.target.value)}>
+              <option value="">Conta padrão</option>
+              {contas.data!.filter((c) => c.ativo).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        )}
+      </div>
+      <ul className="mt-4 max-h-40 space-y-1 overflow-y-auto text-sm">
+        {faturas.map((f) => (
+          <li key={f.id} className="flex justify-between gap-3">
+            <span className="truncate">
+              <span className="font-mono">{f.titulo}</span> · {f.cliente}
+            </span>
+            <span className="num shrink-0">{moeda(f.valor)}</span>
+          </li>
+        ))}
+      </ul>
+    </FormDialog>
+  );
+}

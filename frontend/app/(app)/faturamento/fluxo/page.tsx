@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronRight, FileSearch, FileText, KanbanSquare, Layers, Loader2, Receipt, Wallet, X } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AlertTriangle, CheckCircle2, DollarSign, ChevronRight, FileSearch, FileText, KanbanSquare, Layers, Loader2, Receipt, Wallet } from "lucide-react";
+import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
-import { AcoesFatura } from "@/components/faturamento/acoes-fatura";
+import { AcoesFatura, BaixaEmLote } from "@/components/faturamento/acoes-fatura";
 import { IaBadge } from "@/components/faturamento/ia-score";
 import { AnimatedNumber } from "@/components/mayacorp/animated-number";
 import { Mono } from "@/components/mayacorp/brand";
@@ -95,9 +95,15 @@ export default function FluxoPage() {
   }, [todas, filtro, busca]);
   const totalTodos = todas.reduce((s, l) => s + Number(l.valor), 0);
 
+  const podeBaixar = pode("faturas.baixar");
   const emitiveis = linhas.filter((l) => l.status === "aguardando_nfse");
-  const selValidos = emitiveis.filter((l) => sel.has(l.id)).map((l) => l.id);
-  const todosSel = emitiveis.length > 0 && selValidos.length === emitiveis.length;
+  const selecionaveis = linhas.filter((l) => l.tipo === "fatura" && l.status !== "pagas" && l.status !== "em_revisao");
+  const marcadas = selecionaveis.filter((l) => sel.has(l.id));
+  const selValidos = marcadas.filter((l) => l.status === "aguardando_nfse").map((l) => l.id);
+  const podeMarcar = (l: Linha) => (l.status === "aguardando_nfse" && podeEmitirNfse) || (selecionaveis.includes(l) && podeBaixar);
+  const marcaveis = selecionaveis.filter(podeMarcar);
+  const todosSel = marcaveis.length > 0 && marcadas.length === marcaveis.length;
+  const [loteBaixa, setLoteBaixa] = useState(false);
   const marcar = (id: number, v: boolean) =>
     setSel((s) => {
       const n = new Set(s);
@@ -175,24 +181,33 @@ export default function FluxoPage() {
             <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="h-9 w-38" aria-label="Emitidas até" />
           </div>
         </Toolbar>
-        {podeEmitirNfse && emitiveis.length > 0 && (
-          <div className={cn("flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-sm", selValidos.length ? "bg-brand/8" : "bg-muted/30")}>
-            {selValidos.length ? (
+        {marcaveis.length > 0 && (
+          <div className={cn("flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-sm", marcadas.length ? "bg-brand/8" : "bg-muted/30")}>
+            {marcadas.length ? (
               <>
                 <span>
-                  <strong className="num">{numero(selValidos.length)}</strong> fatura(s) selecionada(s) ·{" "}
-                  <span className="num">{moeda(emitiveis.filter((l) => sel.has(l.id)).reduce((t, l) => t + Number(l.valor), 0))}</span>
+                  <strong className="num">{numero(marcadas.length)}</strong> fatura(s) selecionada(s) ·{" "}
+                  <span className="num">{moeda(marcadas.reduce((t, l) => t + Number(l.valor), 0))}</span>
                 </span>
-                <Button size="sm" onClick={() => emitir.mutate(selValidos)} disabled={emitir.isPending}>
-                  {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Gerar {selValidos.length} NFS-e em lote
-                </Button>
+                {podeEmitirNfse && selValidos.length > 0 && (
+                  <Button size="sm" onClick={() => emitir.mutate(selValidos)} disabled={emitir.isPending}>
+                    {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Gerar {selValidos.length} NFS-e em lote
+                  </Button>
+                )}
+                {podeBaixar && (
+                  <Button size="sm" variant="outline" className="border-success/40 text-success-ink hover:bg-success/10" onClick={() => setLoteBaixa(true)}>
+                    <DollarSign /> Dar baixa em {marcadas.length}
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>
                   Limpar seleção
                 </Button>
               </>
             ) : (
               <span className="text-muted-foreground">
-                {numero(emitiveis.length)} fatura(s) emitida(s) sem NFS-e: marque as caixinhas para gerar as notas de uma vez.
+                Marque várias faturas para {podeEmitirNfse && emitiveis.length ? "gerar as NFS-e" : ""}
+                {podeEmitirNfse && emitiveis.length && podeBaixar ? " ou " : ""}
+                {podeBaixar ? "dar baixa" : ""} de uma vez.
               </span>
             )}
           </div>
@@ -217,12 +232,12 @@ export default function FluxoPage() {
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="w-10 px-4 py-2.5">
-                    {podeEmitirNfse && emitiveis.length > 0 && (
+                    {marcaveis.length > 0 && (
                       <Checkbox
                         checked={todosSel}
-                        indeterminate={selValidos.length > 0 && !todosSel}
-                        onCheckedChange={(v) => setSel(v ? new Set(emitiveis.map((l) => l.id)) : new Set())}
-                        aria-label="Selecionar todas as que aguardam NFS-e"
+                        indeterminate={marcadas.length > 0 && !todosSel}
+                        onCheckedChange={(v) => setSel(v ? new Set(marcaveis.map((l) => l.id)) : new Set())}
+                        aria-label="Selecionar todas"
                       />
                     )}
                   </th>
@@ -240,10 +255,11 @@ export default function FluxoPage() {
                 {linhas.map((l) => {
                   const st = ROTULO[l.status];
                   const podeEmitir = l.status === "aguardando_nfse" && podeEmitirNfse;
+                  const marcavel = podeMarcar(l);
                   return (
-                    <tr key={`${l.tipo}-${l.id}`} className={cn(linhaClicavel, sel.has(l.id) && podeEmitir && "bg-brand/5")} onClick={() => abrir(l)}>
+                    <tr key={`${l.tipo}-${l.id}`} className={cn(linhaClicavel, sel.has(l.id) && marcavel && "bg-brand/5")} onClick={() => abrir(l)}>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        {podeEmitir && <Checkbox checked={sel.has(l.id)} onCheckedChange={(v) => marcar(l.id, !!v)} aria-label={`Selecionar ${l.titulo}`} />}
+                        {marcavel && <Checkbox checked={sel.has(l.id)} onCheckedChange={(v) => marcar(l.id, !!v)} aria-label={`Selecionar ${l.titulo}`} />}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
                         <Pill tom={l.documento === "ND" ? "info" : "brand"} className="mr-1.5">
@@ -297,28 +313,13 @@ export default function FluxoPage() {
         )}
       </TableCard>
 
-      <AnimatePresence>
-        {selValidos.length > 0 && (
-          <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            className="fixed inset-x-0 bottom-5 z-30 flex justify-center px-4 lg:pl-(--sb)"
-          >
-            <div className="flex items-center gap-2 rounded-2xl bg-dark-maya p-2 pl-4 text-white shadow-2xl ring-1 ring-white/10">
-              <span className="text-sm">
-                <strong className="num">{numero(selValidos.length)}</strong> fatura(s) para NFS-e
-              </span>
-              <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => emitir.mutate(selValidos)} disabled={emitir.isPending}>
-                {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Gerar NFS-e ({selValidos.length})
-              </Button>
-              <Button size="icon-sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setSel(new Set())} aria-label="Limpar seleção">
-                <X />
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <BaixaEmLote
+        faturas={loteBaixa ? marcadas : []}
+        onClose={(feito) => {
+          setLoteBaixa(false);
+          if (feito) setSel(new Set());
+        }}
+      />
     </div>
   );
 }
