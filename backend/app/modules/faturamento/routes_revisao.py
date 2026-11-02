@@ -294,6 +294,7 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
         card = {"tipo": "fatura", "id": f.id, "titulo": f.codigo, "cliente": f.tomador.nome if f.tomador else "",
                 "contrato": None, "valor": f.total, "data": f.data_emissao, "vencimento": f.data_vencimento,
                 "documento": "ND" if f.tipo == TipoFatura.despesas else "NH", "nfse_numero": f.nfse.numero if f.nfse else None,
+                "nfse_id": f.nfse_id, "nfse_cancelada": bool(f.nfse and f.nfse.status.value == "cancelada"),
                 "origem": f.origem, "pago_em": f.pago_em}
         if f.contrato_id:
             from app.modules.faturamento.models import Contrato

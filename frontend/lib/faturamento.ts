@@ -406,6 +406,8 @@ export interface FluxoCard {
   nota_ia?: number | null;
   vencimento?: string;
   nfse_numero?: number | null;
+  nfse_id?: number | null;
+  nfse_cancelada?: boolean;
   origem?: string;
   pago_em?: string | null;
 }

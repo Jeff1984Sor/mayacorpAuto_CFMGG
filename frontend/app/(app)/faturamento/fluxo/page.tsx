@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
+import { AcoesFatura } from "@/components/faturamento/acoes-fatura";
 import { IaBadge } from "@/components/faturamento/ia-score";
 import { AnimatedNumber } from "@/components/mayacorp/animated-number";
 import { Mono } from "@/components/mayacorp/brand";
@@ -172,6 +173,28 @@ export default function FluxoPage() {
             <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="h-9 w-38" aria-label="Emitidas até" />
           </div>
         </Toolbar>
+        {podeEmitirNfse && emitiveis.length > 0 && (
+          <div className={cn("flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-sm", selValidos.length ? "bg-brand/8" : "bg-muted/30")}>
+            {selValidos.length ? (
+              <>
+                <span>
+                  <strong className="num">{numero(selValidos.length)}</strong> fatura(s) selecionada(s) ·{" "}
+                  <span className="num">{moeda(emitiveis.filter((l) => sel.has(l.id)).reduce((t, l) => t + Number(l.valor), 0))}</span>
+                </span>
+                <Button size="sm" onClick={() => emitir.mutate(selValidos)} disabled={emitir.isPending}>
+                  {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Gerar {selValidos.length} NFS-e em lote
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>
+                  Limpar seleção
+                </Button>
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                {numero(emitiveis.length)} fatura(s) aguardando NFS-e: marque as caixinhas para gerar as notas de uma vez.
+              </span>
+            )}
+          </div>
+        )}
 
         {q.isPending ? (
           <TableSkeleton colunas={7} />
@@ -242,6 +265,8 @@ export default function FluxoPage() {
                         <Mono>{moeda(l.valor)}</Mono>
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                        <AcoesFatura f={l} pago={l.status === "pagas"} />
                         {podeEmitir ? (
                           <Button size="xs" onClick={() => emitir.mutate([l.id])} disabled={emitir.isPending}>
                             {emitir.isPending ? <Loader2 className="animate-spin" /> : <Receipt />} Gerar NFS-e
@@ -251,6 +276,7 @@ export default function FluxoPage() {
                             {l.tipo === "revisao" ? "Revisar" : "Abrir"} <ChevronRight />
                           </Button>
                         )}
+                        </div>
                       </td>
                     </tr>
                   );
