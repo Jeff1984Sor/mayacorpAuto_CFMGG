@@ -578,6 +578,45 @@ def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota
     return "\n".join(linhas)
 
 
+def discriminacao_nfse(db: Session, fat: Fatura) -> str:
+    """Texto da NFS-e da NH, montado na emissão pelos itens da fatura, conforme Configurações › Automações:
+    o texto da regra de cobrança e o título do caso entram quando ligados (vale para faturas já criadas)."""
+    from app.modules.faturamento.models import RegraCobranca
+    from app.modules.rpa_nfse import service as nfse
+
+    itens = list(getattr(fat, "itens", None) or [])
+    if not itens:
+        return fat.descricao or ""
+    cfg = nfse.config_nfse(db, fat.tenant_id)
+    linhas = [(fat.descricao or "").split("\n")[0]]  # "Honorários advocatícios — contrato (cota)"
+    if cfg.nota_titulo_caso:
+        casos = {i.caso.id: i.caso for i in itens if i.caso}
+        linhas += [f"Caso #{c.numero} — {c.titulo}" for c in sorted(casos.values(), key=lambda c: c.numero)]
+    regras = {r.id: r for r in db.scalars(select(RegraCobranca).where(
+        RegraCobranca.id.in_({i.regra_id for i in itens if i.regra_id})))}
+    rotulo = {"fixo": "Honorários fixos", "recorrente": "Honorários mensais"}
+    for i in itens:
+        if i.tipo in ("hora", "despesa"):
+            continue
+        if cfg.nota_texto_regra or not i.regra_id:  # avulso não tem regra: o texto dele é o que foi digitado
+            texto = i.descricao.split(" · Caso #")[0] if cfg.nota_titulo_caso else i.descricao
+        else:
+            texto = rotulo.get(i.tipo, "Honorários") + (f" {i.competencia:%m/%Y}" if i.competencia else "")
+        linhas.append(f"- {texto}")
+    por_regra: dict[int | None, list] = {}
+    for i in itens:
+        if i.tipo == "hora":
+            por_regra.setdefault(i.regra_id, []).append(i)
+    for rid, grupo in por_regra.items():
+        total_h = sum((i.quantidade or 0 for i in grupo), Decimal(0)).quantize(Decimal("0.01"))
+        datas = [i.data for i in grupo if i.data]
+        periodo = f" ({min(datas):%d/%m/%Y} a {max(datas):%d/%m/%Y})" if datas else ""
+        r = regras.get(rid)
+        nome = r.descricao if cfg.nota_texto_regra and r and r.descricao else "Serviços por hora"
+        linhas.append(f"- {nome}: {str(total_h).replace('.', ',')} h{periodo}")
+    return "\n".join(x for x in linhas if x)
+
+
 def cancelar(db: Session, fat: Fatura, motivo: str) -> list[Fatura]:
     """Cancela a fatura e solta os itens: parcelas, horas e despesas voltam a aparecer em Itens a faturar.
 
@@ -655,7 +694,7 @@ def emitir_nfse(db: Session, tenant_id: int, usuario_id: int, faturas_ids: list[
         db.add(Rps(lote_id=lote.id, emissora_id=emissora.id, linha=i, tipo_rps="RPS", serie=emissora.serie_rps,
                    numero=numero, data_emissao=date.today(), situacao="T", tomador_id=t.id if t else None,
                    tomador_novo=False, cod_servico=emissora.cod_servico_padrao or "", aliquota=emissora.aliquota_iss,
-                   valor=f.total, deducoes=Decimal(0), iss=Decimal(0), iss_retido=False, discriminacao=f.descricao,
+                   valor=f.total, deducoes=Decimal(0), iss=Decimal(0), iss_retido=False, discriminacao=discriminacao_nfse(db, f),
                    dados_json={"tomador": tom, "fatura_id": f.id, "problemas_leitura": []}, status=StatusRps.ok,
                    erros_json=[]))
     db.flush()

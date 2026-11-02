@@ -3,6 +3,7 @@
 import { ChamarAlguem } from "@/components/comunicador/chamar-alguem";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  FolderDown,
   Banknote,
   CalendarClock,
   Check,
@@ -35,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api, baixar, baixarBlob } from "@/lib/api";
+import { salvarFaturasNaPasta } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, toNum } from "@/lib/format";
 import type { ContaOut } from "@/lib/financeiro";
@@ -179,6 +181,13 @@ export default function FaturaDetalhePage() {
             </Button>
             <Button variant="outline" onClick={() => baixar(`/nfse/faturas/${fid}/pdf`, {}, `${f.codigo.replace(/\W+/g, "_")}.pdf`)}>
               <Download /> Baixar
+            </Button>
+            <Button
+              variant="outline"
+              title="Grava NH/ND e os anexos numa pasta com o nome do caso"
+              onClick={() => void salvarFaturasNaPasta([f.id]).catch((e) => toast.error(e instanceof Error ? e.message : "Erro ao salvar"))}
+            >
+              <FolderDown /> Salvar na pasta
             </Button>
             {pode("faturas.baixar") && aberta && (
               <Button

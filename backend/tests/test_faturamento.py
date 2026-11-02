@@ -61,6 +61,8 @@ def test_itens_a_faturar_e_faturas_nh_nd(cliente):  # noqa: F811
         "data": "2026-02-03", "minutos": 90, "descricao": "Petição inicial"}).status_code == 201
     desp = cliente.post(f"/api/faturamento/casos/{caso['id']}/despesas", headers=h, json={
         "data": "2026-02-04", "tipo": "custas", "descricao": "Guia de custas", "valor": "320.50"}).json()
+    assert cliente.post(f"/api/faturamento/despesas/{desp['id']}/comprovante", headers=h,
+                        files={"arquivo": ("guia.pdf", b"%PDF-1.4 guia", "application/pdf")}).status_code in (200, 201)
 
     params = {"de": "2026-01-01", "ate": "2026-02-28", "cliente_ids": [cli["id"]]}
     r = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params)
@@ -106,6 +108,36 @@ def test_itens_a_faturar_e_faturas_nh_nd(cliente):  # noqa: F811
     assert r.status_code == 400 and "Nota de Despesas" in r.json()["detail"]
     assert cliente.put(f"/api/faturamento/despesas/{desp['id']}", headers=h, json={
         "data": "2026-02-04", "descricao": "xy", "valor": "1"}).status_code == 400  # já faturada
+
+    # pasta do caso (demonstração): <caso>/NH - <caso>.pdf, ND - <caso>.pdf e Anexos/
+    pastas = cliente.get("/api/nfse/pasta-faturas", headers=h, params={"ids": [nh["id"], nd["id"]]}).json()
+    assert [p["nome"] for p in pastas] == ["Ação de cobrança"]
+    assert [a["caminho"] for a in pastas[0]["arquivos"]] == [
+        "NH - Ação de cobrança.pdf", "ND - Ação de cobrança.pdf", "Anexos/2026-02-04 - Guia de custas.pdf"]
+    import io
+    import zipfile
+    z = zipfile.ZipFile(io.BytesIO(cliente.get("/api/nfse/pasta-faturas.zip", headers=h,
+                                               params={"ids": [nh["id"], nd["id"]]}).content))
+    assert sorted(z.namelist())[0] == "Ação de cobrança/Anexos/2026-02-04 - Guia de custas.pdf"
+
+    # texto da NFS-e: regra de cobrança e título do caso (Configurações › Automações)
+    from app.core.db import SessionLocal
+    from app.modules.faturamento.service import discriminacao_nfse
+    from app.modules.rpa_nfse.models import Fatura
+    with SessionLocal() as db:
+        texto = discriminacao_nfse(db, db.get(Fatura, nh["id"]))
+    assert "Caso #" in texto and "Ação de cobrança" in texto and "- Mensalidade" in texto and "- Horas: 1,50 h" in texto, texto
+    cfg = cliente.get("/api/config/automacoes", headers=h).json()
+    assert cfg["nota_texto_regra"] and cfg["nota_titulo_caso"] and not cfg["fatura_salvar_pasta"]
+    cfg.update(nota_texto_regra=False, nota_titulo_caso=False, relatorio_destinatarios=cfg["relatorio_destinatarios"] or [])
+    for k in ("fatura_proxima_nh", "fatura_proxima_nd"):
+        cfg.pop(k)
+    assert cliente.put("/api/config/automacoes", headers=h, json=cfg).status_code == 200
+    with SessionLocal() as db:
+        texto = discriminacao_nfse(db, db.get(Fatura, nh["id"]))
+    assert "Caso #" not in texto and "Mensalidade" not in texto and "- Serviços por hora: 1,50 h" in texto, texto
+    cfg.update(nota_texto_regra=True, nota_titulo_caso=True)
+    cliente.put("/api/config/automacoes", headers=h, json=cfg)
 
     # lista de faturas mostra NH sem nota com o botão de emitir
     fat = cliente.get(f"/api/nfse/faturas/{nh['id']}", headers=h).json()

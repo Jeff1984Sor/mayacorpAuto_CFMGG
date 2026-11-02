@@ -103,6 +103,89 @@ def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despes
     return out
 
 
+# ======================================================================== pasta do caso (demonstração)
+def _nome_arquivo(texto: str) -> str:
+    """Nome que o Windows aceita: sem \ / : * ? " < > |, sem espaço ou ponto no fim, até 120 caracteres."""
+    import re
+
+    limpo = re.sub(r'[\/:*?"<>|\x00-\x1f]', "-", texto).strip().rstrip(".")
+    return limpo[:120].strip() or "sem nome"
+
+
+def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
+    """Pasta raiz = título do caso; dentro, "NH - <título>.pdf" / "ND - <título>.pdf" e os comprovantes das despesas."""
+    from app.modules.faturamento.models import Despesa
+
+    itens = list(getattr(f, "itens", None) or [])
+    casos = {i.caso.id: i.caso for i in itens if i.caso}
+    if len(casos) == 1:
+        titulo = next(iter(casos.values())).titulo
+    elif f.contrato_id and (contrato := faturas._contrato(f)):
+        titulo = contrato.nome
+    else:
+        titulo = faturas.dados_cliente(f).get("nome") or f.codigo
+    if not f.pdf_path or not Path(f.pdf_path).exists():
+        faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
+        ctx.db.commit()
+    sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
+    arquivos = [{"caminho": f"{sigla} - {_nome_arquivo(titulo)}.pdf", "url": f"/nfse/faturas/{f.id}/pdf",
+                 "disco": f.pdf_path}]
+    ids = [i.id for i in itens if i.tipo == "despesa"]
+    if ids:
+        for d in ctx.db.scalars(select(Despesa).where(Despesa.fatura_item_id.in_(ids), Despesa.comprovante_path.is_not(None))
+                                .order_by(Despesa.data, Despesa.id)):
+            if not Path(d.comprovante_path).exists():
+                continue
+            ext = Path(d.comprovante_path).suffix.lower() or ".pdf"
+            arquivos.append({"caminho": f"Anexos/{d.data:%Y-%m-%d} - {_nome_arquivo(d.descricao)[:80]}{ext}",
+                             "url": f"/faturamento/despesas/{d.id}/comprovante", "disco": d.comprovante_path})
+    return _nome_arquivo(titulo), arquivos
+
+
+def _pastas(ctx, ids: list[int]) -> list[dict]:
+    pastas: dict[str, list[dict]] = {}
+    for fid in dict.fromkeys(ids):
+        raiz, arquivos = _pasta_da_fatura(ctx, _fatura(ctx, fid))
+        destino = pastas.setdefault(raiz, [])
+        usados = {a["caminho"] for a in destino}
+        for a in arquivos:  # duas NH do mesmo caso (ex.: contrato dividido) não se sobrescrevem
+            base, n = a["caminho"], 2
+            while a["caminho"] in usados:
+                a["caminho"] = base.replace(".", f" ({n}).", 1) if "." in base else f"{base} ({n})"
+                n += 1
+            usados.add(a["caminho"])
+            destino.append(a)
+    return [{"nome": k, "arquivos": v} for k, v in pastas.items()]
+
+
+@router.get("/pasta-faturas")
+def pasta_faturas(ctx: Ctx, ids: list[int] = Query(...)):
+    """O que gravar no computador (ou, depois, no Drive do cliente): pastas por caso com NH, ND e anexos."""
+    return [{"nome": p["nome"], "arquivos": [{"caminho": a["caminho"], "url": a["url"]} for a in p["arquivos"]]}
+            for p in _pastas(ctx, ids)]
+
+
+@router.get("/pasta-faturas.zip")
+def pasta_faturas_zip(ctx: Ctx, ids: list[int] = Query(...)):
+    """Mesmas pastas num .zip (para o navegador que não grava direto numa pasta)."""
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    pastas = _pastas(ctx, ids)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in pastas:
+            for a in p["arquivos"]:
+                z.write(a["disco"], f"{p['nome']}/{a['caminho']}")
+    nome = (pastas[0]["nome"] if len(pastas) == 1 else "Faturas") + ".zip"
+    from urllib.parse import quote
+
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(nome)}"})
+
+
 @router.get("/faturas/{fid}", response_model=FaturaOut)
 def ler(fid: int, ctx: Ctx):
     return fatura_out(_fatura(ctx, fid))

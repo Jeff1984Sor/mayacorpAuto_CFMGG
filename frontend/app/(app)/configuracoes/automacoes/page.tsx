@@ -227,6 +227,24 @@ export default function AutomacoesPage() {
               <Switch checked={c.fatura_anexar_email} onCheckedChange={(v) => set("fatura_anexar_email", v)} />
             </SwitchRow>
           </div>
+          <div className="space-y-3 sm:col-span-2">
+            <p className="text-[13px] font-medium text-foreground/80">Texto da nota fiscal (NFS-e das faturas)</p>
+            <SwitchRow titulo="Texto da regra de cobrança" descricao="Ex.: “Mensalidade — parcela 3/12” e o nome da regra das horas, no lugar de um texto genérico.">
+              <Switch checked={c.nota_texto_regra} onCheckedChange={(v) => set("nota_texto_regra", v)} />
+            </SwitchRow>
+            <SwitchRow titulo="Título do caso" descricao="Uma linha “Caso #12 — Ação de cobrança” para cada caso da fatura.">
+              <Switch checked={c.nota_titulo_caso} onCheckedChange={(v) => set("nota_titulo_caso", v)} />
+            </SwitchRow>
+            <p className="text-xs text-muted-foreground">Vale para as notas emitidas daqui em diante, inclusive de faturas já criadas.</p>
+          </div>
+          <div className="sm:col-span-2">
+            <SwitchRow
+              titulo="Salvar os arquivos da fatura no computador"
+              descricao="Ao criar a fatura, grava uma pasta por caso (NH, ND e anexos das despesas). Demonstração: com o serviço contratado, os arquivos vão para o Drive do escritório."
+            >
+              <Switch checked={c.fatura_salvar_pasta} onCheckedChange={(v) => set("fatura_salvar_pasta", v)} />
+            </SwitchRow>
+          </div>
         </div>
       </Cartao>
 

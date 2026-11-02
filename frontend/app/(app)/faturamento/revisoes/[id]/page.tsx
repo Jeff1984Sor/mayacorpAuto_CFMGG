@@ -50,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api, ApiError } from "@/lib/api";
+import { aposCriarFaturas } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import {
   documentoDaAba,
@@ -812,6 +813,7 @@ export default function RevisaoPage() {
       qc.invalidateQueries({ queryKey: ["faturas"] });
       setDlg(null);
       setFaturada(r);
+      if (r.fatura_id) void aposCriarFaturas([r.fatura_id]);
       import("canvas-confetti").then((m) => m.default({ particleCount: 90, spread: 70, origin: { y: 0.7 }, colors: ["#1E2D6B", "#7C8FFF", "#1A8F5E", "#F5A623"] }));
     },
     onError: () => setDlg(null),

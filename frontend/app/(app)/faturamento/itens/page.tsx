@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { abrirArquivo, api } from "@/lib/api";
+import { aposCriarFaturas } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import {
   type Aba,
@@ -289,6 +290,7 @@ export default function ItensAFaturarPage() {
       setConfirmarDireto(false);
       toast.success(`${r.faturas.length} fatura(s) criada(s) · ${moeda(r.total)}`);
       setResultado({ faturas: r, revisoes: null });
+      void aposCriarFaturas(r.faturas.map((f) => f.id));
     },
     onError: () => setConfirmarDireto(false),
   });

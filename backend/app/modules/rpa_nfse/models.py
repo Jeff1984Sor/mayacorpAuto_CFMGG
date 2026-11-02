@@ -16,6 +16,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -91,6 +93,11 @@ class ConfigNfse(Base, Timestamped):
     fatura_vencimento_modo: Mapped[str] = mapped_column(String(10), default="dias")
     fatura_instrucoes: Mapped[str | None] = mapped_column(Text)
     fatura_anexar_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Texto da NFS-e das faturas (discriminação): o que entra além do cabeçalho do contrato
+    nota_texto_regra: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # texto da regra de cobrança
+    nota_titulo_caso: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # "Caso #n — título"
+    # Demonstração: ao criar a fatura, grava NH/ND e anexos numa pasta do computador (depois: Drive do cliente)
+    fatura_salvar_pasta: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class Emissora(Base, Timestamped):
