@@ -91,9 +91,11 @@ def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despes
     f = [Fatura.tenant_id == ctx.tenant_id]
     if tipo:
         f.append(Fatura.tipo == TipoFatura(tipo))
+    # A MESMA expressão no SELECT e no GROUP BY: no Postgres, duas comparações com parâmetros distintos não casam
+    vencida_expr = (Fatura.data_vencimento < hoje).label("vencida")
     linhas = ctx.db.execute(
-        select(Fatura.status, Fatura.data_vencimento < hoje, func.count(Fatura.id), func.coalesce(func.sum(Fatura.valor), 0))
-        .where(*f).group_by(Fatura.status, Fatura.data_vencimento < hoje)
+        select(Fatura.status, vencida_expr, func.count(Fatura.id), func.coalesce(func.sum(Fatura.valor), 0))
+        .where(*f).group_by(Fatura.status, vencida_expr)
     ).all()
     out = {k: {"qtd": 0, "valor": 0.0} for k in ("aberta", "vencida", "paga", "cancelada")}
     for status, vencida, qtd, valor in linhas:
