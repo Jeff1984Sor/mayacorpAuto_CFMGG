@@ -291,6 +291,14 @@ export interface ParametroFiscalIn {
   tipo_operacao: string | null;
   ind_destinatario: string | null;
   tributacao_rps: string;
+  /** Retenções federais (fração: 0.015 = 1,5%), só para tomador PJ */
+  ret_ir?: Decimal | number | null;
+  ret_pis?: Decimal | number | null;
+  ret_cofins?: Decimal | number | null;
+  ret_csll?: Decimal | number | null;
+  ret_inss?: Decimal | number | null;
+  /** tpRetencaoPisCofins: 0 nenhum, 3 PIS/COFINS/CSLL retidos, 4..9 combinações */
+  retencao_pis_cofins?: string | null;
   prioridade: number;
   ativo: boolean;
 }

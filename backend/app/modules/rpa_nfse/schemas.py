@@ -186,6 +186,12 @@ class ParametroFiscalIn(BaseModel):
     tipo_operacao: str | None = "1"
     ind_destinatario: str | None = "0"
     tributacao_rps: str = "T"
+    ret_ir: Decimal | None = None
+    ret_pis: Decimal | None = None
+    ret_cofins: Decimal | None = None
+    ret_csll: Decimal | None = None
+    ret_inss: Decimal | None = None
+    retencao_pis_cofins: str | None = Field(default=None, pattern="^[034-9]$")
     prioridade: int = 0
     ativo: bool = True
 

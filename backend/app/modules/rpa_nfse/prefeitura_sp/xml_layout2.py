@@ -15,6 +15,7 @@ from lxml import etree
 from app.core.certificados import CertificadoCarregado
 from app.core.documentos import so_digitos
 from app.modules.rpa_nfse.prefeitura_sp import assinatura
+from app.modules.rpa_nfse.validator import CAMPOS_RETENCAO, calcular_retencoes
 
 NS = "http://www.prefeitura.sp.gov.br/nfe"
 VERSAO = "2"
@@ -94,9 +95,10 @@ def _rps(pai: etree._Element, ccm: str, r: RpsXml, cert: CertificadoCarregado | 
     _sub(el, "StatusRPS", r.status)
     _sub(el, "TributacaoRPS", r.tributacao)
     _sub(el, "ValorDeducoes", _dec(r.deducoes))
-    # Retenções federais passam a ser obrigatórias no layout 2 (zero quando não há)
-    for tag in ("ValorPIS", "ValorCOFINS", "ValorINSS", "ValorIR", "ValorCSLL"):
-        _sub(el, tag, zero)
+    # Retenções federais passam a ser obrigatórias no layout 2 (zero quando não há; PF nunca retém)
+    ret = calcular_retencoes(r.valor, l2, doc)
+    for tag, campo in zip(("ValorPIS", "ValorCOFINS", "ValorINSS", "ValorIR", "ValorCSLL"), CAMPOS_RETENCAO):
+        _sub(el, tag, _dec(ret[campo]) if ret[campo] else zero)
     _sub(el, "CodigoServico", int(so_digitos(r.cod_servico)))
     _sub(el, "AliquotaServicos", _dec(r.aliquota, 4))
     _sub(el, "ISSRetido", "true" if r.iss_retido else "false")
@@ -125,6 +127,8 @@ def _rps(pai: etree._Element, ccm: str, r: RpsXml, cert: CertificadoCarregado | 
     if t.get("email"):
         _sub(el, "EmailTomador", t["email"][:75])
     _sub(el, "Discriminacao", sem_acento(r.discriminacao)[:2000] or "Servicos prestados")
+    if len(doc) == 14 and l2.get("retencao_pis_cofins"):
+        _sub(el, "RetencaoPisCofins", l2["retencao_pis_cofins"])
     # Valor total da nota: a Prefeitura calcula os tributos "de trás para frente" e o total fica igual ao RPS
     _sub(el, "ValorFinalCobrado", _dec(r.valor))
     _sub(el, "ValorIPI", zero)

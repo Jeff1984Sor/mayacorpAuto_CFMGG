@@ -187,6 +187,13 @@ class ParametroFiscal(Base, Timestamped):
     tipo_operacao: Mapped[str | None] = mapped_column(String(1), default="1")
     ind_destinatario: Mapped[str | None] = mapped_column(String(1), default="0")
     tributacao_rps: Mapped[str] = mapped_column(String(1), default="T")
+    # Retenções federais (fração: 0.015 = 1,5%), aplicadas só quando o tomador é PJ.
+    ret_ir: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    ret_pis: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    ret_cofins: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    ret_csll: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    ret_inss: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    retencao_pis_cofins: Mapped[str | None] = mapped_column(String(1))  # tpRetencaoPisCofins: 0, 3..9
     prioridade: Mapped[int] = mapped_column(Integer, default=0)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
 

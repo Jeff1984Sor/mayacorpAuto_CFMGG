@@ -23,6 +23,18 @@ import type { Pagina, ParametroFiscalIn, ParametroFiscalOut, TomadorOut } from "
 
 const ESCOPO = { padrao: "Padrão", servico: "Por serviço", tomador: "Por tomador" } as const;
 
+const RETENCOES = [
+  ["ret_ir", "IR (%)", "ex.: 1,50"],
+  ["ret_pis", "PIS (%)", "ex.: 0,65"],
+  ["ret_cofins", "COFINS (%)", "ex.: 3,00"],
+  ["ret_csll", "CSLL (%)", "ex.: 1,00"],
+  ["ret_inss", "INSS (%)", "normalmente vazio"],
+] as const;
+type CampoRet = (typeof RETENCOES)[number][0];
+
+const pct = (x: unknown) => (x != null && x !== "" ? (toNum(x as string) * 100).toFixed(2).replace(".", ",") : "");
+const fracao = (x: string) => (x.trim() ? (toNum(x.replace(",", ".")) / 100).toFixed(4) : null);
+
 const novoParam = (emissora_id: number): ParametroFiscalIn => ({
   emissora_id,
   escopo: "padrao",
@@ -39,6 +51,12 @@ const novoParam = (emissora_id: number): ParametroFiscalIn => ({
   tipo_operacao: "1",
   ind_destinatario: "0",
   tributacao_rps: "T",
+  ret_ir: null,
+  ret_pis: null,
+  ret_cofins: null,
+  ret_csll: null,
+  ret_inss: null,
+  retencao_pis_cofins: null,
   prioridade: 0,
   ativo: true,
 });
@@ -69,12 +87,14 @@ function ParamForm({ param, emissoraId, open, onClose }: { param: ParametroFisca
   const qc = useQueryClient();
   const [v, setV] = useState<ParametroFiscalIn>(novoParam(emissoraId));
   const [aliq, setAliq] = useState("");
+  const [ret, setRet] = useState<Record<CampoRet, string>>({ ret_ir: "", ret_pis: "", ret_cofins: "", ret_csll: "", ret_inss: "" });
   useEffect(() => {
     if (!open) return;
     const base = param ?? novoParam(emissoraId);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega o formulário ao abrir
     setV(base);
-    setAliq(base.aliquota_iss != null ? (toNum(base.aliquota_iss) * 100).toFixed(2).replace(".", ",") : "");
+    setAliq(pct(base.aliquota_iss));
+    setRet({ ret_ir: pct(base.ret_ir), ret_pis: pct(base.ret_pis), ret_cofins: pct(base.ret_cofins), ret_csll: pct(base.ret_csll), ret_inss: pct(base.ret_inss) });
   }, [open, param, emissoraId]);
   const set = <K extends keyof ParametroFiscalIn>(k: K, x: ParametroFiscalIn[K]) => setV((o) => ({ ...o, [k]: x }));
   const txt = (k: keyof ParametroFiscalIn) => ({
@@ -84,7 +104,8 @@ function ParamForm({ param, emissoraId, open, onClose }: { param: ParametroFisca
 
   const salvar = useMutation({
     mutationFn: () => {
-      const body = { ...v, aliquota_iss: aliq ? (toNum(aliq.replace(",", ".")) / 100).toFixed(4) : null };
+      const retencoes = Object.fromEntries(RETENCOES.map(([k]) => [k, fracao(ret[k])]));
+      const body = { ...v, ...retencoes, aliquota_iss: fracao(aliq), retencao_pis_cofins: v.retencao_pis_cofins || null };
       return param ? api.put(`/config/parametros-fiscais/${param.id}`, body) : api.post("/config/parametros-fiscais", body);
     },
     onSuccess: () => {
@@ -141,7 +162,7 @@ function ParamForm({ param, emissoraId, open, onClose }: { param: ParametroFisca
           </Field>
         </FormSection>
         <FormSection titulo="ISS" descricao="Tributação municipal.">
-          <Field label="Alíquota ISS (%)" dica="Vazio = usa a da emissora">
+          <Field label="Alíquota ISS (%)" dica="Vazio = usa a da emissora · 0 = sociedade de profissionais (ISS fixo, ex.: 03380)">
             <Input value={aliq} onChange={(e) => setAliq(e.target.value)} className="num" inputMode="decimal" />
           </Field>
           <Field label="Tributação do RPS">
@@ -155,6 +176,29 @@ function ParamForm({ param, emissoraId, open, onClose }: { param: ParametroFisca
               <option value="X">X — Tributado em SP, exigibilidade suspensa</option>
               <option value="V">V — Tributado em SP, retido</option>
               <option value="P">P — Exportação de serviços</option>
+            </NativeSelect>
+          </Field>
+        </FormSection>
+        <FormSection
+          titulo="Retenções federais"
+          descricao="Só valem para tomador pessoa jurídica (CNPJ). Use uma regra por tomador para quem retém, como seguradoras e grandes empresas."
+        >
+          {RETENCOES.map(([k, rotulo, ex]) => (
+            <Field key={k} label={rotulo}>
+              <Input value={ret[k]} onChange={(e) => setRet((o) => ({ ...o, [k]: e.target.value }))} className="num" inputMode="decimal" placeholder={ex} />
+            </Field>
+          ))}
+          <Field label="PIS / COFINS / CSLL retidos?" dica="Como a Prefeitura mostra as contribuições na nota">
+            <NativeSelect {...txt("retencao_pis_cofins")}>
+              <option value="">— não informar —</option>
+              <option value="0">0 — Nenhum retido</option>
+              <option value="3">3 — PIS, COFINS e CSLL retidos</option>
+              <option value="4">4 — PIS e COFINS retidos; CSLL não</option>
+              <option value="5">5 — Só PIS retido</option>
+              <option value="6">6 — Só COFINS retido</option>
+              <option value="7">7 — COFINS e CSLL retidos; PIS não</option>
+              <option value="8">8 — Só CSLL retido</option>
+              <option value="9">9 — PIS e CSLL retidos; COFINS não</option>
             </NativeSelect>
           </Field>
         </FormSection>
@@ -251,7 +295,7 @@ export default function ParametrosFiscaisPage() {
           </Button>
         </Toolbar>
         {lista.isPending && eid ? (
-          <TableSkeleton colunas={6} />
+          <TableSkeleton colunas={7} />
         ) : params.length === 0 ? (
           <EmptyState
             icone={Percent}
@@ -273,6 +317,7 @@ export default function ParametrosFiscaisPage() {
                   <th className="px-4 py-2.5 font-medium">Regra</th>
                   <th className="px-3 py-2.5 font-medium">ISS</th>
                   <th className="px-3 py-2.5 font-medium">NBS</th>
+                  <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Retenções</th>
                   <th className="px-3 py-2.5 font-medium">CST</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">cClassTrib</th>
                   <th className="hidden px-3 py-2.5 font-medium md:table-cell">cIndOp</th>
@@ -298,10 +343,17 @@ export default function ParametrosFiscaisPage() {
                         {p.escopo === "tomador" && <p className="mt-0.5 text-xs text-muted-foreground">tomador #{p.tomador_id}</p>}
                       </td>
                       <td className="px-3 py-3">
-                        <Mono>{p.aliquota_iss != null ? aliquota(p.aliquota_iss) : "emissora"}</Mono>
+                        <Mono>{p.aliquota_iss != null ? (toNum(p.aliquota_iss) === 0 ? "fixo" : aliquota(p.aliquota_iss)) : "emissora"}</Mono>
                       </td>
                       <td className="px-3 py-3">
                         <Mono>{p.nbs || "—"}</Mono>
+                      </td>
+                      <td className="hidden px-3 py-3 lg:table-cell">
+                        <Mono>
+                          {RETENCOES.filter(([k]) => p[k] != null && toNum(p[k] as string) > 0)
+                            .map(([k, rotulo]) => `${rotulo.replace(" (%)", "")} ${pct(p[k])}%`)
+                            .join(" · ") || "—"}
+                        </Mono>
                       </td>
                       <td className="px-3 py-3">
                         <Mono>{p.cst_ibscbs || "—"}</Mono>

@@ -51,13 +51,29 @@ def resolver_parametros(
             "tipo_operacao",
             "ind_destinatario",
             "tributacao_rps",
+            "retencao_pis_cofins",
         ):
             v = getattr(p, campo)
             if v not in (None, ""):
                 resultado[campo] = v
-        if p.aliquota_iss is not None:
-            resultado["aliquota_iss"] = str(p.aliquota_iss)
+        for campo in ("aliquota_iss", *CAMPOS_RETENCAO):
+            if getattr(p, campo) is not None:
+                resultado[campo] = str(getattr(p, campo))
     return resultado
+
+
+# Retenções federais da nota (percentual em fração), na ordem do tpRPS
+CAMPOS_RETENCAO = ("ret_pis", "ret_cofins", "ret_inss", "ret_ir", "ret_csll")
+
+
+def calcular_retencoes(valor: Decimal, params: dict, doc_tomador: str) -> dict[str, Decimal]:
+    """Valores retidos (PIS, COFINS, INSS, IR, CSLL). Pessoa física não retém: só tomador com CNPJ."""
+    if len(doc_tomador or "") != 14:
+        return {c: Decimal(0) for c in CAMPOS_RETENCAO}
+    return {
+        c: (valor * Decimal(params.get(c) or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        for c in CAMPOS_RETENCAO
+    }
 
 
 @dataclass
@@ -119,13 +135,17 @@ def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | 
         )
 
     params = resolver_parametros(ctx.parametros, cod, rps.tomador_id)
-    if rps.aliquota == 0 and params.get("aliquota_iss"):
-        rps.aliquota = Decimal(params["aliquota_iss"])
-    if rps.aliquota == 0 and ctx.emissora.aliquota_iss:
+    # A alíquota da regra fiscal vence a padrão da emissora (o arquivo só manda quando traz uma própria).
+    # Alíquota 0 na regra = sociedade de profissionais (ex.: 03380 advocacia): ISS fixo, sem destaque na nota.
+    aliq_regra = Decimal(params["aliquota_iss"]) if params.get("aliquota_iss") is not None else None
+    if aliq_regra is not None and rps.aliquota in (Decimal(0), ctx.emissora.aliquota_iss):
+        rps.aliquota = aliq_regra
+    if rps.aliquota == 0 and aliq_regra is None and ctx.emissora.aliquota_iss:
         rps.aliquota = ctx.emissora.aliquota_iss
-    if not (Decimal("0.02") <= rps.aliquota <= Decimal("0.05")):
+    iss_fixo = rps.aliquota == 0 and aliq_regra == 0
+    if not iss_fixo and not (Decimal("0.02") <= rps.aliquota <= Decimal("0.05")):
         problemas.append(_p("aliquota", "erro", "Alíquota de ISS fora da faixa legal (2% a 5%)."))
-    elif ctx.emissora.aliquota_iss and rps.aliquota != ctx.emissora.aliquota_iss:
+    elif not iss_fixo and ctx.emissora.aliquota_iss and rps.aliquota != ctx.emissora.aliquota_iss:
         problemas.append(
             _p(
                 "aliquota",
