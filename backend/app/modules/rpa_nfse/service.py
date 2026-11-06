@@ -557,14 +557,14 @@ def planilha_conferencia(lote: Lote) -> bytes:
     ws = wb.active
     ws.title = f"Lote {lote.numero}"
     ws.append(["Linha", "Série", "RPS", "Data", "Tomador", "CPF/CNPJ", "Serviço", "Valor", "ISS", "Status", "NFS-e",
-               "Cód. verificação", "Problemas"])
+               "Cód. verificação"])
     for r in lote.rps:
         if r.status == StatusRps.descartado:
             continue
         tom = (r.dados_json or {}).get("tomador", {})
         ws.append([r.linha, r.serie, r.numero, r.data_emissao, tom.get("nome"), tom.get("cpf_cnpj"), r.cod_servico,
                    float(r.valor), float(r.iss), r.status.value, r.nfse.numero if r.nfse else None,
-                   r.nfse.cod_verificacao if r.nfse else None, "; ".join(e["mensagem"] for e in r.erros_json or [])])
+                   r.nfse.cod_verificacao if r.nfse else None])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
