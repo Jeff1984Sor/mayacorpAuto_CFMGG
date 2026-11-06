@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import false, select
 
 from app.core.deps import Ctx, Operador
 from app.core.models import Usuario
@@ -264,7 +264,7 @@ def descartar(rid: int, dados: DescartarIn, ctx: Operador):
 # ================================================================ fluxo de faturamento
 @router.get("/fluxo")
 def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id: int | None = None,
-          tipo: str | None = Query(None, pattern="^(honorarios|despesas)$")):
+          tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$")):
     """Quadro do ciclo: Em revisão → Aguardando NFS-e → A receber → Vencidas → Pagas."""
     hoje = date.today()
     de = de or hoje - timedelta(days=90)
@@ -274,7 +274,9 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
     q = select(Revisao).where(Revisao.tenant_id == ctx.tenant_id, Revisao.status == StatusRevisao.em_revisao)
     if tomador_id:
         q = q.where(Revisao.tomador_id == tomador_id)
-    if tipo:
+    if tipo == "robo":
+        q = q.where(false())  # "emitidas pelo robô": revisão é do Faturamento, não do robô
+    elif tipo:
         q = q.where(Revisao.aba == tipo)  # a aba da revisão usa os mesmos nomes: honorarios | despesas
     for r in ctx.db.scalars(q.order_by(Revisao.criado_em)):
         res = _resumo(ctx, r)
@@ -288,7 +290,9 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
                              Fatura.data_emissao >= de, Fatura.data_emissao <= ate)
     if tomador_id:
         q = q.where(Fatura.tomador_id == tomador_id)
-    if tipo:
+    if tipo == "robo":
+        q = q.where(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
+    elif tipo:
         q = q.where(Fatura.tipo == TipoFatura(tipo))
     for f in ctx.db.scalars(q.order_by(Fatura.data_vencimento)):
         card = {"tipo": "fatura", "id": f.id, "titulo": f.codigo, "cliente": f.tomador.nome if f.tomador else "",

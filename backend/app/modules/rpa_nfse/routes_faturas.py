@@ -47,7 +47,7 @@ def _fatura(ctx, fid: int) -> Fatura:
 def listar(
     ctx: Ctx, q: str | None = None, situacao: str | None = Query(None, pattern="^(aberta|vencida|paga|cancelada)$"),
     lote_id: int | None = None, de: date | None = None, ate: date | None = None,
-    tipo: str | None = Query(None, pattern="^(honorarios|despesas)$"), contrato_id: int | None = None,
+    tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$"), contrato_id: int | None = None,
     sem_nfse: bool = False, pagina: int = Query(1, ge=1), por_pagina: int = Query(25, ge=1, le=200),
 ):
     base = select(Fatura).outerjoin(Nfse, Fatura.nfse_id == Nfse.id).outerjoin(Tomador, Fatura.tomador_id == Tomador.id)
@@ -69,7 +69,9 @@ def listar(
         from app.modules.rpa_nfse.models import Rps
 
         f.append(Nfse.rps_id.in_(select(Rps.id).where(Rps.lote_id == lote_id)))
-    if tipo:
+    if tipo == "robo":
+        f.append(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
+    elif tipo:
         f.append(Fatura.tipo == TipoFatura(tipo))
     if contrato_id:
         f.append(Fatura.contrato_id == contrato_id)
@@ -86,10 +88,12 @@ def listar(
 
 
 @router.get("/faturas/resumo")
-def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despesas)$")):
+def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$")):
     hoje = date.today()
     f = [Fatura.tenant_id == ctx.tenant_id]
-    if tipo:
+    if tipo == "robo":
+        f.append(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
+    elif tipo:
         f.append(Fatura.tipo == TipoFatura(tipo))
     # A MESMA expressão no SELECT e no GROUP BY: no Postgres, duas comparações com parâmetros distintos não casam
     vencida_expr = (Fatura.data_vencimento < hoje).label("vencida")

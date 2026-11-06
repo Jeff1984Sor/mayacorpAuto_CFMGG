@@ -2,15 +2,17 @@
 
 import { cn } from "@/lib/utils";
 
-export type TipoDocumento = "" | "honorarios" | "despesas";
+/** "robo" = faturas das NFS-e emitidas pelo robô (arquivo de RPS), para dar baixa em lote */
+export type TipoDocumento = "" | "honorarios" | "despesas" | "robo";
 
 const OPCOES: { v: TipoDocumento; l: string }[] = [
   { v: "", l: "Todas" },
   { v: "honorarios", l: "Honorários (NH)" },
   { v: "despesas", l: "Despesas (ND)" },
+  { v: "robo", l: "Emitidas pelo robô" },
 ];
 
-/** Filtro Nota de Honorários × Nota de Despesas (Faturas e Fluxo de Faturamento). */
+/** Filtro Nota de Honorários × Nota de Despesas × emitidas pelo robô (Faturas e Fluxo de Faturamento). */
 export function FiltroDocumento({ valor, onChange }: { valor: TipoDocumento; onChange: (v: TipoDocumento) => void }) {
   return (
     <div className="inline-flex h-9 items-center gap-0.5 rounded-lg bg-muted p-0.5" role="radiogroup" aria-label="Tipo de nota">

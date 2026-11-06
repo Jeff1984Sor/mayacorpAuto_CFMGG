@@ -32,6 +32,13 @@ def test_cada_nota_gera_fatura_com_pdf_e_pix(cliente):  # noqa: F811
     lote = _emitir(cliente, h, [9101, 9102], "777.70")
     fats = cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote["id"]}).json()
     assert fats["total"] == 2
+    # filtro "Emitidas pelo robô" (baixa em lote) traz as faturas do arquivo de RPS
+    robo = cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote["id"], "tipo": "robo"}).json()
+    assert robo["total"] == 2
+    fluxo = cliente.get("/api/faturamento/fluxo", headers=h, params={"tipo": "robo"}).json()
+    ids_fluxo = {c["id"] for col in fluxo["colunas"].values() for c in col["cards"]}
+    assert {x["id"] for x in robo["itens"]} <= ids_fluxo and not fluxo["colunas"]["em_revisao"]["cards"]
+    assert cliente.get("/api/nfse/faturas/resumo", headers=h, params={"tipo": "robo"}).status_code == 200
     f = fats["itens"][0]
     assert f["codigo"].startswith("NH ") and f["situacao"] == "aberta" and f["pix_copia_e_cola"]
     assert cliente.get(f"/api/nfse/faturas/{f['id']}/pdf", headers=h).content[:5] == b"%PDF-"

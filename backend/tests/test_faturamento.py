@@ -170,6 +170,8 @@ def test_emitir_nfse_da_fatura_nh(cliente):  # noqa: F811
     assert fat["nfse_id"] and fat["codigo"] == nh["codigo"] and not fat["pode_emitir_nfse"]
     # e não criou uma segunda fatura para a mesma nota
     assert cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote_id}).json()["total"] == 1
+    # fatura do Faturamento não entra em "Emitidas pelo robô"
+    assert cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote_id, "tipo": "robo"}).json()["total"] == 0
 
 
 def test_revisao_da_fatura(cliente):  # noqa: F811
