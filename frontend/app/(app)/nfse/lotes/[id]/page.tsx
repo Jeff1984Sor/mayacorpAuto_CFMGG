@@ -120,7 +120,8 @@ export default function LoteDetalhePage() {
     );
 
   const tempo = l.iniciado_em && l.concluido_em ? (new Date(l.concluido_em).getTime() - new Date(l.iniciado_em).getTime()) / 1000 : 0;
-  const rejeitadas = l.rps.filter((r) => r.status === "rejeitado").length;
+  // Pendentes de reenvio: rejeitados e os já corrigidos (voltam a "ok"/"aviso"), sempre sem NFS-e
+  const rejeitadas = l.rps.filter((r) => !r.nfse_id && ["rejeitado", "ok", "aviso"].includes(r.status)).length;
 
   return (
     <div className="space-y-5">
@@ -165,7 +166,7 @@ export default function LoteDetalhePage() {
                 <Mail /> E-mails
               </Button>
             )}
-            {pode("nfse_emissao.emitir") && rejeitadas > 0 && loteFinalizado(l.status) && (
+            {pode("nfse_emissao.emitir") && rejeitadas > 0 && (l.status === "parcial" || l.status === "falhou") && (
               <Button onClick={() => setConfirmaReproc(true)}>
                 <RotateCcw /> Reprocessar rejeitados
               </Button>
