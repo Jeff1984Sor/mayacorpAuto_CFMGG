@@ -308,7 +308,12 @@ def processar_lote(lote_id: int) -> None:
         else:
             lote.status = StatusLote.falhou
         lote.concluido_em = agora()
-        lote.mensagem = f"{lote.qtd_emitidas} nota(s) emitida(s), {lote.qtd_rejeitadas} rejeitada(s)."
+        if modo == "teste":
+            aprovados = sum(1 for r in lote.rps if r.selecionado and r.status in (StatusRps.ok, StatusRps.aviso))
+            lote.mensagem = (f"Teste na Prefeitura: {aprovados} RPS aprovado(s), {lote.qtd_rejeitadas} recusado(s). "
+                             "Nenhuma nota foi gerada: para emitir de verdade, mude para Produção em Configurações › Prefeitura.")
+        else:
+            lote.mensagem = f"{lote.qtd_emitidas} nota(s) emitida(s), {lote.qtd_rejeitadas} rejeitada(s)."
         lote.evento("retorno", lote.mensagem, "sucesso" if not lote.qtd_rejeitadas else "aviso")
         audit.registrar(
             db,
