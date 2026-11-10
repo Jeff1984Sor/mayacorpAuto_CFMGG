@@ -520,6 +520,8 @@ export interface ConfigAutomacoes {
   /** NFS-e das faturas: inclui o texto da regra de cobrança e o título do caso na discriminação. */
   nota_texto_regra: boolean;
   nota_titulo_caso: boolean;
+  /** numero = "Caso #12 — título" · titulo = só o título */
+  nota_titulo_formato?: "numero" | "titulo";
   /** Demonstração: grava NH, ND e anexos numa pasta do computador ao criar a fatura. */
   fatura_salvar_pasta: boolean;
   /** número que a próxima NH / ND deste ano vai receber */

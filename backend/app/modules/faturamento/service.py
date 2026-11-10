@@ -591,7 +591,9 @@ def discriminacao_nfse(db: Session, fat: Fatura) -> str:
     linhas = [(fat.descricao or "").split("\n")[0]]  # "Honorários advocatícios — contrato (cota)"
     if cfg.nota_titulo_caso:
         casos = {i.caso.id: i.caso for i in itens if i.caso}
-        linhas += [f"Caso #{c.numero} — {c.titulo}" for c in sorted(casos.values(), key=lambda c: c.numero)]
+        so_titulo = getattr(cfg, "nota_titulo_formato", "numero") == "titulo"
+        linhas += [c.titulo if so_titulo else f"Caso #{c.numero} — {c.titulo}"
+                   for c in sorted(casos.values(), key=lambda c: c.numero)]
     regras = {r.id: r for r in db.scalars(select(RegraCobranca).where(
         RegraCobranca.id.in_({i.regra_id for i in itens if i.regra_id})))}
     rotulo = {"fixo": "Honorários fixos", "recorrente": "Honorários mensais"}

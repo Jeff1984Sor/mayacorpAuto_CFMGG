@@ -30,9 +30,11 @@ export function useCampos(enabled = true) {
   return useQuery({ queryKey: ["fat", "campos"], queryFn: () => api.get<CampoOut[]>("/faturamento/campos"), enabled, staleTime: 30_000 });
 }
 
-/** Campos ativos que valem para um caso desta área, na ordem configurada. */
-export function camposDaArea(campos: CampoOut[] | undefined, areaId: number | null) {
-  return (campos ?? []).filter((c) => c.ativo && (!c.area_id || c.area_id === areaId)).sort((a, b) => a.ordem - b.ordem || a.id - b.id);
+/** Campos ativos que valem para um caso desta área e deste cliente, na ordem configurada (os do cliente por último). */
+export function camposDaArea(campos: CampoOut[] | undefined, areaId: number | null, tomadorId?: number | null) {
+  return (campos ?? [])
+    .filter((c) => c.ativo && (!c.area_id || c.area_id === areaId) && (!c.tomador_id || c.tomador_id === tomadorId))
+    .sort((a, b) => Number(!!a.tomador_id) - Number(!!b.tomador_id) || a.ordem - b.ordem || a.id - b.id);
 }
 
 /** Valor do campo para leitura. */

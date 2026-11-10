@@ -193,9 +193,22 @@ function Paleta({ atual, onEscolher }: { atual: string | null; onEscolher: (c: s
 }
 
 // ================================================================ campos adicionais
-const vazio = (): CampoIn => ({ nome: "", tipo: "texto", opcoes: [], obrigatorio: false, ajuda: null, area_id: null, ordem: 0, ativo: true });
+const vazio = (): CampoIn => ({ nome: "", tipo: "texto", opcoes: [], obrigatorio: false, ajuda: null, area_id: null, tomador_id: null, ordem: 0, ativo: true });
 
-function CampoDialog({ open, onOpenChange, campo, areas }: { open: boolean; onOpenChange: (o: boolean) => void; campo: CampoOut | null; areas: AreaOut[] }) {
+/** tomadorId: campo exclusivo dos casos deste cliente (aba Casos do cadastro do cliente). */
+export function CampoDialog({
+  open,
+  onOpenChange,
+  campo,
+  areas,
+  tomadorId,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  campo: CampoOut | null;
+  areas: AreaOut[];
+  tomadorId?: number;
+}) {
   const qc = useQueryClient();
   const [f, setF] = useState<CampoIn>(vazio);
   const [opcao, setOpcao] = useState("");
@@ -203,10 +216,14 @@ function CampoDialog({ open, onOpenChange, campo, areas }: { open: boolean; onOp
   /* eslint-disable react-hooks/set-state-in-effect -- carrega ao abrir */
   useEffect(() => {
     if (!open) return;
-    setF(campo ? { nome: campo.nome, tipo: campo.tipo, opcoes: campo.opcoes, obrigatorio: campo.obrigatorio, ajuda: campo.ajuda, area_id: campo.area_id, ordem: campo.ordem, ativo: campo.ativo } : vazio());
+    setF(
+      campo
+        ? { nome: campo.nome, tipo: campo.tipo, opcoes: campo.opcoes, obrigatorio: campo.obrigatorio, ajuda: campo.ajuda, area_id: campo.area_id, tomador_id: campo.tomador_id ?? null, ordem: campo.ordem, ativo: campo.ativo }
+        : { ...vazio(), tomador_id: tomadorId ?? null },
+    );
     setOpcao("");
     setPrevia(null);
-  }, [open, campo]);
+  }, [open, campo, tomadorId]);
   /* eslint-enable react-hooks/set-state-in-effect */
   const set = <K extends keyof CampoIn>(k: K, v: CampoIn[K]) => setF((o) => ({ ...o, [k]: v }));
   const addOpcao = () => {
@@ -235,6 +252,7 @@ function CampoDialog({ open, onOpenChange, campo, areas }: { open: boolean; onOp
           className="flex min-h-0 flex-1 flex-col"
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation(); // aberto dentro do cadastro do cliente: não envia o formulário de fora
             if (f.nome.trim().length < 2) return toast.error("Dê um nome ao campo.");
             if (f.tipo === "lista" && f.opcoes.length === 0) return toast.error("Adicione as opções da lista.");
             salvar.mutate();
@@ -343,7 +361,8 @@ function CampoDialog({ open, onOpenChange, campo, areas }: { open: boolean; onOp
                 </Field>
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground">
-                {f.area_id ? `Só aparece em casos de ${areas.find((a) => a.id === f.area_id)?.nome}.` : "Aparece em todos os casos."}
+                {f.tomador_id ? "Só aparece nos casos deste cliente" : "Aparece em todos os casos"}
+                {f.area_id ? ` da área ${areas.find((a) => a.id === f.area_id)?.nome}.` : "."}
               </p>
             </aside>
           </div>
@@ -377,7 +396,7 @@ export function CamposAdicionaisConfig() {
     onSettled: invalidar,
   });
   const alternar = useMutation({
-    mutationFn: (c: CampoOut) => api.put(`/faturamento/campos/${c.id}`, { nome: c.nome, tipo: c.tipo, opcoes: c.opcoes, obrigatorio: c.obrigatorio, ajuda: c.ajuda, area_id: c.area_id, ordem: c.ordem, ativo: !c.ativo }),
+    mutationFn: (c: CampoOut) => api.put(`/faturamento/campos/${c.id}`, { nome: c.nome, tipo: c.tipo, opcoes: c.opcoes, obrigatorio: c.obrigatorio, ajuda: c.ajuda, area_id: c.area_id, tomador_id: c.tomador_id ?? null, ordem: c.ordem, ativo: !c.ativo }),
     onSuccess: invalidar,
   });
   const remover = useMutation({
@@ -463,6 +482,7 @@ export function CamposAdicionaisConfig() {
                     {c.nome}
                     {c.obrigatorio && <span className="text-danger">*</span>}
                     {!c.ativo && <Pill tom="neutral">inativo</Pill>}
+                    {c.tomador_nome && <Pill tom="brand">só {c.tomador_nome}</Pill>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {T.l}

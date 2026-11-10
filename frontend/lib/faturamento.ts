@@ -105,6 +105,8 @@ export interface CampoIn {
   obrigatorio: boolean;
   ajuda: string | null;
   area_id: number | null;
+  /** só para casos deste cliente */
+  tomador_id?: number | null;
   ordem: number;
   ativo: boolean;
 }
@@ -112,6 +114,7 @@ export interface CampoIn {
 export interface CampoOut extends CampoIn {
   id: number;
   qtd_preenchidos: number;
+  tomador_nome?: string | null;
 }
 
 export interface CasoIn {

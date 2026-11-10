@@ -448,6 +448,7 @@ class ConfigAutomacoesIn(BaseModel):
     fatura_proxima_nd: int | None = Field(default=None, ge=1, le=99999)
     nota_texto_regra: bool = True
     nota_titulo_caso: bool = True
+    nota_titulo_formato: str = Field(default="numero", pattern="^(numero|titulo)$")
     fatura_salvar_pasta: bool = False
     relatorio_emissao_ativo: bool = False
     relatorio_destinatarios: list[EmailStr] = []
@@ -467,6 +468,7 @@ class ConfigAutomacoesOut(Schema):
     fatura_proxima_nd: int
     nota_texto_regra: bool
     nota_titulo_caso: bool
+    nota_titulo_formato: str = "numero"
     fatura_salvar_pasta: bool
     relatorio_emissao_ativo: bool
     relatorio_destinatarios: list[str]

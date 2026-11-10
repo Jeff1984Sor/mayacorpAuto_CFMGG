@@ -12,6 +12,7 @@ import {
   useCampos,
 } from "@/components/faturamento/campos-adicionais";
 import { PreencherCasoDialog } from "@/components/faturamento/caso-ia";
+import { renderTitulo, useModeloCaso } from "@/components/faturamento/titulo-caso";
 import { erroPagadores, PagadoresCampo } from "@/components/faturamento/pagadores";
 import {
   ComarcaCombo,
@@ -561,12 +562,44 @@ export function CasoDialog({
 
   const set = <K extends keyof CasoIn>(k: K, v: CasoIn[K]) =>
     setF((o) => ({ ...o, [k]: v }));
-  const extras = camposDaArea(campos.data, f.area_id);
+  // cliente do caso: do caso aberto, da escolha no formulário ou do contrato recebido
+  const contratoFixo = useQuery({
+    queryKey: ["fat", "contrato", contratoId],
+    queryFn: () => api.get<ContratoOut>(`/faturamento/contratos/${contratoId}`),
+    enabled: open && !!contratoId && !caso,
+  });
+  const tomadorId = caso?.tomador_id ?? cliente ?? contratoFixo.data?.tomador_id ?? null;
+  const modelo = useModeloCaso(open ? tomadorId : null);
+  const modeloTitulo = modelo.data?.modelo_titulo_caso?.trim() || "";
+  const extras = camposDaArea(campos.data, f.area_id, tomadorId);
+  const contratoNome =
+    caso?.contrato_nome ?? contratoFixo.data?.nome ?? (contratos.data ?? []).find((c) => c.id === contrato)?.nome ?? "";
+  const tituloGerado = modeloTitulo
+    ? renderTitulo(
+        modeloTitulo,
+        {
+          numero: caso ? `#${caso.numero}` : "",
+          processo: f.numero_processo,
+          parte_contraria: f.parte_contraria,
+          tipo: f.tipo ? ROTULO_TIPO_CASO[f.tipo] : "",
+          area: areas.data?.find((a) => a.id === f.area_id)?.nome,
+          tribunal: f.tribunal,
+          vara: f.vara,
+          comarca: f.comarca,
+          valor_causa: f.valor_causa ? `R$ ${f.valor_causa}` : "",
+          data_distribuicao: f.data_distribuicao ? f.data_distribuicao.split("-").reverse().join("/") : "",
+          cliente: caso?.tomador_nome ?? contratoFixo.data?.tomador_nome ?? clientes.find(([id]) => id === tomadorId)?.[1],
+          contrato: contratoNome,
+        },
+        extras,
+        f.campos,
+      )
+    : "";
   const salvar = useMutation({
     mutationFn: () => {
       const body: CasoIn = {
         ...f,
-        titulo: f.titulo.trim(),
+        titulo: tituloGerado || f.titulo.trim(),
         descricao: nulo(f.descricao),
         numero_processo: nulo(f.numero_processo),
         parte_contraria: nulo(f.parte_contraria),
@@ -628,8 +661,8 @@ export function CasoDialog({
             return toast.error("Escolha o cliente do caso.");
           if (escolherContrato && !contrato)
             return toast.error("Escolha o contrato do caso.");
-          if (f.titulo.trim().length < 2)
-            return toast.error("Informe o título do caso.");
+          if (!tituloGerado && f.titulo.trim().length < 2)
+            return toast.error(modeloTitulo ? "Preencha os campos do título ou digite um título." : "Informe o título do caso.");
           const faltando = extras.find(
             (c) => c.obrigatorio && vazioExtra(c.id),
           );
@@ -686,17 +719,30 @@ export function CasoDialog({
             )}
             <Field
               label="Título"
-              obrigatorio
+              obrigatorio={!modeloTitulo}
               htmlFor="caso-titulo"
               className="sm:col-span-4"
+              dica={modeloTitulo ? "Montado pelo modelo do cliente (Cadastros › Clientes › aba Casos)." : undefined}
             >
-              <Input
-                id="caso-titulo"
-                value={f.titulo}
-                onChange={(e) => set("titulo", e.target.value)}
-                placeholder="ex.: Ação de cobrança — Cond. Solar"
-                autoFocus={!escolherContrato}
-              />
+              {modeloTitulo ? (
+                <div
+                  id="caso-titulo"
+                  className="flex min-h-9 items-center rounded-md border bg-muted/40 px-3 py-1.5 text-sm"
+                  aria-live="polite"
+                >
+                  {tituloGerado || (
+                    <span className="text-muted-foreground">Preencha os campos do modelo: {modeloTitulo}</span>
+                  )}
+                </div>
+              ) : (
+                <Input
+                  id="caso-titulo"
+                  value={f.titulo}
+                  onChange={(e) => set("titulo", e.target.value)}
+                  placeholder="ex.: Ação de cobrança — Cond. Solar"
+                  autoFocus={!escolherContrato}
+                />
+              )}
             </Field>
             <div
               className="sm:col-span-6"

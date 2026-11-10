@@ -635,3 +635,46 @@ def test_dre_abre_cliente_contrato_caso(cliente):  # noqa: F811
     no_contrato = no_cliente["filhos"][0]
     assert no_contrato["nome"].endswith("Contrato DRE")
     assert no_contrato["filhos"][0]["nome"] == f"Caso #{caso['numero']} — Caso DRE"
+
+
+def test_campos_do_cliente_e_modelo_de_titulo(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "T")
+    _, outro_contrato, _ = _base(cliente, h, "U")
+    # campo só deste cliente
+    r = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Sinistro", "tipo": "texto", "tomador_id": cli["id"]})
+    assert r.status_code == 201, r.text
+    sinistro = r.json()
+    so_dele = cliente.get("/api/faturamento/campos", headers=h, params={"tomador_id": cli["id"]}).json()
+    assert [c["nome"] for c in so_dele] == ["Sinistro"] and so_dele[0]["tomador_nome"] == cli["nome"]
+    # caso antigo ganha o título do modelo quando ele é salvo
+    cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={
+        "titulo": "Ação de cobrança", "parte_contraria": "Fulano", "campos": {str(sinistro["id"]): "SIN-77"}})
+    r = cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h,
+                    json={"modelo_titulo_caso": "{Sinistro} - {Processo} - {Parte contrária}"})
+    assert r.status_code == 200 and r.json()["atualizados"] == 1, r.text
+    assert cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()["titulo"] == "SIN-77 - Fulano"
+    # caso novo sem título: sai do modelo
+    r = cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={
+        "titulo": "", "numero_processo": "0001234-56.2026.8.26.0100", "parte_contraria": "Beltrano",
+        "campos": {str(sinistro["id"]): "SIN-99"}})
+    assert r.status_code == 201, r.text
+    assert r.json()["titulo"] == "SIN-99 - 0001234-56.2026.8.26.0100 - Beltrano"
+    # outro cliente: o campo não vale e o título é obrigatório
+    r = cliente.post(f"/api/faturamento/contratos/{outro_contrato['id']}/casos", headers=h,
+                     json={"titulo": "", "campos": {str(sinistro["id"]): "X"}})
+    assert r.status_code == 400
+    r = cliente.post(f"/api/faturamento/contratos/{outro_contrato['id']}/casos", headers=h,
+                     json={"titulo": "Consulta", "campos": {str(sinistro["id"]): "X"}})
+    assert r.status_code == 201 and r.json()["campos"] == {}
+
+
+def test_titulo_renderiza_e_limpa_separadores():
+    from app.modules.faturamento import titulo_caso
+    from app.modules.faturamento.models import CampoAdicional
+
+    cp = CampoAdicional(id=7, nome="Nº Sinistro")
+    padrao = {"processo": "", "parte_contraria": "Porto Seguro", "numero": "#12"}
+    assert titulo_caso.renderizar("{n sinistro} - {Processo} - {Parte Contraria} ({Nº do caso})", padrao, [cp],
+                                  {"7": "A1"}) == "A1 - Porto Seguro (#12)"
+    assert titulo_caso.renderizar("{Processo} / {Vara}", padrao, [], {}) == ""

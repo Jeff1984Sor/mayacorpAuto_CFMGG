@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.faturamento.models import (
     Andamento,
     AnexoCaso,
+    CampoAdicional,
     Caso,
     Contrato,
     ContratoPagador,
@@ -91,6 +92,7 @@ def excluir_cliente(db: Session, t: Tomador) -> list[str]:
         db.query(ContratoPagador).filter(ContratoPagador.contrato_id.in_(contratos)).delete(synchronize_session=False)
         db.query(Contrato).filter(Contrato.id.in_(contratos)).delete(synchronize_session=False)
     db.query(ParametroFiscal).filter(ParametroFiscal.tomador_id == t.id).delete(synchronize_session=False)
+    db.query(CampoAdicional).filter(CampoAdicional.tomador_id == t.id).delete(synchronize_session=False)
     db.query(Vinculo).filter(Vinculo.cliente_id == t.id).delete(synchronize_session=False)
     db.execute(update(Encontrado).where(Encontrado.possivel_cliente_id == t.id).values(possivel_cliente_id=None))
     db.execute(update(Rps).where(Rps.tomador_id == t.id).values(tomador_id=None))

@@ -96,6 +96,8 @@ class ConfigNfse(Base, Timestamped):
     # Texto da NFS-e das faturas (discriminação): o que entra além do cabeçalho do contrato
     nota_texto_regra: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # texto da regra de cobrança
     nota_titulo_caso: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # "Caso #n — título"
+    # numero = "Caso #12 — título" · titulo = só o título do caso
+    nota_titulo_formato: Mapped[str] = mapped_column(String(10), default="numero", server_default="numero")
     # Demonstração: ao criar a fatura, grava NH/ND e anexos numa pasta do computador (depois: Drive do cliente)
     fatura_salvar_pasta: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
@@ -160,6 +162,8 @@ class Tomador(Base, Timestamped):
     contatos: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # pessoas de contato
     telefones: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     observacoes: Mapped[str | None] = mapped_column(Text)
+    # Título dos casos deste cliente, ex.: "{Processo} - {Parte contrária} - {Sinistro}" (faturamento/titulo_caso.py)
+    modelo_titulo_caso: Mapped[str | None] = mapped_column(String(300))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha
 
     __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)

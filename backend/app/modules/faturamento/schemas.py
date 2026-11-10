@@ -121,6 +121,7 @@ class CampoIn(BaseModel):
     obrigatorio: bool = False
     ajuda: str | None = Field(default=None, max_length=200)
     area_id: int | None = None
+    tomador_id: int | None = None  # só para casos deste cliente
     ordem: int = 0
     ativo: bool = True
 
@@ -140,13 +141,26 @@ class CampoOut(Schema):
     obrigatorio: bool
     ajuda: str | None
     area_id: int | None
+    tomador_id: int | None = None
+    tomador_nome: str | None = None
     ordem: int
     ativo: bool
     qtd_preenchidos: int = 0
 
 
+class ModeloTituloIn(BaseModel):
+    modelo_titulo_caso: str | None = Field(default=None, max_length=300)
+
+
+class ModeloTituloOut(BaseModel):
+    tomador_id: int
+    modelo_titulo_caso: str | None
+    padrao: list[str]  # rótulos dos campos padrão que podem ir entre chaves
+    atualizados: int = 0
+
+
 class CasoIn(BaseModel):
-    titulo: str = Field(min_length=2, max_length=250)
+    titulo: str = Field(default="", max_length=250)  # vazio vale quando o cliente tem modelo de título
     descricao: str | None = None
     numero_processo: str | None = Field(default=None, max_length=40)
     parte_contraria: str | None = Field(default=None, max_length=200)

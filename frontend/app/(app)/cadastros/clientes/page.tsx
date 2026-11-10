@@ -38,6 +38,7 @@ import {
   telefoneVazio,
   type ListasCliente,
 } from "@/components/clientes/listas";
+import { CasosDoCliente } from "@/components/faturamento/casos-do-cliente";
 import { ContratosDoCliente } from "@/components/faturamento/contratos-cliente";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { Pagination, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
@@ -399,6 +400,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
               </TabsTrigger>
             ))}
             {cliente && pode("contratos.ver") && <TabsTrigger value="contratos">Contratos</TabsTrigger>}
+            {cliente && pode("contratos.ver") && <TabsTrigger value="casos">Casos</TabsTrigger>}
             {cliente && <TabsTrigger value="historico">Histórico</TabsTrigger>}
           </TabsList>
         </div>
@@ -424,6 +426,9 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
           <>
             <TabsContent value="contratos">
               <ContratosDoCliente tomadorId={cliente.id} />
+            </TabsContent>
+            <TabsContent value="casos">
+              <CasosDoCliente tomadorId={cliente.id} nomeCliente={cliente.nome} />
             </TabsContent>
             <TabsContent value="historico">
               <Historico id={cliente.id} />

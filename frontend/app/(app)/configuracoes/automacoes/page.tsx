@@ -232,9 +232,33 @@ export default function AutomacoesPage() {
             <SwitchRow titulo="Texto da regra de cobrança" descricao="Ex.: “Mensalidade — parcela 3/12” e o nome da regra das horas, no lugar de um texto genérico.">
               <Switch checked={c.nota_texto_regra} onCheckedChange={(v) => set("nota_texto_regra", v)} />
             </SwitchRow>
-            <SwitchRow titulo="Título do caso" descricao="Uma linha “Caso #12 — Ação de cobrança” para cada caso da fatura.">
+            <SwitchRow titulo="Título do caso" descricao="Uma linha com o título de cada caso da fatura (o título pode vir do modelo do cliente).">
               <Switch checked={c.nota_titulo_caso} onCheckedChange={(v) => set("nota_titulo_caso", v)} />
             </SwitchRow>
+            {c.nota_titulo_caso && (
+              <div role="radiogroup" aria-label="Como o título do caso aparece na nota" className="ml-1 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["numero", "Caso #12 — Ação de cobrança"],
+                    ["titulo", "Só o título: Ação de cobrança"],
+                  ] as const
+                ).map(([v, l]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={(c.nota_titulo_formato ?? "numero") === v}
+                    onClick={() => set("nota_titulo_formato", v)}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-sm transition",
+                      (c.nota_titulo_formato ?? "numero") === v ? "border-brand bg-brand/8 font-medium ring-1 ring-brand/30" : "text-muted-foreground hover:border-brand/40",
+                    )}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">Vale para as notas emitidas daqui em diante, inclusive de faturas já criadas.</p>
           </div>
           <div className="sm:col-span-2">

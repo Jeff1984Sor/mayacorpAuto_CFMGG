@@ -133,7 +133,7 @@ export function DetalhesCaso({
     queryFn: () =>
       api.get<TimesheetOut[]>(`/faturamento/casos/${caso.id}/timesheet`),
   });
-  const extras = camposDaArea(campos.data, caso.area_id);
+  const extras = camposDaArea(campos.data, caso.area_id, caso.tomador_id);
   const porProf = new Map<string, number>();
   (ts.data ?? [])
     .filter((t) => t.faturavel && !t.faturado)

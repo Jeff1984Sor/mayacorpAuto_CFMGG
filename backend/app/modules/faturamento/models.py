@@ -158,6 +158,8 @@ class CampoAdicional(Base, Timestamped):
     obrigatorio: Mapped[bool] = mapped_column(Boolean, default=False)
     ajuda: Mapped[str | None] = mapped_column(String(200))
     area_id: Mapped[int | None] = mapped_column(ForeignKey("fat_area.id", ondelete="SET NULL"))  # só para casos desta área
+    # só para casos deste cliente (Cadastros › Clientes › aba Casos)
+    tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id", ondelete="CASCADE"), index=True)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
 

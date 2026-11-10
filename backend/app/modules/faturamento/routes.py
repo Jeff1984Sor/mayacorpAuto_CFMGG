@@ -14,7 +14,7 @@ from app.core import tenancy
 from app.core.deps import Admin, Ctx, Operador
 from app.core.models import Cargo, Usuario
 from app.core.schemas import Mensagem
-from app.modules.faturamento import service
+from app.modules.faturamento import service, titulo_caso
 from app.modules.faturamento.judiciario import INSTANCIAS
 from app.modules.faturamento.models import (
     ROTULO_TIPO_CASO,
@@ -64,6 +64,8 @@ from app.modules.faturamento.schemas import (
     FaturarOut,
     ItemPendenteOut,
     ItensAFaturarOut,
+    ModeloTituloIn,
+    ModeloTituloOut,
     PagadorOut,
     ProfissionalOut,
     RegraIn,
@@ -300,23 +302,31 @@ def _caso_out(ctx, c: Caso) -> CasoOut:
         horas_pendentes=(Decimal(min_pend) / 60).quantize(Decimal("0.01")), despesas_pendentes=Decimal(desp))
 
 
-def _validar_caso(ctx, dados: CasoIn) -> None:
+def _validar_caso(ctx, dados: CasoIn, contrato: Contrato) -> None:
     if dados.responsavel_id:
         _get(ctx, Usuario, dados.responsavel_id, "Responsável")
     if dados.tabela_preco_id:
         _get(ctx, TabelaPreco, dados.tabela_preco_id, "Tabela de preço")
     if dados.area_id:
         _get(ctx, AreaAtuacao, dados.area_id, "Área")
-    dados.campos = _validar_campos(ctx, dados.campos or {}, dados.area_id)
+    dados.campos = _validar_campos(ctx, dados.campos or {}, dados.area_id, contrato.tomador_id)
 
 
-def _validar_campos(ctx, valores: dict, area_id: int | None) -> dict:
+def _titulo_final(ctx, c: Caso) -> None:
+    """Modelo de título do cliente (se houver) e, no fim, título obrigatório."""
+    titulo_caso.aplicar(ctx.db, c)
+    c.titulo = (c.titulo or "").strip()
+    if len(c.titulo) < 2:
+        raise HTTPException(400, "Informe o título do caso (ou preencha os campos do modelo de título do cliente).")
+
+
+def _validar_campos(ctx, valores: dict, area_id: int | None, tomador_id: int | None = None) -> dict:
     """Confere os campos adicionais: obrigatórios, tipos e opções. Guarda só campos conhecidos."""
     campos = list(ctx.db.scalars(select(CampoAdicional).where(CampoAdicional.tenant_id == ctx.tenant_id,
                                                               CampoAdicional.entidade == "caso", CampoAdicional.ativo)))
     saida = {}
     for cp in campos:
-        if cp.area_id and cp.area_id != area_id:
+        if (cp.area_id and cp.area_id != area_id) or (cp.tomador_id and cp.tomador_id != tomador_id):
             continue
         v = valores.get(str(cp.id))
         vazio = v is None or (isinstance(v, str) and not v.strip())
@@ -367,12 +377,14 @@ def casos(ctx: Ctx, contrato_id: int | None = None, tomador_id: int | None = Non
 @router.post("/contratos/{cid}/casos", response_model=CasoOut, status_code=201)
 def criar_caso(cid: int, dados: CasoIn, ctx: Operador):
     contrato = _get(ctx, Contrato, cid, "Contrato")
-    _validar_caso(ctx, dados)
+    _validar_caso(ctx, dados, contrato)
     numero = (ctx.db.scalar(select(func.max(Caso.numero)).where(Caso.tenant_id == ctx.tenant_id)) or 0) + 1
     c = Caso(tenant_id=ctx.tenant_id, numero=numero, contrato_id=contrato.id, **dados.model_dump())
     c.data_abertura = c.data_abertura or date.today()
+    c.contrato = contrato
     ctx.db.add(c)
     ctx.db.flush()
+    _titulo_final(ctx, c)
     ctx.auditar("faturamento.caso.criar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
     disparar = _buscar_no_tribunal(ctx, c)
     ctx.db.commit()
@@ -390,10 +402,13 @@ def ler_caso(cid: int, ctx: Ctx):
 @router.put("/casos/{cid}", response_model=CasoOut)
 def alterar_caso(cid: int, dados: CasoIn, ctx: Operador):
     c = _get(ctx, Caso, cid, "Caso")
-    _validar_caso(ctx, dados)
+    _validar_caso(ctx, dados, c.contrato)
     numero_antes = c.numero_processo
     for k, v in dados.model_dump().items():
         setattr(c, k, v)
+    ctx.db.flush()  # a área nova precisa estar carregada para o modelo de título
+    ctx.db.expire(c, ["area"])
+    _titulo_final(ctx, c)
     ctx.auditar("faturamento.caso.alterar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
     disparar = _buscar_no_tribunal(ctx, c) if c.numero_processo != numero_antes else None
     ctx.db.commit()
@@ -831,21 +846,28 @@ def excluir_area(aid: int, ctx: Admin):
 
 
 @router.get("/campos", response_model=list[CampoOut])
-def campos(ctx: Ctx, entidade: str = "caso"):
-    lista = list(ctx.db.scalars(select(CampoAdicional).where(CampoAdicional.tenant_id == ctx.tenant_id,
-                                                             CampoAdicional.entidade == entidade)
-                                .order_by(CampoAdicional.ordem, CampoAdicional.id)))
+def campos(ctx: Ctx, entidade: str = "caso", tomador_id: int | None = None):
+    """Todos os campos; com tomador_id, só os exclusivos daquele cliente (aba Casos do cadastro)."""
+    sel = select(CampoAdicional).where(CampoAdicional.tenant_id == ctx.tenant_id, CampoAdicional.entidade == entidade)
+    if tomador_id:
+        sel = sel.where(CampoAdicional.tomador_id == tomador_id)
+    lista = list(ctx.db.scalars(sel.order_by(CampoAdicional.ordem, CampoAdicional.id)))
+    nomes = {t.id: t.nome for t in ctx.db.scalars(select(Tomador).where(
+        Tomador.id.in_({cp.tomador_id for cp in lista if cp.tomador_id})))}
     preenchidos: dict[str, int] = {}
     for vals in ctx.db.scalars(select(Caso.campos).where(Caso.tenant_id == ctx.tenant_id, Caso.campos.is_not(None))):
         for k in (vals or {}):
             preenchidos[k] = preenchidos.get(k, 0) + 1
-    return [CampoOut.model_validate(cp).model_copy(update={"qtd_preenchidos": preenchidos.get(str(cp.id), 0)}) for cp in lista]
+    return [CampoOut.model_validate(cp).model_copy(update={"qtd_preenchidos": preenchidos.get(str(cp.id), 0),
+                                                           "tomador_nome": nomes.get(cp.tomador_id)}) for cp in lista]
 
 
 @router.post("/campos", response_model=CampoOut, status_code=201)
 def criar_campo(dados: CampoIn, ctx: Admin):
     if dados.area_id:
         _get(ctx, AreaAtuacao, dados.area_id, "Área")
+    if dados.tomador_id:
+        _get(ctx, Tomador, dados.tomador_id, "Cliente")
     ordem = (ctx.db.scalar(select(func.max(CampoAdicional.ordem)).where(CampoAdicional.tenant_id == ctx.tenant_id)) or 0) + 1
     cp = CampoAdicional(tenant_id=ctx.tenant_id, entidade="caso", **{**dados.model_dump(), "ordem": dados.ordem or ordem})
     ctx.db.add(cp)
@@ -860,6 +882,8 @@ def alterar_campo(fid: int, dados: CampoIn, ctx: Admin):
     cp = _get(ctx, CampoAdicional, fid, "Campo")
     if dados.area_id:
         _get(ctx, AreaAtuacao, dados.area_id, "Área")
+    if dados.tomador_id:
+        _get(ctx, Tomador, dados.tomador_id, "Cliente")
     for k, v in dados.model_dump().items():
         setattr(cp, k, v)
     ctx.db.commit()
@@ -885,6 +909,28 @@ def excluir_campo(fid: int, ctx: Admin):
     ctx.db.delete(cp)
     ctx.db.commit()
     return Mensagem(mensagem="Campo excluído.")
+
+
+# ================================================================ modelo de título do caso (por cliente)
+@router.get("/clientes/{tid}/modelo-caso", response_model=ModeloTituloOut)
+def ler_modelo_caso(tid: int, ctx: Ctx):
+    t = _get(ctx, Tomador, tid, "Cliente")
+    return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso, padrao=list(titulo_caso.PADRAO.values()))
+
+
+@router.put("/clientes/{tid}/modelo-caso", response_model=ModeloTituloOut)
+def salvar_modelo_caso(tid: int, dados: ModeloTituloIn, ctx: Operador):
+    """Grava o modelo e refaz o título de todos os casos do cliente."""
+    t = _get(ctx, Tomador, tid, "Cliente")
+    antes = t.modelo_titulo_caso
+    t.modelo_titulo_caso = (dados.modelo_titulo_caso or "").strip() or None
+    ctx.db.flush()
+    n = titulo_caso.aplicar_no_cliente(ctx.db, ctx.tenant_id, t.id) if t.modelo_titulo_caso else 0
+    ctx.auditar("tomador.modelo_titulo_caso", "tomador", t.id, descricao=f"{t.nome}: {n} caso(s) com título refeito",
+                antes={"modelo_titulo_caso": antes}, depois={"modelo_titulo_caso": t.modelo_titulo_caso})
+    ctx.db.commit()
+    return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso,
+                           padrao=list(titulo_caso.PADRAO.values()), atualizados=n)
 
 
 # ================================================================ regras de cobrança
