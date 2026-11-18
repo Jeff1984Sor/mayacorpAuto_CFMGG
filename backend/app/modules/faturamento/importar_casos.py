@@ -15,6 +15,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from openpyxl import load_workbook
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -90,6 +91,8 @@ def _ler_arquivo(conteudo: bytes, nome: str) -> list[list]:
     # a aba com mais linhas preenchidas costuma ser a de dados
     melhor: list[list] = []
     for ws in wb.worksheets:
+        if _norm(ws.title).startswith(("instruc", "como preencher", "leia")):
+            continue  # aba de instruções da planilha modelo
         linhas = [list(r) for r in ws.iter_rows(values_only=True) if any(c not in (None, "") for c in r)]
         if len(linhas) > len(melhor):
             melhor = linhas
@@ -405,3 +408,40 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
         resultados.append(r)
     ctx.db.commit()
     return {"resultados": resultados}
+
+
+@router.get("/modelo")
+def modelo(tid: int, ctx: Operador) -> Response:
+    """Planilha modelo já com o nome do campo-chave do cliente e os contratos dele nas instruções."""
+    from app.modules.faturamento.planilhas import _baixar, _planilha
+
+    t = _tomador(ctx, tid)
+    campos = list(ctx.db.scalars(select(CampoAdicional).where(
+        CampoAdicional.tenant_id == ctx.tenant_id, CampoAdicional.entidade == "caso", CampoAdicional.ativo,
+        (CampoAdicional.tomador_id == tid) | CampoAdicional.tomador_id.is_(None))
+        .order_by(CampoAdicional.tomador_id.is_(None), CampoAdicional.ordem)))
+    chave = next((c for c in campos if any(p in _norm(c.nome) for p in PISTAS["chave"])), None)
+    nome_chave = chave.nome if chave else "Nº do sinistro"
+    contratos = _contratos(ctx, tid)
+    exemplo_contrato = contratos[0].nome if contratos else "Contencioso"
+    cab = [nome_chave, "Contrato", "Descrição da cobrança", "Valor", "Vencimento", "Título do caso", "Nº do processo",
+           "Parte contrária"]
+    linhas = [
+        ["1234567", exemplo_contrato, "Honorários iniciais", Decimal("1150.00"), date.today(), "", "", "Fulano de Tal"],
+        ["7654321", exemplo_contrato, "Honorários de êxito", Decimal("2300.00"), None, "", "1001234-56.2026.8.26.0100", ""],
+    ]
+    instrucoes = [
+        f"Planilha de casos de {t.nome}: uma linha por cobrança (o mesmo caso pode aparecer em mais de uma linha).",
+        "Apague as duas linhas de exemplo antes de importar.",
+        f"{nome_chave}: obrigatório. É por ele que o sistema acha o caso que já existe.",
+        "Contrato: nome ou nº do contrato. Se não existir, o contrato é criado. Vazio: vai para o contrato escolhido na importação.",
+        "Descrição da cobrança: texto que vai para a regra de cobrança (e para a nota fiscal, se o cliente estiver configurado assim).",
+        "Valor: valor da cobrança. Vazio: só o caso é cadastrado.",
+        "Vencimento: data da cobrança (dd/mm/aaaa). Se faltar, o sistema pergunta se pode usar a mesma data para todas.",
+        "Cobrança já cadastrada com o mesmo valor e vencimento é pulada; importar de novo não duplica nada.",
+        "Título do caso, Nº do processo e Parte contrária: opcionais. Com modelo de título no cliente, o título é montado sozinho.",
+        "",
+        "Contratos deste cliente: " + (", ".join(f"#{c.numero} {c.nome}" for c in contratos) or "nenhum ainda"),
+    ]
+    nome = re.sub(r"[^\w\- ]", "", t.nome)[:40].strip() or "cliente"
+    return _baixar(_planilha("Casos", cab, linhas, instrucoes), f"modelo_casos_{nome}.xlsx")

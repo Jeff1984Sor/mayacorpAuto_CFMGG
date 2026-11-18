@@ -753,3 +753,21 @@ def test_texto_da_nota_por_cliente(cliente):  # noqa: F811
     lote_id = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nh["id"]]}).json()["lote_id"]
     texto = cliente.get(f"/api/nfse/importacoes/{lote_id}", headers=h).json()["rps"][0]["discriminacao"]
     assert f"Caso #{caso['numero']} — Ação de cobrança" in texto and "Honorarios iniciais sinistro 123" in texto, texto
+
+
+def test_planilha_modelo_da_importacao_volta_reconhecida(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli, contrato, _ = _base(cliente, h, "M")
+    sin = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Nº do sinistro", "tipo": "texto",
+                                                                    "tomador_id": cli["id"]}).json()
+    base = f"/api/faturamento/clientes/{cli['id']}/importar-casos"
+    r = cliente.get(f"{base}/modelo", headers=h)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxmlformats"), r.text
+    lido = cliente.post(f"{base}/ler", headers=h, files={"arquivo": ("modelo.xlsx", r.content)}).json()
+    assert lido["colunas"][0] == "Nº do sinistro" and len(lido["linhas"]) == 2  # a aba Instruções fica de fora
+    assert lido["campo_chave_id"] == sin["id"]
+    s = lido["sugestao"]
+    assert [s[k] for k in ("chave", "contrato", "descricao", "valor", "vencimento", "titulo", "processo", "parte_contraria")] == list(range(8))
+    plano = cliente.post(f"{base}/analisar", headers=h, json={
+        "linhas": lido["linhas"], "mapa": s, "campo_chave_id": sin["id"]}).json()
+    assert plano["resumo"]["casos_novos"] == 2 and plano["resumo"]["sem_data"] == 1 and not plano["resumo"]["contratos_novos"]
