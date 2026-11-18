@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers, Loader2, Pencil, Plus, Trash2, Type } from "lucide-react";
+import { FileSpreadsheet, Layers, Loader2, Pencil, Plus, ReceiptText, Trash2, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,9 +13,11 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { CampoOut } from "@/lib/faturamento";
+import { cn } from "@/lib/utils";
 
 import { TIPOS_CAMPO, useAreas, useCampos } from "./campos-adicionais";
 import { CampoDialog } from "./config-ficha";
+import { ImportarCasosDialog } from "./importar-casos";
 import { PADRAO_TITULO, type ModeloTituloOut, renderTitulo, useModeloCaso } from "./titulo-caso";
 
 /** Exemplo fixo para a prévia do modelo. */
@@ -46,20 +48,30 @@ export function CasosDoCliente({ tomadorId, nomeCliente }: { tomadorId: number; 
   });
   const modelo = useModeloCaso(tomadorId);
   const [texto, setTexto] = useState("");
+  const [notaTitulo, setNotaTitulo] = useState<boolean | null>(null);
+  const [notaRegra, setNotaRegra] = useState<boolean | null>(null);
   const [dlg, setDlg] = useState<{ c: CampoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<CampoOut | null>(null);
+  const [importar, setImportar] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- carrega a configuração salva */
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega o modelo salvo
-    if (modelo.data) setTexto(modelo.data.modelo_titulo_caso ?? "");
+    if (!modelo.data) return;
+    setTexto(modelo.data.modelo_titulo_caso ?? "");
+    setNotaTitulo(modelo.data.nota_titulo_caso);
+    setNotaRegra(modelo.data.nota_texto_regra);
   }, [modelo.data]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const campos = (doCliente.data ?? []).filter((c) => c.ativo);
   const usaveis = [...(gerais.data ?? []).filter((c) => c.ativo && !c.tomador_id), ...campos];
   const exemplosCampos = Object.fromEntries(usaveis.map((c) => [String(c.id), c.tipo === "data" ? "2026-03-05" : `[${c.nome}]`]));
   const previa = texto.trim() ? renderTitulo(texto, { ...EXEMPLO, cliente: nomeCliente }, usaveis, exemplosCampos) : "";
-  const mudou = (modelo.data?.modelo_titulo_caso ?? "") !== texto.trim();
+  const mudou =
+    (modelo.data?.modelo_titulo_caso ?? "") !== texto.trim() ||
+    (modelo.data?.nota_titulo_caso ?? null) !== notaTitulo ||
+    (modelo.data?.nota_texto_regra ?? null) !== notaRegra;
 
   const inserir = (rotulo: string) => {
     const el = input.current;
@@ -78,9 +90,13 @@ export function CasosDoCliente({ tomadorId, nomeCliente }: { tomadorId: number; 
   };
 
   const salvar = useMutation({
-    mutationFn: () => api.put<ModeloTituloOut>(`/faturamento/clientes/${tomadorId}/modelo-caso`, { modelo_titulo_caso: texto.trim() || null }),
+    mutationFn: () => api.put<ModeloTituloOut>(`/faturamento/clientes/${tomadorId}/modelo-caso`, {
+        modelo_titulo_caso: texto.trim() || null,
+        nota_titulo_caso: notaTitulo,
+        nota_texto_regra: notaRegra,
+      }),
     onSuccess: (r) => {
-      toast.success(r.modelo_titulo_caso ? "Modelo de título salvo" : "Modelo de título removido", {
+      toast.success("Configuração dos casos salva", {
         description: r.atualizados ? `${r.atualizados} caso(s) deste cliente com o título refeito.` : undefined,
       });
       qc.invalidateQueries({ queryKey: ["fat"] });
@@ -97,6 +113,24 @@ export function CasosDoCliente({ tomadorId, nomeCliente }: { tomadorId: number; 
 
   return (
     <div className="space-y-5">
+      {/* ---------------- importar casos por planilha */}
+      <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-brand/10 via-card to-success/8 p-4">
+        <div className="pointer-events-none absolute -top-10 -right-6 size-32 rounded-full bg-brand/15 blur-2xl" />
+        <div className="relative flex flex-wrap items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand text-white shadow-sm">
+            <FileSpreadsheet className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold">Importar casos por planilha</h3>
+            <p className="text-xs text-muted-foreground">Cadastra os casos que faltam, no contrato certo, com as regras de cobrança. O que já existe não é repetido.</p>
+          </div>
+          <Button type="button" onClick={() => setImportar(true)}>
+            <FileSpreadsheet /> Importar planilha
+          </Button>
+        </div>
+      </section>
+      <ImportarCasosDialog open={importar} onOpenChange={setImportar} tomadorId={tomadorId} nomeCliente={nomeCliente} />
+
       {/* ---------------- campos do cliente */}
       <section className="rounded-2xl border">
         <header className="flex flex-wrap items-start gap-3 border-b p-4">
@@ -204,13 +238,31 @@ export function CasosDoCliente({ tomadorId, nomeCliente }: { tomadorId: number; 
           <span className="text-xs text-muted-foreground">Exemplo: </span>
           {previa ? <strong className="font-medium">{previa}</strong> : <span className="text-muted-foreground">sem modelo: o título é digitado em cada caso</span>}
         </div>
-        <div className="mt-3 flex items-center justify-end gap-2">
-          {mudou && <span className="text-xs text-warning-ink">Alteração não salva</span>}
-          <Button type="button" onClick={() => salvar.mutate()} disabled={!mudou || salvar.isPending}>
-            {salvar.isPending && <Loader2 className="animate-spin" />} Salvar e aplicar nos casos
-          </Button>
+      </section>
+
+      {/* ---------------- texto da nota fiscal deste cliente */}
+      <section className="rounded-2xl border p-4">
+        <div className="mb-3 flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-warning/12 text-warning-ink">
+            <ReceiptText className="size-4" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold">Na nota fiscal deste cliente</h3>
+            <p className="text-xs text-muted-foreground">O que entra no texto da NFS-e das faturas de {nomeCliente}. “Padrão” segue Configurações › Automações.</p>
+          </div>
+        </div>
+        <div className="space-y-2.5">
+          <OpcaoNota titulo="Título do caso" exemplo="ex.: Caso #12 — 1234567 - Fulano" valor={notaTitulo} onChange={setNotaTitulo} />
+          <OpcaoNota titulo="Texto da regra de cobrança" exemplo="ex.: Honorários iniciais" valor={notaRegra} onChange={setNotaRegra} />
         </div>
       </section>
+
+      <div className="flex items-center justify-end gap-2">
+        {mudou && <span className="text-xs text-warning-ink">Alteração não salva</span>}
+        <Button type="button" onClick={() => salvar.mutate()} disabled={!mudou || salvar.isPending}>
+          {salvar.isPending && <Loader2 className="animate-spin" />} Salvar configuração dos casos
+        </Button>
+      </div>
 
       <CampoDialog open={!!dlg} onOpenChange={(o) => !o && setDlg(null)} campo={dlg?.c ?? null} areas={areas.data ?? []} tomadorId={tomadorId} />
       <ConfirmDialog
@@ -223,6 +275,40 @@ export function CasosDoCliente({ tomadorId, nomeCliente }: { tomadorId: number; 
         carregando={remover.isPending}
         onConfirm={() => excluir && remover.mutate(excluir.id)}
       />
+    </div>
+  );
+}
+
+/** Padrão (segue Configurações) · Sim · Não */
+function OpcaoNota({ titulo, exemplo, valor, onChange }: { titulo: string; exemplo: string; valor: boolean | null; onChange: (v: boolean | null) => void }) {
+  const opcoes: [boolean | null, string][] = [
+    [null, "Padrão"],
+    [true, "Sim"],
+    [false, "Não"],
+  ];
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/30 px-3 py-2">
+      <div>
+        <p className="text-sm font-medium">{titulo}</p>
+        <p className="text-xs text-muted-foreground">{exemplo}</p>
+      </div>
+      <div role="radiogroup" aria-label={titulo} className="inline-flex rounded-lg border bg-background p-0.5">
+        {opcoes.map(([v, l]) => (
+          <button
+            key={l}
+            type="button"
+            role="radio"
+            aria-checked={valor === v}
+            onClick={() => onChange(v)}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs transition",
+              valor === v ? (v === false ? "bg-muted font-medium text-foreground" : "bg-brand font-medium text-white") : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

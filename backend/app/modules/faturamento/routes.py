@@ -915,22 +915,30 @@ def excluir_campo(fid: int, ctx: Admin):
 @router.get("/clientes/{tid}/modelo-caso", response_model=ModeloTituloOut)
 def ler_modelo_caso(tid: int, ctx: Ctx):
     t = _get(ctx, Tomador, tid, "Cliente")
-    return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso, padrao=list(titulo_caso.PADRAO.values()))
+    return _modelo_out(t)
+
+
+def _modelo_out(t: Tomador, atualizados: int = 0) -> ModeloTituloOut:
+    return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso, nota_titulo_caso=t.nota_titulo_caso,
+                           nota_texto_regra=t.nota_texto_regra, padrao=list(titulo_caso.PADRAO.values()),
+                           atualizados=atualizados)
 
 
 @router.put("/clientes/{tid}/modelo-caso", response_model=ModeloTituloOut)
 def salvar_modelo_caso(tid: int, dados: ModeloTituloIn, ctx: Operador):
     """Grava o modelo e refaz o título de todos os casos do cliente."""
     t = _get(ctx, Tomador, tid, "Cliente")
-    antes = t.modelo_titulo_caso
+    campos = ("modelo_titulo_caso", "nota_titulo_caso", "nota_texto_regra")
+    antes = {k: getattr(t, k) for k in campos}
+    modelo_mudou = ((dados.modelo_titulo_caso or "").strip() or None) != t.modelo_titulo_caso
     t.modelo_titulo_caso = (dados.modelo_titulo_caso or "").strip() or None
+    t.nota_titulo_caso, t.nota_texto_regra = dados.nota_titulo_caso, dados.nota_texto_regra
     ctx.db.flush()
-    n = titulo_caso.aplicar_no_cliente(ctx.db, ctx.tenant_id, t.id) if t.modelo_titulo_caso else 0
-    ctx.auditar("tomador.modelo_titulo_caso", "tomador", t.id, descricao=f"{t.nome}: {n} caso(s) com título refeito",
-                antes={"modelo_titulo_caso": antes}, depois={"modelo_titulo_caso": t.modelo_titulo_caso})
+    n = titulo_caso.aplicar_no_cliente(ctx.db, ctx.tenant_id, t.id) if t.modelo_titulo_caso and modelo_mudou else 0
+    ctx.auditar("tomador.casos_config", "tomador", t.id, descricao=f"{t.nome}: {n} caso(s) com título refeito",
+                antes=antes, depois={k: getattr(t, k) for k in campos})
     ctx.db.commit()
-    return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso,
-                           padrao=list(titulo_caso.PADRAO.values()), atualizados=n)
+    return _modelo_out(t, n)
 
 
 # ================================================================ regras de cobrança

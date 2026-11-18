@@ -588,8 +588,13 @@ def discriminacao_nfse(db: Session, fat: Fatura) -> str:
     if not itens:
         return fat.descricao or ""
     cfg = nfse.config_nfse(db, fat.tenant_id)
+    # o cliente pode decidir por cima de Configurações (aba Casos do cadastro); vazio = segue o padrão
+    contrato = db.get(Contrato, fat.contrato_id) if fat.contrato_id else None
+    cliente = contrato.tomador if contrato and contrato.tomador else fat.tomador
+    com_titulo = cliente.nota_titulo_caso if cliente and cliente.nota_titulo_caso is not None else cfg.nota_titulo_caso
+    com_regra = cliente.nota_texto_regra if cliente and cliente.nota_texto_regra is not None else cfg.nota_texto_regra
     linhas = [(fat.descricao or "").split("\n")[0]]  # "Honorários advocatícios — contrato (cota)"
-    if cfg.nota_titulo_caso:
+    if com_titulo:
         casos = {i.caso.id: i.caso for i in itens if i.caso}
         so_titulo = getattr(cfg, "nota_titulo_formato", "numero") == "titulo"
         linhas += [c.titulo if so_titulo else f"Caso #{c.numero} — {c.titulo}"
@@ -600,8 +605,8 @@ def discriminacao_nfse(db: Session, fat: Fatura) -> str:
     for i in itens:
         if i.tipo in ("hora", "despesa"):
             continue
-        if cfg.nota_texto_regra or not i.regra_id:  # avulso não tem regra: o texto dele é o que foi digitado
-            texto = i.descricao.split(" · Caso #")[0] if cfg.nota_titulo_caso else i.descricao
+        if com_regra or not i.regra_id:  # avulso não tem regra: o texto dele é o que foi digitado
+            texto = i.descricao.split(" · Caso #")[0] if com_titulo else i.descricao
         else:
             texto = rotulo.get(i.tipo, "Honorários") + (f" {i.competencia:%m/%Y}" if i.competencia else "")
         linhas.append(f"- {texto}")
@@ -614,7 +619,7 @@ def discriminacao_nfse(db: Session, fat: Fatura) -> str:
         datas = [i.data for i in grupo if i.data]
         periodo = f" ({min(datas):%d/%m/%Y} a {max(datas):%d/%m/%Y})" if datas else ""
         r = regras.get(rid)
-        nome = r.descricao if cfg.nota_texto_regra and r and r.descricao else "Serviços por hora"
+        nome = r.descricao if com_regra and r and r.descricao else "Serviços por hora"
         linhas.append(f"- {nome}: {str(total_h).replace('.', ',')} h{periodo}")
     return "\n".join(x for x in linhas if x)
 

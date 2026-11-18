@@ -678,3 +678,78 @@ def test_titulo_renderiza_e_limpa_separadores():
     assert titulo_caso.renderizar("{n sinistro} - {Processo} - {Parte Contraria} ({Nº do caso})", padrao, [cp],
                                   {"7": "A1"}) == "A1 - Porto Seguro (#12)"
     assert titulo_caso.renderizar("{Processo} / {Vara}", padrao, [], {}) == ""
+
+
+def test_importar_casos_por_planilha(cliente):  # noqa: F811
+    import io
+
+    from openpyxl import Workbook
+
+    h = _login(cliente)
+    cli, contrato, _ = _base(cliente, h, "P")
+    sin = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Nº do sinistro", "tipo": "texto",
+                                                                    "tomador_id": cli["id"]}).json()
+    # caso que já existe (sinistro 555) com uma regra igual à da planilha
+    existente = cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={
+        "titulo": "Sinistro antigo", "campos": {str(sin["id"]): "000555"}}).json()
+    cliente.post(f"/api/faturamento/casos/{existente['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Honorários iniciais", "valor": "1150.00", "data_pagamento": "2026-12-10"})
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Relatório de honorários"])  # título antes do cabeçalho
+    ws.append(["Sinistro", "Contrato", "Descrição do serviço", "Valor", "Vencimento"])
+    ws.append(["555", contrato["nome"], "Honorários iniciais", 1150.0, date(2026, 12, 10)])  # igual: pula
+    ws.append(["555", contrato["nome"], "Honorários finais", 800.5, date(2026, 12, 10)])  # diferente: cria
+    ws.append(["777", "Carteira Nova", "Honorários iniciais", 1150.0, None])  # contrato novo, sem data
+    buf = io.BytesIO()
+    wb.save(buf)
+    r = cliente.post(f"/api/faturamento/clientes/{cli['id']}/importar-casos/ler", headers=h,
+                     files={"arquivo": ("porto.xlsx", buf.getvalue())})
+    assert r.status_code == 200, r.text
+    lido = r.json()
+    s = lido["sugestao"]
+    assert lido["campo_chave_id"] == sin["id"] and lido["primeira_linha"] == 3
+    assert (s["chave"], s["contrato"], s["descricao"], s["valor"], s["vencimento"]) == (0, 1, 2, 3, 4)
+
+    corpo = {"linhas": lido["linhas"], "mapa": {k: v for k, v in s.items() if v is not None},
+             "campo_chave_id": sin["id"], "primeira_linha": lido["primeira_linha"]}
+    plano = cliente.post(f"/api/faturamento/clientes/{cli['id']}/importar-casos/analisar", headers=h, json=corpo).json()
+    res = plano["resumo"]
+    assert (res["casos_existentes"], res["casos_novos"], res["regras_iguais"], res["regras_novas"], res["sem_data"]) == (2, 1, 1, 1, 1)
+    assert res["contratos_novos"] == ["Carteira Nova"]
+
+    corpo["vencimento_padrao"] = "2026-12-20"  # "mesma data para todos?" → sim
+    url = f"/api/faturamento/clientes/{cli['id']}/importar-casos/aplicar"
+    r = cliente.post(url, headers=h, json=corpo)
+    assert r.status_code == 200, r.text
+    st = [(x["caso"], x["regra"]) for x in r.json()["resultados"]]
+    assert st == [("existente", "igual"), ("existente", "criada"), ("criado", "criada")]
+    # repetir não duplica nada
+    st = [(x["caso"], x["regra"]) for x in cliente.post(url, headers=h, json=corpo).json()["resultados"]]
+    assert st == [("existente", "igual"), ("existente", "igual"), ("existente", "igual")]
+    novo = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"tomador_id": cli["id"]}).json()
+            if c["campos"].get(str(sin["id"])) == "777"][0]
+    assert novo["contrato_nome"] == "Carteira Nova"
+
+
+def test_texto_da_nota_por_cliente(cliente):  # noqa: F811
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "N")
+    # padrão do escritório: sem título do caso e sem o texto da regra
+    cfg = cliente.get("/api/config/automacoes", headers=h).json()
+    cliente.put("/api/config/automacoes", headers=h, json={**cfg, "nota_titulo_caso": False, "nota_texto_regra": False})
+    # este cliente quer os dois na nota
+    r = cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h,
+                    json={"modelo_titulo_caso": None, "nota_titulo_caso": True, "nota_texto_regra": True})
+    assert r.status_code == 200 and r.json()["nota_titulo_caso"] is True, r.text
+    hoje = date.today().isoformat()
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Honorarios iniciais sinistro 123", "valor": "1150.00", "data_pagamento": hoje})
+    params = {"de": hoje, "ate": hoje, "cliente_ids": [cli["id"]]}
+    itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]["itens"]
+    nh = cliente.post("/api/faturamento/faturar", headers=h, json={
+        "aba": "honorarios", **params, "chaves": [i["chave"] for i in itens]}).json()["faturas"][0]
+    lote_id = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nh["id"]]}).json()["lote_id"]
+    texto = cliente.get(f"/api/nfse/importacoes/{lote_id}", headers=h).json()["rps"][0]["discriminacao"]
+    assert f"Caso #{caso['numero']} — Ação de cobrança" in texto and "Honorarios iniciais sinistro 123" in texto, texto

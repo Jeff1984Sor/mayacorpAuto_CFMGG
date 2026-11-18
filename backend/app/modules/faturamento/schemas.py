@@ -150,11 +150,15 @@ class CampoOut(Schema):
 
 class ModeloTituloIn(BaseModel):
     modelo_titulo_caso: str | None = Field(default=None, max_length=300)
+    nota_titulo_caso: bool | None = None  # vazio = segue Configurações › Automações
+    nota_texto_regra: bool | None = None
 
 
 class ModeloTituloOut(BaseModel):
     tomador_id: int
     modelo_titulo_caso: str | None
+    nota_titulo_caso: bool | None = None
+    nota_texto_regra: bool | None = None
     padrao: list[str]  # rótulos dos campos padrão que podem ir entre chaves
     atualizados: int = 0
 

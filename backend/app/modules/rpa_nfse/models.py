@@ -164,6 +164,9 @@ class Tomador(Base, Timestamped):
     observacoes: Mapped[str | None] = mapped_column(Text)
     # Título dos casos deste cliente, ex.: "{Processo} - {Parte contrária} - {Sinistro}" (faturamento/titulo_caso.py)
     modelo_titulo_caso: Mapped[str | None] = mapped_column(String(300))
+    # Texto da NFS-e das faturas deste cliente; vazio = segue Configurações › Automações
+    nota_titulo_caso: Mapped[bool | None] = mapped_column(Boolean)
+    nota_texto_regra: Mapped[bool | None] = mapped_column(Boolean)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha
 
     __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)

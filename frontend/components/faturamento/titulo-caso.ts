@@ -8,6 +8,9 @@ import type { CampoOut, ValorCampo } from "@/lib/faturamento";
 export interface ModeloTituloOut {
   tomador_id: number;
   modelo_titulo_caso: string | null;
+  /** texto da NFS-e deste cliente; null = segue Configurações › Automações */
+  nota_titulo_caso: boolean | null;
+  nota_texto_regra: boolean | null;
   /** rótulos dos campos padrão que podem ir entre chaves */
   padrao: string[];
   atualizados: number;
