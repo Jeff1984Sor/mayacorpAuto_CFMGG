@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +14,8 @@ import {
 } from "@/components/faturamento/campos-adicionais";
 import { PreencherCasoDialog } from "@/components/faturamento/caso-ia";
 import { renderTitulo, useModeloCaso } from "@/components/faturamento/titulo-caso";
+import { type ClienteEscolhido, ClientesMulti } from "@/components/faturamento/clientes-multi";
+import { Button } from "@/components/ui/button";
 import { erroPagadores, PagadoresCampo } from "@/components/faturamento/pagadores";
 import {
   ComarcaCombo,
@@ -518,7 +521,9 @@ export function CasoDialog({
   const instancias = useInstancias(open);
   const escolherContrato = !contratoId && !caso;
   const [contrato, setContrato] = useState<number | null>(null);
-  const [cliente, setCliente] = useState<number | null>(null);
+  const [clienteSel, setClienteSel] = useState<ClienteEscolhido[]>([]);
+  const cliente = clienteSel[0]?.id ?? null;
+  const [novoContrato, setNovoContrato] = useState("");
   const [ia, setIa] = useState(false);
   const contratos = useQuery({
     queryKey: ["fat", "contratos", "ativos-select"],
@@ -526,20 +531,23 @@ export function CasoDialog({
       api.get<ContratoOut[]>("/faturamento/contratos", { ativos: true }),
     enabled: open && escolherContrato,
   });
-  // cliente primeiro: a lista sai dos contratos ativos (só faz sentido escolher quem tem contrato)
-  const clientes = Array.from(
-    new Map(
-      (contratos.data ?? [])
-        .filter((c) => c.tomador_id != null)
-        .map((c) => [c.tomador_id as number, c.tomador_nome] as const),
-    ),
-  ).sort((x, y) => x[1].localeCompare(y[1], "pt-BR"));
+  // cliente primeiro (todos os clientes, com busca); cliente sem contrato ganha um ali mesmo
   const contratosDoCliente = (contratos.data ?? []).filter((c) => c.tomador_id === cliente);
-  const escolherCliente = (id: number | null) => {
-    setCliente(id);
-    const doCliente = (contratos.data ?? []).filter((c) => c.tomador_id === id);
+  const escolherCliente = (v: ClienteEscolhido[]) => {
+    setClienteSel(v);
+    const doCliente = (contratos.data ?? []).filter((c) => c.tomador_id === v[0]?.id);
     setContrato(doCliente.length === 1 ? doCliente[0].id : null);
+    setNovoContrato("");
   };
+  const criarContrato = useMutation({
+    mutationFn: () =>
+      api.post<ContratoOut>("/faturamento/contratos", { tomador_id: cliente, nome: novoContrato.trim() || "Contencioso" }),
+    onSuccess: async (c) => {
+      toast.success(`Contrato #${c.numero} ${c.nome} criado`);
+      await qc.invalidateQueries({ queryKey: ["fat", "contratos"] });
+      setContrato(c.id);
+    },
+  });
   const [f, setF] = useState<CasoIn>(vazioCaso);
 
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o formulário ao abrir */
@@ -547,7 +555,7 @@ export function CasoDialog({
     if (!open) return;
     if (!caso) {
       setF(vazioCaso());
-      setCliente(null);
+      setClienteSel([]);
       setContrato(null);
       return;
     }
@@ -588,7 +596,7 @@ export function CasoDialog({
           comarca: f.comarca,
           valor_causa: f.valor_causa ? `R$ ${f.valor_causa}` : "",
           data_distribuicao: f.data_distribuicao ? f.data_distribuicao.split("-").reverse().join("/") : "",
-          cliente: caso?.tomador_nome ?? contratoFixo.data?.tomador_nome ?? clientes.find(([id]) => id === tomadorId)?.[1],
+          cliente: caso?.tomador_nome ?? contratoFixo.data?.tomador_nome ?? clienteSel[0]?.nome,
           contrato: contratoNome,
         },
         extras,
@@ -676,18 +684,7 @@ export function CasoDialog({
             {escolherContrato && (
               <>
                 <Field label="Cliente" obrigatorio htmlFor="caso-cliente" className="sm:col-span-3">
-                  <NativeSelect
-                    id="caso-cliente"
-                    value={cliente ?? ""}
-                    onChange={(e) => escolherCliente(e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">{contratos.isLoading ? "Carregando…" : "Escolha o cliente…"}</option>
-                    {clientes.map(([id, nome]) => (
-                      <option key={id} value={id}>
-                        {nome}
-                      </option>
-                    ))}
-                  </NativeSelect>
+                  <ClientesMulti unico id="caso-cliente" valor={clienteSel} onChange={escolherCliente} />
                 </Field>
                 <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-3">
                   <NativeSelect
@@ -706,6 +703,23 @@ export function CasoDialog({
                     ))}
                   </NativeSelect>
                 </Field>
+                {cliente && !contratos.isLoading && contratosDoCliente.length === 0 && !contrato && (
+                  <div className="flex flex-wrap items-end gap-2 rounded-xl border border-warning/30 bg-warning/8 p-3 sm:col-span-6">
+                    <p className="w-full text-sm">
+                      <strong>{clienteSel[0]?.nome}</strong> ainda não tem contrato. Crie um agora para cadastrar o caso.
+                    </p>
+                    <Input
+                      value={novoContrato}
+                      onChange={(e) => setNovoContrato(e.target.value)}
+                      placeholder="Nome do contrato (ex.: Contencioso)"
+                      className="max-w-xs bg-background"
+                      aria-label="Nome do novo contrato"
+                    />
+                    <Button type="button" onClick={() => criarContrato.mutate()} disabled={criarContrato.isPending}>
+                      {criarContrato.isPending ? <Loader2 className="animate-spin" /> : <Plus />} Criar contrato
+                    </Button>
+                  </div>
+                )}
               </>
             )}
             {(!f.tipo || ehJudicial(f.tipo) || !!f.numero_processo) && (
