@@ -128,6 +128,15 @@ def _titulo_da_fatura(f: Fatura) -> str:
     return faturas.dados_cliente(f).get("nome") or f.codigo
 
 
+def _nome_no_zip(f: Fatura) -> str:
+    """"NH 00400 - <título do caso>.pdf" quando a fatura é de um caso só (o título segue o modelo do cliente,
+    ex.: com o nº do sinistro); senão o nome de sempre."""
+    casos = {i.caso.id: i.caso for i in (getattr(f, "itens", None) or []) if i.caso}
+    if len(casos) == 1:
+        return _nome_arquivo(f"{f.codigo} - {next(iter(casos.values())).titulo}") + ".pdf"
+    return Path(f.pdf_path).name
+
+
 def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
     """Pasta raiz = título do caso; dentro, "NH - <título>.pdf" / "ND - <título>.pdf" e os comprovantes das despesas."""
     from app.modules.faturamento.models import Despesa
@@ -299,10 +308,15 @@ def zip_faturas(dados: ZipIn, ctx: Ctx):
     else:
         raise HTTPException(400, "Selecione ao menos uma fatura.")
     buf = io.BytesIO()
+    usados: set[str] = set()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for f in ctx.db.scalars(q):
             if f.pdf_path and Path(f.pdf_path).exists():
-                z.write(f.pdf_path, Path(f.pdf_path).name)
+                nome = _nome_no_zip(f)
+                if nome in usados:  # dois arquivos com o mesmo nome não cabem no ZIP
+                    nome = f"{nome[:-4]} ({f.id}).pdf"
+                usados.add(nome)
+                z.write(f.pdf_path, nome)
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="faturas_{date.today():%Y%m%d}.zip"'})
 
