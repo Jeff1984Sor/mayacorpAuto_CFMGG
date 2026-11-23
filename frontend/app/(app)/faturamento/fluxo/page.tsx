@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, DollarSign, ChevronRight, FileSearch, FileText, KanbanSquare, Layers, Loader2, Receipt, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, DollarSign, Download, ChevronRight, FileSearch, FileText, KanbanSquare, Layers, Loader2, Receipt, Wallet } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { AcoesNfse } from "@/components/faturamento/acoes-nfse";
+import { useZipFaturas } from "@/components/nfse/acoes-fatura";
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
@@ -77,6 +78,7 @@ export default function FluxoPage() {
   const [tipo, setTipo] = useState<TipoDocumento>("");
   const [sel, setSel] = useState<Set<number>>(new Set());
   const emitir = useEmitirNfse();
+  const zip = useZipFaturas();
   const q = useQuery({
     queryKey: ["fat", "fluxo", de, ate, cliente[0]?.id ?? null, tipo],
     queryFn: () => api.get<FluxoOut>("/faturamento/fluxo", { de, ate, tomador_id: cliente[0]?.id, tipo: tipo || undefined }),
@@ -200,6 +202,9 @@ export default function FluxoPage() {
                     <DollarSign /> Dar baixa em {marcadas.length}
                   </Button>
                 )}
+                <Button size="sm" variant="outline" onClick={() => zip.mutate({ ids: marcadas.map((l) => l.id) })} disabled={zip.isPending}>
+                  {zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar PDFs (ZIP)
+                </Button>
                 <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>
                   Limpar seleção
                 </Button>

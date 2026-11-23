@@ -140,15 +140,6 @@ def _titulo_da_fatura(f: Fatura) -> str:
     return faturas.dados_cliente(f).get("nome") or f.codigo
 
 
-def _nome_no_zip(f: Fatura) -> str:
-    """"NH 00400 - <título do caso>.pdf" quando a fatura é de um caso só (o título segue o modelo do cliente,
-    ex.: com o nº do sinistro); senão o nome de sempre."""
-    casos = {i.caso.id: i.caso for i in (getattr(f, "itens", None) or []) if i.caso}
-    if len(casos) == 1:
-        return _nome_arquivo(f"{f.codigo} - {next(iter(casos.values())).titulo}") + ".pdf"
-    return Path(f.pdf_path).name
-
-
 def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
     """Pasta raiz = título do caso; dentro, "NH - <título>.pdf" / "ND - <título>.pdf" e os comprovantes das despesas."""
     from app.modules.faturamento.models import Despesa
@@ -319,16 +310,27 @@ def zip_faturas(dados: ZipIn, ctx: Ctx):
         q = q.where(Fatura.id.in_(dados.ids))
     else:
         raise HTTPException(400, "Selecione ao menos uma fatura.")
+    # uma pasta por caso (ou contrato/cliente quando não há caso) com a NH/ND e a NF, no mesmo padrão de nome:
+    #   <caso>/NH - <caso> - 00401.pdf   e   <caso>/NF - <caso> - 21208.pdf
     buf = io.BytesIO()
     usados: set[str] = set()
+
+    def gravar(z, origem: str, pasta: str, nome: str) -> None:
+        caminho = f"{pasta}/{nome}.pdf"
+        if caminho in usados:  # dois arquivos com o mesmo nome não cabem na mesma pasta
+            caminho = f"{pasta}/{nome} ({len(usados)}).pdf"
+        usados.add(caminho)
+        z.write(origem, caminho)
+
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for f in ctx.db.scalars(q):
+            titulo = _nome_arquivo(_titulo_da_fatura(f))[:100].strip()
+            sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
             if f.pdf_path and Path(f.pdf_path).exists():
-                nome = _nome_no_zip(f)
-                if nome in usados:  # dois arquivos com o mesmo nome não cabem no ZIP
-                    nome = f"{nome[:-4]} ({f.id}).pdf"
-                usados.add(nome)
-                z.write(f.pdf_path, nome)
+                gravar(z, f.pdf_path, titulo, f"{sigla} - {titulo} - {f.numero:05d}")
+            nota = f.nfse
+            if nota and nota.pdf_path and Path(nota.pdf_path).exists():
+                gravar(z, nota.pdf_path, titulo, f"NF - {titulo} - {nota.numero}")
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="faturas_{date.today():%Y%m%d}.zip"'})
 

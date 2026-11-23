@@ -176,6 +176,15 @@ def test_emitir_nfse_da_fatura_nh(cliente):  # noqa: F811
     r = cliente.get(f"/api/nfse/notas/{fat['nfse_id']}/pdf", headers=h)
     assert r.status_code == 200
     assert f"NF - Consultivo B - {fat['nfse_numero']}.pdf" in unquote(r.headers["content-disposition"])
+    # baixar em lote: uma pasta por caso (aqui, o contrato) com a NH e a NF no mesmo padrão de nome
+    import io as _io
+    import zipfile
+
+    z = cliente.post("/api/nfse/faturas/zip", headers=h, json={"ids": [nh["id"]]})
+    assert z.status_code == 200, z.text
+    assert sorted(zipfile.ZipFile(_io.BytesIO(z.content)).namelist()) == [
+        f"Consultivo B/NF - Consultivo B - {fat['nfse_numero']}.pdf",
+        f"Consultivo B/NH - Consultivo B - {fat['numero']:05d}.pdf"]
     # fatura do Faturamento não entra em "Emitidas pelo robô"
     assert cliente.get("/api/nfse/faturas", headers=h, params={"lote_id": lote_id, "tipo": "robo"}).json()["total"] == 0
 
