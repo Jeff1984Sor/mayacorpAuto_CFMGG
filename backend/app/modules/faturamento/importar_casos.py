@@ -40,7 +40,7 @@ PISTAS = {
     "processo": ("processo", "cnj", "autos"),
     "parte_contraria": ("parte contraria", "contraparte", "segurado", "terceiro", "reu", "autor", "adverso"),
 }
-MAX_LINHAS = 5000
+MAX_LINHAS = 20000
 
 
 def _norm(s) -> str:
@@ -65,6 +65,15 @@ def _extrair_chave(texto: str) -> str:
         return t
     m = _NUM_CHAVE.search(t)
     return re.sub(r"\s+", "", m.group(0)) if m else t
+
+
+def _data(v) -> date | None:
+    """Data em texto, data de verdade ou número de série do Excel (44201 = 04/01/2021)."""
+    if isinstance(v, int | float) and not isinstance(v, bool) and 20000 <= v <= 80000:
+        from datetime import timedelta
+
+        return date(1899, 12, 30) + timedelta(days=int(v))
+    return ler_data(v)
 
 
 def _eh_total(linha: list) -> bool:
@@ -151,13 +160,45 @@ def _ler_xml_2003(conteudo: bytes) -> list[list]:
     return melhor
 
 
+def _ler_xls_binario(conteudo: bytes) -> list[list]:
+    """.xls do Excel 97-2003 (formato binário), comum em exportações de sistemas antigos."""
+    import xlrd
+
+    try:
+        wb = xlrd.open_workbook(file_contents=conteudo)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, "Não consegui abrir o .xls. Abra no Excel e use Salvar como › .xlsx.") from e
+    melhor: list[list] = []
+    for sh in wb.sheets():
+        if _norm(sh.name).startswith(("instruc", "como preencher", "leia")):
+            continue
+        linhas = []
+        for r in range(sh.nrows):
+            linha = []
+            for c in sh.row(r):
+                if c.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        linha.append(xlrd.xldate_as_datetime(c.value, wb.datemode))
+                    except (ValueError, OverflowError):
+                        linha.append(c.value)
+                elif c.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                    linha.append(None)
+                else:
+                    linha.append(c.value)
+            if any(v not in (None, "") for v in linha):
+                linhas.append(linha)
+        if len(linhas) > len(melhor):
+            melhor = linhas
+    return melhor
+
+
 def _ler_arquivo(conteudo: bytes, nome: str) -> list[list]:
     nome = nome.lower()
     inicio = conteudo[:200].lstrip(b"\xef\xbb\xbf \r\n\t")
     if inicio.startswith((b"<?xml", b"<Workbook")):
         return _ler_xml_2003(conteudo)
     if conteudo[:4] == b"\xd0\xcf\x11\xe0":
-        raise HTTPException(400, "Este .xls é do Excel antigo: abra no Excel e use Salvar como › .xlsx.")
+        return _ler_xls_binario(conteudo)
     if nome.endswith(".csv"):
         import csv
 
@@ -229,7 +270,7 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
 
     def datas(i):
         vals = amostra(i)
-        return bool(vals) and sum(ler_data(v) is not None for v in vals) >= 0.8 * len(vals)
+        return bool(vals) and sum(_data(v) is not None for v in vals) >= 0.8 * len(vals)
 
     # o nome enganou (ex.: coluna "Total" com textos): descarta
     for papel, ok in (("valor", numerica), ("vencimento", datas)):
@@ -423,7 +464,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
         # regra de cobrança
         desc = _texto(_pega(linha, m.descricao)) or (dados.descricao_padrao or "").strip()
         valor = ler_valor(_pega(linha, m.valor)) if m.valor is not None else None
-        venc = ler_data(_pega(linha, m.vencimento)) if m.vencimento is not None else None
+        venc = _data(_pega(linha, m.vencimento)) if m.vencimento is not None else None
         venc = venc or dados.vencimento_padrao
         item.update(descricao=desc[:300], valor=str(valor) if valor is not None else None,
                     vencimento=venc.isoformat() if venc else None)

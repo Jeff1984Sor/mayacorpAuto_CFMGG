@@ -914,3 +914,11 @@ def test_xlsx_com_tamanho_declarado_errado_e_lido_inteiro():
     i = ic._linha_cabecalho(linhas)
     sug = ic._sugerir([str(c) for c in linhas[i]], [[ic._celula(c) for c in r] for r in linhas[i + 1:]], "Nº do sinistro")
     assert (sug["contrato"], sug["chave"], sug["titulo"], sug["processo"], sug["vencimento"], sug["valor"]) == (1, 2, 2, 3, 4, 5)
+
+
+def test_data_em_numero_de_serie_do_excel():
+    from app.modules.faturamento import importar_casos as ic
+
+    assert ic._data(44201.0) == date(2021, 1, 4)
+    assert ic._data("30/10/2026") == date(2026, 10, 30)
+    assert ic._data(1150.0) is None  # valor não é data
