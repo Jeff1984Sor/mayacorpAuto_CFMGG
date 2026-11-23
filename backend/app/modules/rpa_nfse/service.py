@@ -252,7 +252,10 @@ def resumo(lote: Lote):
     ativos = [r for r in lote.rps if r.status != StatusRps.descartado]
     sel = [r for r in ativos if r.selecionado]
     com_erro = sum(1 for r in ativos if r.status in (StatusRps.erro, StatusRps.rejeitado))
+    retido = sum((validator.retencao_do_rps(r) for r in sel), Decimal(0))
     return ResumoImportacao(
+        retencoes_total=retido,
+        valor_liquido_total=sum((r.valor for r in sel), Decimal(0)) - retido,
         qtd=len(ativos),
         qtd_selecionados=len(sel),
         valor_total=sum((r.valor for r in sel), Decimal(0)),

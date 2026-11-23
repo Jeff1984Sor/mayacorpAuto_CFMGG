@@ -1030,3 +1030,9 @@ def test_fatura_mostra_valor_bruto_e_liquido(cliente):  # noqa: F811
     assert "TOTAL A PAGAR" not in texto
     if f["pix_copia_e_cola"]:
         assert "1079.27" in f["pix_copia_e_cola"]
+    # pré-validação do lote da nota: cada RPS e o rodapé mostram o bruto, o retido e o líquido
+    lote_id = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nh["id"]]}).json()["lote_id"]
+    lote = cliente.get(f"/api/nfse/importacoes/{lote_id}", headers=h).json()
+    rps = lote["rps"][0]
+    assert (rps["valor"], rps["retencoes"], rps["valor_liquido"]) == ("1150.00", "70.73", "1079.27"), rps
+    assert (lote["resumo"]["retencoes_total"], lote["resumo"]["valor_liquido_total"]) == ("70.73", "1079.27"), lote["resumo"]

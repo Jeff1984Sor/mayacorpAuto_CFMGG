@@ -76,6 +76,13 @@ def calcular_retencoes(valor: Decimal, params: dict, doc_tomador: str) -> dict[s
     }
 
 
+def retencao_do_rps(rps: Rps) -> Decimal:
+    """Total de tributos federais que este RPS vai reter (o mesmo cálculo do XML)."""
+    dados = rps.dados_json or {}
+    doc = so_digitos((dados.get("tomador") or {}).get("cpf_cnpj"))
+    return sum(calcular_retencoes(rps.valor, dados.get("layout2") or {}, doc).values(), Decimal(0))
+
+
 @dataclass
 class ContextoValidacao:
     emissora: Emissora

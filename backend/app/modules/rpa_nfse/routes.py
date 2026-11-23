@@ -19,7 +19,7 @@ from app.core.deps import Admin, Contexto, Ctx, Operador
 from app.core.documentos import cnpj_valido, documento_valido, so_digitos
 from app.core.models import Certificado
 from app.core.schemas import Mensagem, Pagina
-from app.modules.rpa_nfse import fatura, raio_x, service, tasks
+from app.modules.rpa_nfse import fatura, raio_x, service, tasks, validator
 from app.modules.rpa_nfse.models import (
     Emissora,
     Lote,
@@ -562,7 +562,9 @@ def salvar_prefeitura(dados: ConfigPrefeituraIn, ctx: Admin):
 # ======================================================================== importação
 def _rps_out(r: Rps) -> RpsOut:
     tom = (r.dados_json or {}).get("tomador", {})
+    retido = validator.retencao_do_rps(r)
     return RpsOut(
+        retencoes=retido, valor_liquido=r.valor - retido,
         id=r.id, linha=r.linha, selecionado=r.selecionado, serie=r.serie, numero=r.numero, data_emissao=r.data_emissao,
         tomador_id=r.tomador_id, tomador_nome=tom.get("nome") or "", tomador_doc=tom.get("cpf_cnpj"),
         tomador_novo=r.tomador_novo, cod_servico=r.cod_servico, aliquota=r.aliquota, valor=r.valor, deducoes=r.deducoes,
@@ -815,7 +817,6 @@ def enviar_emails_lote(lid: int, ctx: Operador):
 # ======================================================================== notas
 def _retencoes_da_nota(n: Nfse) -> dict[str, Decimal]:
     """Retenções federais enviadas nesta nota, por tributo (rótulo → valor), só as maiores que zero."""
-    from app.modules.rpa_nfse import validator
     from app.modules.rpa_nfse.fatura import ROTULO_RETENCAO
 
     dados = n.rps.dados_json or {}

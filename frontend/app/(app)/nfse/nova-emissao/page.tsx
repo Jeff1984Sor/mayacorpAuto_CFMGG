@@ -38,7 +38,7 @@ import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { loteFinalizado, useProgresso } from "@/hooks/use-progresso";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { documento, moeda, numero, tamanhoArquivo } from "@/lib/format";
+import { documento, moeda, numero, tamanhoArquivo, toNum } from "@/lib/format";
 import type { LoteDetalhe, LoteOut, ResumoImportacao, RpsOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -288,6 +288,11 @@ function RodapeResumo({
             <span className="text-muted-foreground">/{numero(resumo.qtd)} RPS</span>
           </span>
           <span className="font-semibold num">{moeda(resumo.valor_total)}</span>
+          {toNum(resumo.retencoes_total ?? 0) > 0 && (
+            <span className="text-muted-foreground">
+              Líquido <span className="font-semibold text-foreground num">{moeda(resumo.valor_liquido_total ?? resumo.valor_total)}</span>
+            </span>
+          )}
           <span className="text-muted-foreground">
             ISS <span className="text-foreground num">{moeda(resumo.iss_total)}</span>
           </span>

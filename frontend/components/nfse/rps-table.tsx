@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { data, documento, moeda } from "@/lib/format";
+import { data, documento, moeda, toNum } from "@/lib/format";
 import type { RpsOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -226,7 +226,10 @@ export function RpsTable({
                 <th className="px-3 py-2.5 font-medium">Tomador</th>
                 <th className="hidden px-3 py-2.5 font-medium md:table-cell">CPF/CNPJ</th>
                 <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Serviço</th>
-                <th className="px-3 py-2.5 text-right font-medium">Valor</th>
+                <th className="px-3 py-2.5 text-right font-medium">Valor bruto</th>
+                <th className="px-3 py-2.5 text-right font-medium" title="Valor bruto menos os tributos federais retidos na nota">
+                  Valor líquido
+                </th>
                 <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">ISS</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
               </tr>
@@ -275,6 +278,14 @@ export function RpsTable({
                     </td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <Mono>{moeda(r.valor)}</Mono>
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <Mono>{moeda(r.valor_liquido ?? r.valor)}</Mono>
+                      {toNum(r.retencoes ?? 0) > 0 && (
+                        <span className="block text-[11px] text-muted-foreground" title="Tributos federais retidos na nota">
+                          − {moeda(r.retencoes ?? 0)} retidos
+                        </span>
+                      )}
                     </td>
                     <td className="hidden px-3 py-2.5 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
                       <Mono>{moeda(r.iss)}</Mono>

@@ -333,6 +333,9 @@ export interface RpsOut {
   cod_servico: string;
   aliquota: Decimal;
   valor: Decimal;
+  /** tributos federais retidos na nota e o líquido (valor − retenções) */
+  retencoes?: Decimal;
+  valor_liquido?: Decimal | null;
   deducoes: Decimal;
   iss: Decimal;
   iss_retido: boolean;
@@ -362,6 +365,8 @@ export interface ResumoImportacao {
   qtd_selecionados: number;
   valor_total: Decimal;
   iss_total: Decimal;
+  retencoes_total?: Decimal;
+  valor_liquido_total?: Decimal | null;
   tomadores_novos: number;
   com_erro: number;
   com_aviso: number;

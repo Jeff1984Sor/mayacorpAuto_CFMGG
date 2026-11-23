@@ -225,6 +225,8 @@ class RpsOut(Schema):
     cod_servico: str
     aliquota: Decimal
     valor: Decimal
+    retencoes: Decimal = Decimal(0)  # tributos federais retidos na nota
+    valor_liquido: Decimal | None = None
     deducoes: Decimal
     iss: Decimal
     iss_retido: bool
@@ -250,6 +252,9 @@ class RpsPatch(BaseModel):
 
 
 class ResumoImportacao(Schema):
+    # dos RPS marcados: tributos federais retidos e o líquido (valor − retenções)
+    retencoes_total: Decimal = Decimal(0)
+    valor_liquido_total: Decimal | None = None
     qtd: int
     qtd_selecionados: int
     valor_total: Decimal
