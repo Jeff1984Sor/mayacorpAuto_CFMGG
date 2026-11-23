@@ -922,3 +922,62 @@ def test_data_em_numero_de_serie_do_excel():
     assert ic._data(44201.0) == date(2021, 1, 5)  # 44197 = 01/01/2021
     assert ic._data("30/10/2026") == date(2026, 10, 30)
     assert ic._data(1150.0) is None  # valor não é data
+
+
+def test_importar_base_separando_o_titulo_nos_campos(cliente):  # noqa: F811
+    """Base de regras do sistema antigo: o título "Ativo X Passivo - nº" vira três campos do cliente, o título sai do
+    modelo, as regras ativas entram como histórico (desativadas), as inativas não entram e o contrato vem do de-para."""
+    from app.modules.faturamento import importar_casos as ic
+
+    assert ic.decompor_titulo("Fulano de Tal X Beltrano Ltda - 1012416/2023 - GRANDE MONTA - 1002963-89.2022.8.26.0002") == {
+        "ativo": "Fulano de Tal", "passivo": "Beltrano Ltda", "numero": "1012416/2023",
+        "processo": "1002963-89.2022.8.26.0002", "extra": "GRANDE MONTA"}
+    assert ic.decompor_titulo("Ana MeloX Rui Souza -21745/2022")["passivo"] == "Rui Souza"
+    assert ic.decompor_titulo("1020173/2022 - Ana Lima X Rui Souza")["numero"] == "1020173/2022"
+
+    h = _login(cliente)
+    cli, _, _ = _base(cliente, h, "S")
+    ids = {n: cliente.post("/api/faturamento/campos", headers=h, json={"nome": n, "tipo": "texto", "tomador_id": cli["id"]}).json()["id"]
+           for n in ("Nº Sinistro", "Parte Polo Ativo", "Parte Polo Passivo")}
+    cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h, json={
+        "modelo_titulo_caso": "{Parte Polo Ativo} - {Parte Polo Passivo} - Sinistro nº {Nº Sinistro}"})
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Nº Contrato", "Título Caso", "Status da Regra", "Valor", "Data de Pagamento", "Observação"])
+    ws.append([4, "Ana Lima X Rui Souza - 1000001/2023", "Ativa", 1150, 44935, "Honorários iniciais"])
+    ws.append([4, "Ana Lima X Rui Souza - 1000001/2023", "Inativa", 575, 44935, "Honorários finais"])
+    ws.append([35, "Bia Reis X Caio Melo - 1000002/2024", "Inativa", 310, 45300, "Despesas administrativas"])
+    ws.append([35, "", "Inativa", 99, 45300, "sem título"])  # inativa sem caso: some
+    import io as _io
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    base = f"/api/faturamento/clientes/{cli['id']}/importar-casos"
+    lido = cliente.post(f"{base}/ler", headers=h, files={"arquivo": ("base.xlsx", buf.getvalue())}).json()
+    assert lido["chave_modo"] == "titulo" and lido["decompor"] == {
+        "ativo": ids["Parte Polo Ativo"], "passivo": ids["Parte Polo Passivo"], "numero": ids["Nº Sinistro"]}
+    corpo = {"linhas": lido["linhas"], "mapa": {k: v for k, v in lido["sugestao"].items() if v is not None},
+             "chave_modo": "titulo", "decompor": lido["decompor"], "como_historico": True,
+             "contratos_de_para": {"4": "Sinistro Fiança - Tradicional", "35": "Seguro Fiança - Essencial"}}
+    plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
+    r = plano["resumo"]
+    assert (r["linhas"], r["casos_novos"], r["regras_historico"], r["inativas_ignoradas"]) == (3, 2, 1, 2), r
+    assert {d["valor"]: d["novo"] for d in r["contratos_planilha"]} == {"4": "Sinistro Fiança - Tradicional",
+                                                                         "35": "Seguro Fiança - Essencial"}
+    corpo.update(linhas=plano["linhas"], numeros=plano["numeros"], ocorrencias=plano["ocorrencias"])
+    res = cliente.post(f"{base}/aplicar", headers=h, json=corpo).json()["resultados"]
+    assert [(x["caso"], x["regra"]) for x in res] == [("criado", "historico"), ("existente", "inativa"), ("criado", "inativa")]
+    casos = {c["titulo"]: c for c in cliente.get("/api/faturamento/casos", headers=h, params={"tomador_id": cli["id"]}).json()}
+    ana = casos["Ana Lima - Rui Souza - Sinistro nº 1000001/2023"]
+    assert ana["contrato_nome"] == "Sinistro Fiança - Tradicional"
+    assert ana["campos"] == {str(ids["Parte Polo Ativo"]): "Ana Lima", str(ids["Parte Polo Passivo"]): "Rui Souza",
+                             str(ids["Nº Sinistro"]): "1000001/2023"}
+    regras = cliente.get("/api/faturamento/regras", headers=h, params={"caso_id": ana["id"]}).json()
+    assert [(x["descricao"], x["valor"], x["ativo"]) for x in regras] == [("Honorários iniciais", "1150.00", False)]
+    assert "Bia Reis - Caio Melo - Sinistro nº 1000002/2024" in casos
+    # o título mudou (modelo), mas reimportar acha os casos pelos campos e não cria nada
+    r2 = cliente.post(f"{base}/analisar", headers=h, json={**corpo, "numeros": None, "ocorrencias": None,
+                                                         "linhas": lido["linhas"]}).json()["resumo"]
+    assert (r2["casos_novos"], r2["casos_existentes"], r2["regras_iguais"]) == (0, 3, 1)

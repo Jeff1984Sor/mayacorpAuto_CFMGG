@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { api, baixar } from "@/lib/api";
 import { data as fmtData, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,13 @@ type Papel =
   | "vencimento"
   | "titulo"
   | "processo"
-  | "parte_contraria";
+  | "parte_contraria"
+  | "situacao";
+type Decompor = {
+  ativo: number | null;
+  passivo: number | null;
+  numero: number | null;
+};
 type Celula = string | number | boolean | null;
 
 interface Lido {
@@ -52,6 +59,9 @@ interface Lido {
   campos: { id: number; nome: string; do_cliente: boolean }[];
   campo_chave_id: number | null;
   contratos: { id: number; numero: number; nome: string; ativo: boolean }[];
+  /** sugestão: achar o caso pelo título e separar "Ativo X Passivo - nº" nos campos do cliente */
+  chave_modo: "campo" | "titulo";
+  decompor: Decompor | null;
 }
 interface Item {
   linha: number;
@@ -64,8 +74,22 @@ interface Item {
   valor: string | null;
   vencimento: string | null;
   acao_caso: "criar" | "existe" | "repetido" | null;
-  acao_regra: "criar" | "pular" | "sem_data" | "sem_valor" | null;
+  acao_regra:
+    | "criar"
+    | "pular"
+    | "historico"
+    | "inativa"
+    | "sem_data"
+    | "sem_valor"
+    | null;
   motivo: string | null;
+  partes?: {
+    ativo: string;
+    passivo: string;
+    numero: string;
+    processo: string;
+    extra: string;
+  };
 }
 interface Plano {
   itens: Item[];
@@ -85,6 +109,15 @@ interface Plano {
     sem_data: number;
     sem_valor: number;
     contratos_novos: string[];
+    regras_historico: number;
+    inativas_ignoradas: number;
+    sem_partes?: number;
+    contratos_planilha: {
+      valor: string;
+      qtd: number;
+      contrato: { id: number; nome: string; numero: number } | null;
+      novo: string | null;
+    }[];
   };
 }
 interface Resultado {
@@ -110,8 +143,10 @@ const PAPEIS: { k: Papel; l: string; obrig?: boolean; dica: string }[] = [
   { k: "titulo", l: "Título do caso", dica: "opcional" },
   { k: "processo", l: "Nº do processo", dica: "opcional" },
   { k: "parte_contraria", l: "Parte contrária", dica: "opcional" },
+  { k: "situacao", l: "Situação da regra", dica: "ex.: Ativa / Inativa" },
 ];
-const LOTE = 10;
+/** lotes pequenos mostram o progresso; planilha grande vai em lotes maiores (até ~150 idas ao servidor) */
+const tamanhoLote = (n: number) => Math.max(10, Math.ceil(n / 150));
 const PASSOS = ["Arquivo", "Colunas", "Conferência", "Importação"] as const;
 
 export function ImportarCasosDialog({
@@ -135,6 +170,12 @@ export function ImportarCasosDialog({
   const [contratoPadrao, setContratoPadrao] = useState<number | null>(null);
   const [vencPadrao, setVencPadrao] = useState<string | null>(null);
   const [descPadrao, setDescPadrao] = useState("Honorários");
+  const [chaveModo, setChaveModo] = useState<"campo" | "titulo">("campo");
+  const [decompor, setDecompor] = useState<Decompor | null>(null);
+  const [soAtivas, setSoAtivas] = useState(true);
+  const [historico, setHistorico] = useState(false);
+  // de-para dos contratos da planilha: valor → id de contrato existente ou nome do contrato a criar
+  const [dePara, setDePara] = useState<Record<string, number | string>>({});
   const [plano, setPlano] = useState<Plano | null>(null);
   const [perguntaData, setPerguntaData] = useState<"pergunta" | "data" | null>(
     null,
@@ -178,6 +219,16 @@ export function ImportarCasosDialog({
     numeros,
     ocorrencias,
     descricao_padrao: descPadrao.trim() || null,
+    chave_modo: chaveModo,
+    decompor:
+      chaveModo === "titulo" &&
+      decompor &&
+      Object.values(decompor).some(Boolean)
+        ? Object.fromEntries(Object.entries(decompor).filter(([, v]) => v))
+        : null,
+    so_ativas: soAtivas,
+    como_historico: historico,
+    contratos_de_para: dePara,
   });
 
   const enviarArquivo = async (f: File) => {
@@ -192,6 +243,9 @@ export function ImportarCasosDialog({
       setLido(r);
       setMapa(r.sugestao);
       setCampoChave(r.campo_chave_id);
+      setChaveModo(r.chave_modo ?? "campo");
+      setDecompor(r.decompor);
+      setDePara({});
       const ativos = r.contratos.filter((c) => c.ativo);
       setContratoPadrao(ativos.length === 1 ? ativos[0].id : null);
       setPasso(1);
@@ -206,7 +260,7 @@ export function ImportarCasosDialog({
     if (!lido) return;
     if (mapa.chave === null || mapa.chave === undefined)
       return toast.error("Diga qual coluna tem a chave do caso.");
-    if (!campoChave)
+    if (chaveModo === "campo" && !campoChave)
       return toast.error("Escolha em que campo do caso a chave fica guardada.");
     setCarregando(true);
     try {
@@ -231,6 +285,7 @@ export function ImportarCasosDialog({
     setFeitos([]);
     try {
       // manda as linhas já limpas pela análise: cada lote fica completo (o caso já vem repetido no grupo)
+      const LOTE = tamanhoLote(plano.linhas.length);
       for (let i = 0; i < plano.linhas.length; i += LOTE) {
         const r = await api.post<{ resultados: Resultado[] }>(
           `/faturamento/clientes/${tomadorId}/importar-casos/aplicar`,
@@ -260,7 +315,9 @@ export function ImportarCasosDialog({
   const cont = {
     casos: feitos.filter((r) => r.caso === "criado").length,
     existentes: feitos.filter((r) => r.caso === "existente").length,
-    regras: feitos.filter((r) => r.regra === "criada").length,
+    regras: feitos.filter(
+      (r) => r.regra === "criada" || r.regra === "historico",
+    ).length,
     iguais: feitos.filter((r) => r.regra === "igual").length,
     erros: feitos.filter((r) => r.status === "erro").length,
   };
@@ -371,8 +428,9 @@ export function ImportarCasosDialog({
                         : "Arraste a planilha aqui ou clique para escolher"}
                     </span>
                     <span className="max-w-md text-sm text-muted-foreground">
-                      Excel (.xlsx ou .xls) ou .csv, inclusive relatórios exportados de outros sistemas. O sistema descobre sozinho qual
-                      coluna é o sinistro, o contrato, o texto, o valor e o
+                      Excel (.xlsx ou .xls) ou .csv, inclusive relatórios
+                      exportados de outros sistemas. O sistema descobre sozinho
+                      qual coluna é o sinistro, o contrato, o texto, o valor e o
                       vencimento. Você confere antes de importar.
                     </span>
                     <input
@@ -454,34 +512,164 @@ export function ImportarCasosDialog({
                     ))}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Field
-                      label="A chave fica guardada no campo"
-                      obrigatorio
-                      htmlFor="campo-chave"
-                      dica="É por ele que o sistema acha o caso que já existe."
-                    >
-                      <NativeSelect
-                        id="campo-chave"
-                        value={campoChave ?? ""}
-                        onChange={(e) =>
-                          setCampoChave(
-                            e.target.value ? Number(e.target.value) : null,
-                          )
-                        }
+                    <div className="space-y-3 rounded-2xl border bg-muted/20 p-3 sm:col-span-2">
+                      <p className="text-[13px] font-medium text-foreground/80">
+                        Como achar o caso que já está cadastrado
+                      </p>
+                      <div
+                        role="radiogroup"
+                        aria-label="Como achar o caso"
+                        className="grid gap-2 sm:grid-cols-2"
                       >
-                        <option value="">
-                          {lido.campos.length
-                            ? "Escolha…"
-                            : "Crie o campo (ex.: Nº do sinistro) na aba Casos"}
-                        </option>
-                        {lido.campos.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nome}
-                            {c.do_cliente ? " (deste cliente)" : ""}
-                          </option>
+                        {(
+                          [
+                            [
+                              "campo",
+                              "Por um campo do caso",
+                              "ex.: o nº do sinistro da planilha",
+                            ],
+                            [
+                              "titulo",
+                              "Pelo título do caso",
+                              "ex.: “Fulano X Beltrano - 1012416/2023”",
+                            ],
+                          ] as const
+                        ).map(([v, t, d]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            role="radio"
+                            aria-checked={chaveModo === v}
+                            onClick={() => setChaveModo(v)}
+                            className={cn(
+                              "rounded-xl border bg-card p-2.5 text-left transition",
+                              chaveModo === v
+                                ? "border-brand ring-1 ring-brand/30"
+                                : "hover:border-brand/40",
+                            )}
+                          >
+                            <p className="text-sm font-medium">{t}</p>
+                            <p className="text-xs text-muted-foreground">{d}</p>
+                          </button>
                         ))}
-                      </NativeSelect>
-                    </Field>
+                      </div>
+                      {chaveModo === "campo" ? (
+                        <Field
+                          label="A chave fica guardada no campo"
+                          obrigatorio
+                          htmlFor="campo-chave"
+                          dica="É por ele que o sistema acha o caso que já existe."
+                        >
+                          <NativeSelect
+                            id="campo-chave"
+                            value={campoChave ?? ""}
+                            onChange={(e) =>
+                              setCampoChave(
+                                e.target.value ? Number(e.target.value) : null,
+                              )
+                            }
+                          >
+                            <option value="">
+                              {lido.campos.length
+                                ? "Escolha…"
+                                : "Crie o campo (ex.: Nº do sinistro) na aba Casos"}
+                            </option>
+                            {lido.campos.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nome}
+                                {c.do_cliente ? " (deste cliente)" : ""}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </Field>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Separar o título “<strong>Ativo</strong> X{" "}
+                            <strong>Passivo</strong> - <strong>nº</strong>” nos
+                            campos do cliente. O caso passa a ser achado por
+                            esses campos e o título sai do modelo do cliente.
+                            Deixe vazio para guardar o título como veio.
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            {(
+                              [
+                                ["ativo", "Polo ativo vai para"],
+                                ["passivo", "Polo passivo vai para"],
+                                ["numero", "Nº (sinistro) vai para"],
+                              ] as const
+                            ).map(([k, rotulo]) => (
+                              <Field
+                                key={k}
+                                label={rotulo}
+                                htmlFor={`dec-${k}`}
+                              >
+                                <NativeSelect
+                                  id={`dec-${k}`}
+                                  value={decompor?.[k] ?? ""}
+                                  onChange={(e) =>
+                                    setDecompor((d) => ({
+                                      ...(d ?? {
+                                        ativo: null,
+                                        passivo: null,
+                                        numero: null,
+                                      }),
+                                      [k]: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
+                                    }))
+                                  }
+                                >
+                                  <option value="">— não separar —</option>
+                                  {lido.campos.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.nome}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                              </Field>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      {mapa.situacao !== null &&
+                        mapa.situacao !== undefined && (
+                          <label className="flex items-start gap-2 text-sm">
+                            <Switch
+                              checked={soAtivas}
+                              onCheckedChange={setSoAtivas}
+                              aria-label="Ignorar regras inativas"
+                            />
+                            <span>
+                              <strong className="font-medium">
+                                Ignorar as regras inativas/canceladas
+                              </strong>
+                              <span className="block text-xs text-muted-foreground">
+                                O caso entra do mesmo jeito; só a regra inativa
+                                fica de fora.
+                              </span>
+                            </span>
+                          </label>
+                        )}
+                      <label className="flex items-start gap-2 text-sm">
+                        <Switch
+                          checked={historico}
+                          onCheckedChange={setHistorico}
+                          aria-label="Importar como histórico"
+                        />
+                        <span>
+                          <strong className="font-medium">
+                            As cobranças já foram faturadas em outro sistema
+                          </strong>
+                          <span className="block text-xs text-muted-foreground">
+                            Entram como histórico: ficam no caso, desativadas, e
+                            nunca aparecem em Itens a faturar.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
                     {(mapa.contrato === null ||
                       mapa.contrato === undefined) && (
                       <Field
@@ -594,12 +782,21 @@ export function ImportarCasosDialog({
                       n={plano.resumo.casos_existentes}
                       l="já cadastrados"
                     />
-                    <Cartao
-                      icone={Sparkles}
-                      tom="success"
-                      n={plano.resumo.regras_novas}
-                      l="cobranças novas"
-                    />
+                    {plano.resumo.regras_historico > 0 ? (
+                      <Cartao
+                        icone={Sparkles}
+                        tom="success"
+                        n={plano.resumo.regras_historico}
+                        l="cobranças no histórico"
+                      />
+                    ) : (
+                      <Cartao
+                        icone={Sparkles}
+                        tom="success"
+                        n={plano.resumo.regras_novas}
+                        l="cobranças novas"
+                      />
+                    )}
                     <Cartao
                       icone={CheckCircle2}
                       tom="neutral"
@@ -607,19 +804,102 @@ export function ImportarCasosDialog({
                       l="cobranças iguais (pula)"
                     />
                   </div>
-                  {(plano.resumo.contratos_novos.length > 0 ||
-                    plano.resumo.sem_data > 0 ||
-                    plano.resumo.erros > 0) && (
+                  {plano.resumo.inativas_ignoradas > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {plano.resumo.inativas_ignoradas} regra(s) inativa(s)
+                      ficam de fora (os casos delas entram).
+                    </p>
+                  )}
+                  {/* de-para: para qual contrato vai cada valor da coluna de contrato */}
+                  {plano.resumo.contratos_planilha.length > 0 && (
+                    <div className="overflow-hidden rounded-2xl border">
+                      <div className="border-b bg-muted/40 px-4 py-2.5">
+                        <p className="text-sm font-medium">
+                          Contratos da planilha
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Escolha para qual contrato vai cada um. Contrato que
+                          não existe é criado com o nome que você der aqui.
+                        </p>
+                      </div>
+                      <div className="divide-y">
+                        {plano.resumo.contratos_planilha.map((c) => {
+                          const atual =
+                            dePara[c.valor] ??
+                            (c.contrato ? c.contrato.id : (c.novo ?? ""));
+                          const criando = typeof atual === "string";
+                          return (
+                            <div
+                              key={c.valor}
+                              className="flex flex-wrap items-center gap-2 px-4 py-2.5"
+                            >
+                              <span className="w-28 shrink-0 font-mono text-sm">
+                                {c.valor}
+                              </span>
+                              <span className="w-24 shrink-0 text-xs text-muted-foreground">
+                                {c.qtd} linha(s)
+                              </span>
+                              <NativeSelect
+                                aria-label={`Contrato para ${c.valor}`}
+                                className="w-56"
+                                value={criando ? "novo" : String(atual)}
+                                onChange={(e) =>
+                                  setDePara((d) => ({
+                                    ...d,
+                                    [c.valor]:
+                                      e.target.value === "novo"
+                                        ? (c.novo ?? `Contrato ${c.valor}`)
+                                        : Number(e.target.value),
+                                  }))
+                                }
+                              >
+                                <option value="novo">
+                                  Criar contrato novo…
+                                </option>
+                                {lido?.contratos.map((k) => (
+                                  <option key={k.id} value={k.id}>
+                                    #{k.numero} {k.nome}
+                                  </option>
+                                ))}
+                              </NativeSelect>
+                              {criando && (
+                                <Input
+                                  aria-label={`Nome do contrato novo para ${c.valor}`}
+                                  className="min-w-56 flex-1"
+                                  value={String(atual)}
+                                  onChange={(e) =>
+                                    setDePara((d) => ({
+                                      ...d,
+                                      [c.valor]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Nome do contrato"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-end border-t bg-muted/20 px-4 py-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void analisar()}
+                          disabled={carregando}
+                        >
+                          {carregando ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <Repeat2 />
+                          )}{" "}
+                          Atualizar a conferência
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {(plano.resumo.sem_data > 0 || plano.resumo.erros > 0) && (
                     <div className="space-y-2">
-                      {plano.resumo.contratos_novos.length > 0 && (
-                        <Aviso tom="brand">
-                          Contrato(s) que não existem e serão criados:{" "}
-                          <strong>
-                            {plano.resumo.contratos_novos.join(", ")}
-                          </strong>
-                          . Depois confira os dados deles.
-                        </Aviso>
-                      )}
                       {plano.resumo.sem_data > 0 && (
                         <Aviso tom="warning">
                           {plano.resumo.sem_data} cobrança(s) sem data de
@@ -669,7 +949,7 @@ export function ImportarCasosDialog({
                           </tr>
                         </thead>
                         <tbody className="divide-y">
-                          {plano.itens.map((it) => (
+                          {plano.itens.slice(0, 400).map((it) => (
                             <tr
                               key={it.linha}
                               className={cn(it.erro && "bg-danger/5")}
@@ -678,7 +958,16 @@ export function ImportarCasosDialog({
                                 {it.linha}
                               </td>
                               <td className="px-3 py-2 font-mono text-xs">
-                                {it.chave || "—"}
+                                <span className="line-clamp-2">
+                                  {it.chave || "—"}
+                                </span>
+                                {it.partes && (
+                                  <span className="mt-0.5 block font-sans text-[11px] text-muted-foreground">
+                                    {it.partes.ativo || "—"} ·{" "}
+                                    {it.partes.passivo || "—"} · nº{" "}
+                                    {it.partes.numero || "—"}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 py-2">
                                 {it.erro ? (
@@ -721,6 +1010,10 @@ export function ImportarCasosDialog({
                                 </p>
                                 {it.acao_regra === "criar" ? (
                                   <Chip tom="success">nova</Chip>
+                                ) : it.acao_regra === "historico" ? (
+                                  <Chip tom="success">histórico</Chip>
+                                ) : it.acao_regra === "inativa" ? (
+                                  <Chip tom="neutral">inativa: não entra</Chip>
                                 ) : it.acao_regra === "pular" ? (
                                   <Chip tom="neutral">igual: pula</Chip>
                                 ) : it.acao_regra === "sem_data" ? (
@@ -739,6 +1032,12 @@ export function ImportarCasosDialog({
                           ))}
                         </tbody>
                       </table>
+                      {plano.itens.length > 400 && (
+                        <p className="border-t bg-muted/30 px-3 py-2 text-center text-xs text-muted-foreground">
+                          Mostrando 400 de {plano.itens.length} linhas. Os
+                          números acima contam todas.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -864,9 +1163,11 @@ export function ImportarCasosDialog({
                                 : `${r.caso === "criado" ? `caso #${r.caso_numero} criado` : `caso #${r.caso_numero}`} · ${
                                     r.regra === "criada"
                                       ? "cobrança criada"
-                                      : r.regra === "igual"
-                                        ? "cobrança igual, pulada"
-                                        : (r.mensagem ?? "sem cobrança")
+                                      : r.regra === "historico"
+                                        ? "cobrança no histórico"
+                                        : r.regra === "igual"
+                                          ? "cobrança igual, pulada"
+                                          : (r.mensagem ?? "sem cobrança")
                                   }`}
                             </span>
                           </motion.div>
