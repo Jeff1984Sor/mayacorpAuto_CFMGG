@@ -978,8 +978,18 @@ def pdf_nota(nid: int, ctx: Ctx):
     n = _nota(ctx, nid)
     if not n.pdf_path or not Path(n.pdf_path).exists():
         raise HTTPException(404, "PDF não encontrado.")
-    return FileResponse(n.pdf_path, media_type="application/pdf", filename=f"NFSe_{n.numero}.pdf",
+    return FileResponse(n.pdf_path, media_type="application/pdf", filename=_nome_pdf_da_nota(n),
                         content_disposition_type="inline")
+
+
+def _nome_pdf_da_nota(n: Nfse) -> str:
+    """"NF - <nome do caso> - <nº da nota>.pdf"; sem caso (nota do robô), o nome do cliente no lugar."""
+    from app.modules.rpa_nfse.routes_faturas import _nome_arquivo, _titulo_da_fatura
+
+    fat = _fatura_da_nota(n)
+    tom = (n.rps.dados_json or {}).get("tomador", {})
+    titulo = _titulo_da_fatura(fat) if fat else (tom.get("nome") or (n.tomador.nome if n.tomador else ""))
+    return f"NF - {_nome_arquivo(titulo or 'nota')} - {n.numero}.pdf"
 
 
 @router.get("/notas/{nid}/xml")
