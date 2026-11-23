@@ -63,6 +63,27 @@ def sem_acento(texto: str | None) -> str:
     return unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().replace(chr(13), "")
 
 
+MARCA_LIQUIDO = "Valor liquido a pagar:"
+_ROTULO_RET = (("ret_ir", "IR"), ("ret_pis", "PIS"), ("ret_cofins", "COFINS"), ("ret_csll", "CSLL"), ("ret_inss", "INSS"))
+
+
+def _brl(v: Decimal) -> str:
+    return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def discriminacao_com_liquido(texto: str | None, valor: Decimal, ret: dict[str, Decimal]) -> str:
+    """Texto da nota (sem acento, até 2.000 caracteres). Com retenção, termina com o valor líquido a pagar:
+    o modelo da NFS-e da Prefeitura só mostra o valor cheio e os tributos, nunca o líquido."""
+    linhas = [ln for ln in sem_acento(texto).split("\n") if not ln.strip().startswith(MARCA_LIQUIDO)]  # não repete
+    base = "\n".join(linhas).strip() or "Servicos prestados"
+    retido = [(rot, ret[k]) for k, rot in _ROTULO_RET if ret.get(k)]
+    if not retido:
+        return base[:2000]
+    liquido = valor - sum((v for _, v in retido), Decimal(0))
+    linha = f"{MARCA_LIQUIDO} R$ {_brl(liquido)} ({' - '.join(f'{rot} {_brl(v)}' for rot, v in retido)})"
+    return f"{base[: 2000 - len(linha) - 1].rstrip()}\n{linha}"
+
+
 def _rps(pai: etree._Element, ccm: str, r: RpsXml, cert: CertificadoCarregado | None) -> None:
     """Elemento RPS na ORDEM exata do tpRPS de TiposNFe_v02.xsd (fora de ordem = recusa)."""
     t = r.tomador
@@ -126,7 +147,7 @@ def _rps(pai: etree._Element, ccm: str, r: RpsXml, cert: CertificadoCarregado | 
             _sub(end, "CEP", int(so_digitos(t["cep"])))
     if t.get("email"):
         _sub(el, "EmailTomador", t["email"][:75])
-    _sub(el, "Discriminacao", sem_acento(r.discriminacao)[:2000] or "Servicos prestados")
+    _sub(el, "Discriminacao", discriminacao_com_liquido(r.discriminacao, r.valor, ret))
     if len(doc) == 14 and l2.get("retencao_pis_cofins"):
         _sub(el, "RetencaoPisCofins", l2["retencao_pis_cofins"])
     # Valor total da nota: a Prefeitura calcula os tributos "de trás para frente" e o total fica igual ao RPS

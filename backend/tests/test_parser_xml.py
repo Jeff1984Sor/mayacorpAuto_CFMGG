@@ -100,10 +100,18 @@ def test_retencoes_federais_como_na_nfse_20806(pfx):
     assert valores == {"ValorPIS": "7.48", "ValorCOFINS": "34.50", "ValorINSS": "0.00", "ValorIR": "17.25",
                        "ValorCSLL": "11.50", "AliquotaServicos": "0.0000", "RetencaoPisCofins": "3",
                        "ValorFinalCobrado": "1150.00"}
+    # a nota termina com o valor líquido (o modelo da Prefeitura só mostra o cheio e os tributos)
+    assert rps.findtext("Discriminacao").split("\n")[-1] == (
+        "Valor liquido a pagar: R$ 1.079,27 (IR 17,25 - PIS 7,48 - COFINS 34,50 - CSLL 11,50)")
+    # reemitir com o texto que já tem a linha não repete
+    de_novo = xml_layout2.discriminacao_com_liquido(rps.findtext("Discriminacao"), Decimal("1150"),
+                                                    {"ret_ir": Decimal("17.25")})
+    assert de_novo.count("Valor liquido a pagar:") == 1 and de_novo.endswith("R$ 1.132,75 (IR 17,25)")
     # Pessoa física não retém, mesmo com a regra ativa
     pf = replace(pj, tomador={**pj.tomador, "cpf_cnpj": "52998224725"})
     rps_pf = xml_layout2.pedido_envio_lote(cnpj_remetente="11222333000181", ccm="12345678", rps=[pf], cert=cert).find("RPS")
     assert rps_pf.findtext("ValorIR") == "0.00" and rps_pf.find("RetencaoPisCofins") is None
+    assert "Valor liquido" not in rps_pf.findtext("Discriminacao")
 
 
 def test_aliquota_zero_da_regra_vence_a_da_emissora():
