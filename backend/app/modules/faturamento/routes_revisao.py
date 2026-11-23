@@ -113,7 +113,10 @@ def revisoes(ctx: Ctx, status: str | None = Query("em_revisao", pattern="^(em_re
     if status and status != "todas":
         q = q.where(Revisao.status == StatusRevisao(status))
     if tomador_id:
-        q = q.where(Revisao.tomador_id == tomador_id)
+        from app.modules.faturamento.models import Contrato as _Contrato
+
+        q = q.where((Revisao.tomador_id == tomador_id) | Revisao.contrato_id.in_(
+            select(_Contrato.id).where(_Contrato.tomador_id == tomador_id)))
     return [_resumo(ctx, r) for r in ctx.db.scalars(q.order_by(Revisao.numero.desc()).limit(300))]
 
 
@@ -274,7 +277,10 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
 
     q = select(Revisao).where(Revisao.tenant_id == ctx.tenant_id, Revisao.status == StatusRevisao.em_revisao)
     if tomador_id:
-        q = q.where(Revisao.tomador_id == tomador_id)
+        from app.modules.faturamento.models import Contrato as _Contrato
+
+        q = q.where((Revisao.tomador_id == tomador_id) | Revisao.contrato_id.in_(
+            select(_Contrato.id).where(_Contrato.tomador_id == tomador_id)))
     if tipo == "robo":
         q = q.where(false())  # "emitidas pelo robô": revisão é do Faturamento, não do robô
     elif tipo:
@@ -301,7 +307,7 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
     q = select(Fatura).where(Fatura.tenant_id == ctx.tenant_id, Fatura.status != StatusFatura.cancelada,
                              Fatura.data_emissao >= de, Fatura.data_emissao <= ate)
     if tomador_id:
-        q = q.where(Fatura.tomador_id == tomador_id)
+        q = q.where(faturas_nfse.do_cliente(tomador_id))
     if tipo == "robo":
         q = q.where(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
     elif tipo:

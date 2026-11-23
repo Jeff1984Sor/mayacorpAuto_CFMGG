@@ -90,7 +90,7 @@ def listar(
     if contrato_id:
         f.append(Fatura.contrato_id == contrato_id)
     if tomador_id:
-        f.append(Fatura.tomador_id == tomador_id)
+        f.append(faturas.do_cliente(tomador_id))
     if sem_nfse:
         f += [Fatura.nfse_id.is_(None), Fatura.tipo == TipoFatura.honorarios, Fatura.status != StatusFatura.cancelada]
     if de:
@@ -111,7 +111,7 @@ def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despes
     hoje = date.today()
     f = [Fatura.tenant_id == ctx.tenant_id]
     if tomador_id:
-        f.append(Fatura.tomador_id == tomador_id)
+        f.append(faturas.do_cliente(tomador_id))
     if tipo == "robo":
         f.append(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
     elif tipo:

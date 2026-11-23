@@ -142,6 +142,16 @@ def valor_a_pagar(db: Session | None, fat: Fatura) -> Decimal:
     return fat.total - (retencoes(db, fat) if db is not None else Decimal(0))
 
 
+def do_cliente(tomador_id: int):
+    """Filtro "cliente": faturas no nome dele (pagador) ou de contrato dele pagas por outro."""
+    from sqlalchemy import or_
+
+    from app.modules.faturamento.models import Contrato
+
+    return or_(Fatura.tomador_id == tomador_id,
+               Fatura.contrato_id.in_(select(Contrato.id).where(Contrato.tomador_id == tomador_id)))
+
+
 def casos_das_faturas(db: Session, ids: list[int]) -> dict[int, str]:
     """Título do(s) caso(s) de cada fatura (os itens dizem de que caso é a cobrança), para mostrar e buscar."""
     from app.modules.faturamento.models import Caso, FaturaItem
