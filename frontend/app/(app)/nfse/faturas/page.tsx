@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/mayacorp/empty-state";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
+import { AcoesNfse } from "@/components/faturamento/acoes-nfse";
 import { type ClienteEscolhido, ClientesMulti } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useZipFaturas } from "@/components/nfse/acoes-fatura";
@@ -211,7 +212,14 @@ export default function FaturasPage() {
                       )}
                     </td>
                     <td className="hidden px-3 py-3 text-muted-foreground md:table-cell" onClick={(e) => f.pode_emitir_nfse && e.stopPropagation()}>
-                      {f.nfse_numero ? (
+                      {f.nfse_numero && f.nfse_id ? (
+                        <div>
+                          <Mono>{f.nfse_numero}</Mono>
+                          <div className="-ml-1.5">
+                            <AcoesNfse nfseId={f.nfse_id} numero={f.nfse_numero} link={f.nfse_link} />
+                          </div>
+                        </div>
+                      ) : f.nfse_numero ? (
                         <Mono>{f.nfse_numero}</Mono>
                       ) : f.pode_emitir_nfse && podeEmitir ? (
                         <Button size="xs" variant="outline" onClick={() => emitir.mutate([f.id])} disabled={emitir.isPending}>

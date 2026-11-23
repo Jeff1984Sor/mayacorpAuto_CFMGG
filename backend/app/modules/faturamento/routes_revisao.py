@@ -24,6 +24,7 @@ from app.modules.faturamento.schemas import (
     RevisaoPatch,
     RevisaoResumoOut,
 )
+from app.modules.rpa_nfse import fatura as faturas_nfse
 from app.modules.rpa_nfse.models import Fatura, StatusFatura, TipoFatura
 
 router = APIRouter(prefix="/faturamento", tags=["Faturamento · Revisão"])
@@ -296,8 +297,10 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
         q = q.where(Fatura.tipo == TipoFatura(tipo))
     for f in ctx.db.scalars(q.order_by(Fatura.data_vencimento)):
         card = {"tipo": "fatura", "id": f.id, "titulo": f.codigo, "cliente": f.tomador.nome if f.tomador else "",
-                "contrato": None, "valor": f.total, "data": f.data_emissao, "vencimento": f.data_vencimento,
+                "contrato": None, "valor": f.total, "valor_liquido": faturas_nfse.valor_a_pagar(ctx.db, f),
+                "data": f.data_emissao, "vencimento": f.data_vencimento,
                 "documento": "ND" if f.tipo == TipoFatura.despesas else "NH", "nfse_numero": f.nfse.numero if f.nfse else None,
+                "nfse_link": faturas_nfse.link_da_nota(f),
                 "nfse_id": f.nfse_id, "nfse_cancelada": bool(f.nfse and f.nfse.status.value == "cancelada"),
                 "origem": f.origem, "pago_em": f.pago_em}
         if f.contrato_id:

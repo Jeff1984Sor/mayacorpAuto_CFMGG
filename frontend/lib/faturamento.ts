@@ -402,6 +402,8 @@ export interface FluxoCard {
   cliente: string;
   contrato: string | null;
   valor: Decimal;
+  /** fatura: valor bruto menos as retenções federais da nota (o que o cliente paga) */
+  valor_liquido?: Decimal | null;
   data: string;
   documento: "NH" | "ND";
   responsavel?: string | null;
@@ -409,6 +411,8 @@ export interface FluxoCard {
   nota_ia?: number | null;
   vencimento?: string;
   nfse_numero?: number | null;
+  /** link público da nota fiscal na Prefeitura */
+  nfse_link?: string | null;
   nfse_id?: number | null;
   nfse_cancelada?: boolean;
   origem?: string;

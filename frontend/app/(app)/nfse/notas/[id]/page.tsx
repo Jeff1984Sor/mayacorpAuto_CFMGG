@@ -109,6 +109,21 @@ export default function NotaDetalhePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   ISS <span className="text-foreground num">{moeda(n.iss)}</span> · alíquota <span className="num">{aliquota(n.aliquota)}</span>
                 </p>
+                {Object.keys(n.retencoes ?? {}).length > 0 && (
+                  <div className="mt-3 max-w-xs rounded-xl border bg-muted/30 p-3 text-sm">
+                    <p className="mb-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">Tributos retidos na nota</p>
+                    {Object.entries(n.retencoes ?? {}).map(([rotulo, v]) => (
+                      <p key={rotulo} className="flex justify-between">
+                        <span className="text-muted-foreground">{rotulo}</span>
+                        <span className="num">{moeda(v)}</span>
+                      </p>
+                    ))}
+                    <p className="mt-1.5 flex justify-between border-t pt-1.5 font-medium">
+                      <span>Valor líquido</span>
+                      <span className="num">{moeda(n.valor_liquido ?? n.valor)}</span>
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="rounded-xl bg-muted/60 p-4">
                 <p className="text-xs text-muted-foreground">Código de verificação</p>

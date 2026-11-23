@@ -321,6 +321,9 @@ class NfseOut(Schema):
     cancelada_em: datetime | None
     motivo_cancelamento: str | None
     link_prefeitura: str
+    # retenções federais que foram na nota (IR, CSLL, PIS, COFINS, INSS) e o valor líquido
+    retencoes: dict[str, Decimal] = {}
+    valor_liquido: Decimal | None = None
     simulada: bool
     pago_em: date | None = None
     valor_pago: Decimal | None = None
@@ -506,6 +509,7 @@ class FaturaOut(Schema):
     # retenções federais da nota (IR, PIS, COFINS, CSLL, INSS) e o que o cliente paga de fato
     retencoes: Decimal = Decimal(0)
     valor_liquido: Decimal | None = None
+    nfse_link: str | None = None  # link público da nota na Prefeitura
     status: StatusFatura
     situacao: str  # aberta | vencida | paga | cancelada
     pago_em: date | None

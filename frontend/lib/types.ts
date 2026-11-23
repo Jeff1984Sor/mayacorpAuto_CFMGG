@@ -435,6 +435,9 @@ export interface NfseOut {
   cancelada_em: string | null;
   motivo_cancelamento: string | null;
   link_prefeitura: string;
+  /** tributos federais retidos na nota (rótulo → valor) e o valor líquido */
+  retencoes?: Record<string, Decimal>;
+  valor_liquido?: Decimal | null;
   simulada: boolean;
   pago_em: string | null;
   valor_pago: Decimal | null;
@@ -569,6 +572,8 @@ export interface FaturaOut {
   retencoes?: Decimal;
   /** o que o cliente paga de fato: total − retenções */
   valor_liquido?: Decimal | null;
+  /** link público da nota fiscal na Prefeitura */
+  nfse_link?: string | null;
   status: "aberta" | "paga" | "cancelada";
   situacao: SituacaoFatura;
   pago_em: string | null;

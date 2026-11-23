@@ -36,6 +36,7 @@ def fatura_out(f: Fatura) -> FaturaOut:
         tomador_nome=tom.get("nome") or "", tomador_doc=tom.get("cpf_cnpj"), data_emissao=f.data_emissao,
         data_vencimento=f.data_vencimento, valor=f.valor, desconto=f.desconto, juros=f.juros, total=f.total,
         retencoes=retido, valor_liquido=f.total - retido,
+        nfse_link=faturas.link_da_nota(f),
         status=f.status, situacao=faturas.situacao(f), pago_em=f.pago_em, descricao=f.descricao,
         pix_copia_e_cola=faturas.pix_da_fatura(f), simulada=bool(f.nfse and f.nfse.simulada),
     )

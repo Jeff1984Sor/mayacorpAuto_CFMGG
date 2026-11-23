@@ -100,17 +100,26 @@ def espelhar_no_financeiro(db: Session, fat: Fatura, conta_id: int | None = None
     espelhar_recebimento(db, fat, conta_id)
 
 
+# ordem em que os tributos retidos aparecem na fatura
+ROTULO_RETENCAO = {"ret_ir": "IR", "ret_csll": "CSLL", "ret_pis": "PIS", "ret_cofins": "COFINS", "ret_inss": "INSS"}
+
+
 def retencoes(db: Session, fat: Fatura) -> Decimal:
-    """Retenções federais (IR, PIS, COFINS, CSLL, INSS) da nota desta fatura.
+    """Soma das retenções federais da nota desta fatura (ver retencoes_por_tributo)."""
+    return sum(retencoes_por_tributo(db, fat).values(), Decimal(0))
+
+
+def retencoes_por_tributo(db: Session, fat: Fatura) -> dict[str, Decimal]:
+    """Retenções federais (IR, CSLL, PIS, COFINS, INSS) da nota desta fatura, só as maiores que zero.
 
     Com NFS-e emitida: as que foram na nota. Sem nota ainda: as que a nota vai ter, pela regra fiscal do cliente.
-    Nota de Despesas (ND) não vira NFS-e: zero.
+    Nota de Despesas (ND) não vira NFS-e: nenhuma.
     """
     from app.core.documentos import so_digitos
     from app.modules.rpa_nfse import validator
 
     if fat.tipo == TipoFatura.despesas:
-        return Decimal(0)
+        return {}
     if fat.nfse and fat.nfse.rps:
         rps = fat.nfse.rps
         dados = rps.dados_json or {}
@@ -120,12 +129,27 @@ def retencoes(db: Session, fat: Fatura) -> Decimal:
         tomador = fat.tomador
         doc = so_digitos(tomador.cpf_cnpj if tomador else None)
         if len(doc) != 14:  # pessoa física não retém
-            return Decimal(0)
+            return {}
         emissora = fat.emissora
         params = validator.resolver_parametros(service.parametros_da_emissora(db, fat.emissora_id),
                                                (emissora.cod_servico_padrao if emissora else "") or "", fat.tomador_id)
         ret = validator.calcular_retencoes(fat.total, params, doc)
-    return sum(ret.values(), Decimal(0))
+    return {k: ret[k] for k in ROTULO_RETENCAO if ret.get(k)}
+
+
+def valor_a_pagar(db: Session | None, fat: Fatura) -> Decimal:
+    """O que o cliente paga de fato: total da fatura menos as retenções da nota."""
+    return fat.total - (retencoes(db, fat) if db is not None else Decimal(0))
+
+
+def link_da_nota(fat: Fatura) -> str | None:
+    """Link público da NFS-e desta fatura na Prefeitura (nota simulada não tem)."""
+    from app.modules.rpa_nfse.prefeitura_sp import link_nota
+
+    n = fat.nfse
+    if not n or n.simulada or not fat.emissora:
+        return None
+    return link_nota(fat.emissora.ccm, n.numero, n.cod_verificacao)
 
 
 def situacao(fat: Fatura) -> str:
@@ -138,7 +162,10 @@ def pix_da_fatura(fat: Fatura) -> str | None:
     e = fat.emissora
     if not e.chave_pix or fat.status != StatusFatura.aberta:
         return None
-    return br_code(e.chave_pix, e.razao_social, e.cidade or "SAO PAULO", fat.total, fat.codigo.replace(" ", "").replace("/", ""))
+    from sqlalchemy.orm import object_session
+
+    valor = valor_a_pagar(object_session(fat), fat)  # com retenção, o PIX sai no líquido
+    return br_code(e.chave_pix, e.razao_social, e.cidade or "SAO PAULO", valor, fat.codigo.replace(" ", "").replace("/", ""))
 
 
 def salvar_pdf(db: Session, fat: Fatura, cfg: ConfigNfse) -> None:
@@ -367,12 +394,30 @@ def gerar_pdf(fat: Fatura, ident: Identidade | None, cfg: ConfigNfse) -> bytes:
         tot.append([Paragraph("Desconto", p_sm_r), Paragraph("- " + _brl(fat.desconto), p_sm_r)])
     if fat.juros:
         tot.append([Paragraph("Juros/multa", p_sm_r), Paragraph(_brl(fat.juros), p_sm_r)])
-    tot.append([Paragraph("<b>TOTAL A PAGAR</b>", ParagraphStyle("tap", parent=p_sm_r, textColor=DARK)),
-                Paragraph(_brl(fat.total), ParagraphStyle("tav", parent=p_total, fontSize=13, leading=16, textColor=DARK))])
+    from sqlalchemy.orm import object_session
+
+    sessao = object_session(fat)
+    retido = retencoes_por_tributo(sessao, fat) if sessao is not None else {}
+    estilo_tot = [("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                  ("RIGHTPADDING", (0, 0), (-1, -1), 0)]
+    p_esq = ParagraphStyle("tesq", parent=p_sm_r, alignment=0)
+    if retido:  # total de honorários, tributos retidos pelo cliente e o valor a pagar (líquido)
+        tot.append([Paragraph("<b>Total de honorários</b>", ParagraphStyle("thn", parent=p_esq, fontSize=10, textColor=DARK)),
+                    Paragraph(_brl(fat.total), ParagraphStyle("thv", parent=p_sm_r, fontSize=10, textColor=DARK))])
+        linha_trib = len(tot)
+        tot.append([Paragraph("<b>Descrição dos tributos</b>", ParagraphStyle("tdt", parent=p_esq, textColor=DARK)), ""])
+        for k, v in retido.items():
+            tot.append([Paragraph(f"<b>{ROTULO_RETENCAO[k]}</b>", p_esq), Paragraph(_brl(v), p_sm_r)])
+        estilo_tot += [("LINEABOVE", (0, linha_trib), (-1, linha_trib), 1.0, DARK), ("TOPPADDING", (0, linha_trib), (-1, linha_trib), 6)]
+        tot.append([Paragraph("<b>VALOR A PAGAR</b>", ParagraphStyle("tap", parent=p_esq, fontSize=10, textColor=DARK)),
+                    Paragraph(_brl(fat.total - sum(retido.values(), Decimal(0))),
+                              ParagraphStyle("tav", parent=p_total, fontSize=13, leading=16, textColor=DARK))])
+    else:
+        tot.append([Paragraph("<b>TOTAL A PAGAR</b>", ParagraphStyle("tap", parent=p_sm_r, textColor=DARK)),
+                    Paragraph(_brl(fat.total), ParagraphStyle("tav", parent=p_total, fontSize=13, leading=16, textColor=DARK))])
     tt = Table(tot, colWidths=[50 * mm, 34 * mm], hAlign="RIGHT")
-    tt.setStyle(TableStyle([("LINEABOVE", (0, -1), (-1, -1), 1.0, DARK), ("TOPPADDING", (0, 0), (-1, -1), 3),
-                            ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+    tt.setStyle(TableStyle([("LINEABOVE", (0, -1), (-1, -1), 1.0, DARK), *estilo_tot]))
     story += [tt, Spacer(1, 8 * mm)]
 
     # ---- dados para pagamento + PIX

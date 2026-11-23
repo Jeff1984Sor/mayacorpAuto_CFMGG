@@ -813,9 +813,21 @@ def enviar_emails_lote(lid: int, ctx: Operador):
 
 
 # ======================================================================== notas
+def _retencoes_da_nota(n: Nfse) -> dict[str, Decimal]:
+    """Retenções federais enviadas nesta nota, por tributo (rótulo → valor), só as maiores que zero."""
+    from app.modules.rpa_nfse import validator
+    from app.modules.rpa_nfse.fatura import ROTULO_RETENCAO
+
+    dados = n.rps.dados_json or {}
+    ret = validator.calcular_retencoes(n.valor, dados.get("layout2") or {}, so_digitos((dados.get("tomador") or {}).get("cpf_cnpj")))
+    return {ROTULO_RETENCAO[k]: ret[k] for k in ROTULO_RETENCAO if ret.get(k)}
+
+
 def _nfse_out(n: Nfse) -> NfseOut:
     tom = (n.rps.dados_json or {}).get("tomador", {})
+    retido = _retencoes_da_nota(n)
     return NfseOut(
+        retencoes=retido, valor_liquido=n.valor - sum(retido.values(), Decimal(0)),
         id=n.id, numero=n.numero, cod_verificacao=n.cod_verificacao, data_emissao=n.data_emissao,
         rps_serie=n.rps.serie, rps_numero=n.rps.numero, lote_id=n.rps.lote_id, emissora_id=n.emissora_id,
         tomador_id=n.tomador_id, tomador_nome=tom.get("nome") or (n.tomador.nome if n.tomador else ""),

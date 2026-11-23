@@ -1016,3 +1016,17 @@ def test_fatura_mostra_valor_bruto_e_liquido(cliente):  # noqa: F811
     lista = cliente.get("/api/nfse/faturas", headers=h, params={"tomador_id": cli["id"]}).json()
     assert lista["total"] == 1 and lista["itens"][0]["id"] == nh["id"]
     assert cliente.get("/api/nfse/faturas/resumo", headers=h, params={"tomador_id": cli["id"]}).status_code == 200
+    # a NH (PDF) traz a tabela de tributos e o valor a pagar líquido; o PIX também sai no líquido
+    import io as _io
+
+    from pypdf import PdfReader
+
+    pdf = cliente.get(f"/api/nfse/faturas/{nh['id']}/pdf", headers=h)
+    assert pdf.status_code == 200, pdf.text
+    texto = " ".join(pg.extract_text() for pg in PdfReader(_io.BytesIO(pdf.content)).pages)
+    for trecho in ("Total de honorários", "Descrição dos tributos", "IR", "17,25", "CSLL", "11,50", "PIS", "7,48",
+                   "COFINS", "34,50", "VALOR A PAGAR", "1.079,27"):
+        assert trecho in texto, (trecho, texto)
+    assert "TOTAL A PAGAR" not in texto
+    if f["pix_copia_e_cola"]:
+        assert "1079.27" in f["pix_copia_e_cola"]

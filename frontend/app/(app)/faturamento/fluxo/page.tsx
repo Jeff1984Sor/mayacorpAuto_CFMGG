@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { AcoesNfse } from "@/components/faturamento/acoes-nfse";
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
@@ -214,7 +215,7 @@ export default function FluxoPage() {
         )}
 
         {q.isPending ? (
-          <TableSkeleton colunas={7} />
+          <TableSkeleton colunas={8} />
         ) : linhas.length === 0 ? (
           <EmptyState
             icone={KanbanSquare}
@@ -245,7 +246,10 @@ export default function FluxoPage() {
                   <th className="px-3 py-2.5 font-medium">Cliente</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Data</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Valor</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Valor bruto</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Valor bruto menos as retenções federais da nota (IR, PIS, COFINS, CSLL)">
+                    Valor líquido
+                  </th>
                   <th className="px-3 py-2.5 font-medium">
                     <span className="sr-only">Ações</span>
                   </th>
@@ -267,6 +271,11 @@ export default function FluxoPage() {
                         </Pill>
                         <Mono>{l.titulo}</Mono>
                         {l.nfse_numero && <p className="mt-0.5 text-[11px] text-muted-foreground num">NFS-e {l.nfse_numero}</p>}
+                        {l.nfse_numero && l.nfse_id ? (
+                          <div className="-ml-1.5">
+                            <AcoesNfse nfseId={l.nfse_id} numero={l.nfse_numero} link={l.nfse_link} />
+                          </div>
+                        ) : null}
                       </td>
                       <td className="max-w-72 px-3 py-3">
                         <p className="truncate">{l.cliente}</p>
@@ -281,6 +290,14 @@ export default function FluxoPage() {
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap">
                         <Mono>{moeda(l.valor)}</Mono>
+                      </td>
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <Mono>{moeda(l.valor_liquido ?? l.valor)}</Mono>
+                        {Number(l.valor) - Number(l.valor_liquido ?? l.valor) > 0 && (
+                          <span className="block text-[11px] text-muted-foreground" title="Retenções federais da nota">
+                            − {moeda(Number(l.valor) - Number(l.valor_liquido ?? l.valor))} retidos
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
@@ -308,7 +325,10 @@ export default function FluxoPage() {
             <span>
               <span className="num">{numero(linhas.length)}</span> item(ns) · revisões em aberto aparecem sempre, qualquer que seja o período
             </span>
-            <span className="font-medium text-foreground num">{moeda(linhas.reduce((s, l) => s + Number(l.valor), 0))}</span>
+            <span className="font-medium text-foreground num">
+              Bruto {moeda(linhas.reduce((s, l) => s + Number(l.valor), 0))} · Líquido{" "}
+              {moeda(linhas.reduce((s, l) => s + Number(l.valor_liquido ?? l.valor), 0))}
+            </span>
           </div>
         )}
       </TableCard>
