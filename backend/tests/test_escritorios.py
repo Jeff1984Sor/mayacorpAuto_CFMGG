@@ -1,6 +1,7 @@
 """Um banco por escritório: a CFME no banco principal e um escritório novo no banco próprio, sem se enxergarem."""
 
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -298,7 +299,7 @@ def test_cobranca_mercado_pago(multi, monkeypatch):
 
     # avulsa (sem produto) + assinatura secreta: aviso com assinatura errada é ignorado
     r = c.post("/api/admin/cobrancas/avulsa", headers=adm, json={"cliente_id": silva["id"], "descricao": "Implantação",
-                                                                 "valor": "500.00", "vencimento": "2026-11-20"})
+                                                                 "valor": "500.00", "vencimento": (date.today() + timedelta(days=10)).isoformat()})
     assert r.status_code == 201, r.text
     av = r.json()
     c.put("/api/admin/cobranca/config", headers=adm,
@@ -331,7 +332,6 @@ def test_cobranca_mercado_pago(multi, monkeypatch):
     assert [(k["competencia"], k["valor"], k["status"]) for k in cartao] == [("2026-11", "279.00", "paga")]
 
     # régua: uma pendente vencida recebe um aviso só (o passo mais recente)
-    from datetime import date
 
     from app.controle import cobranca
     from app.controle.models import Cobranca, SessaoControle

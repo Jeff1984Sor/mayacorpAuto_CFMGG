@@ -771,3 +771,55 @@ def test_planilha_modelo_da_importacao_volta_reconhecida(cliente):  # noqa: F811
     plano = cliente.post(f"{base}/analisar", headers=h, json={
         "linhas": lido["linhas"], "mapa": s, "campo_chave_id": sin["id"]}).json()
     assert plano["resumo"]["casos_novos"] == 2 and plano["resumo"]["sem_data"] == 1 and not plano["resumo"]["contratos_novos"]
+
+
+def test_importar_relatorio_xml_agrupado(cliente):  # noqa: F811
+    """Relatório exportado de outro sistema: XML 2003 com extensão .xls, em Windows-1252, cabeçalho torto,
+    caso só na 1ª linha do grupo, linhas de Total e o nº do sinistro dentro do nome do caso."""
+    h = _login(cliente)
+    cli, contrato, _ = _base(cliente, h, "X")
+    sin = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Nº do sinistro", "tipo": "texto",
+                                                                    "tomador_id": cli["id"]}).json()
+    # caso que já existe, cadastrado com o sinistro sem a barra
+    cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={
+        "titulo": "Caso antigo", "campos": {str(sin["id"]): "1000001-2026"}})
+
+    def cel(v, tipo="String", idx=None):
+        i = f' ss:Index="{idx}"' if idx else ""
+        return f'<Cell{i}><Data ss:Type="{tipo}">{v}</Data></Cell>'
+
+    linhas = [
+        cel("NH", idx=2) + cel("Total"),
+        cel("Emissão", idx=5),
+        cel("Seguradora Exemplo") + cel("João Silva X José Souza - 1000001/2026") + cel("10/11") + cel("Fixo")
+        + cel(1150, "Number") + cel(1150, "Number"),
+        cel("11/11", idx=3) + cel("Fixo") + cel(575, "Number") + cel(575, "Number"),
+        cel("Total", idx=3) + cel(1725, "Number") + cel(1725, "Number"),
+        cel("Ana Lima X Loja Ltda - 1000002/2026 - GRANDE MONTA", idx=2) + cel("12/11") + cel("Fixo")
+        + cel(4020, "Number") + cel(4020, "Number"),
+        cel("Total", idx=3) + cel(4020, "Number") + cel(4020, "Number"),
+        cel("Total") + cel(5745, "Number") + cel(5745, "Number"),
+    ]
+    xml = ('<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+           'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Page 1"><Table>'
+           + "".join(f"<Row>{r}</Row>" for r in linhas) + "</Table></Worksheet></Workbook>").encode("cp1252")
+    base = f"/api/faturamento/clientes/{cli['id']}/importar-casos"
+    r = cliente.post(f"{base}/ler", headers=h, files={"arquivo": ("Faturas de honorários.xls", xml)})
+    assert r.status_code == 200, r.text
+    lido = r.json()
+    assert len(lido["colunas"]) == 6
+    s = lido["sugestao"]
+    assert (s["chave"], s["titulo"], s["valor"]) == (1, 1, 4), s
+    corpo = {"linhas": lido["linhas"], "mapa": {k: v for k, v in s.items() if v is not None}, "campo_chave_id": sin["id"],
+             "primeira_linha": lido["primeira_linha"], "descricao_padrao": "Honorários advocatícios",
+             "vencimento_padrao": "2026-12-15"}
+    plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
+    assert [(i["chave"], i["valor"], i["acao_caso"]) for i in plano["itens"]] == [
+        ("1000001/2026", "1150.00", "existe"), ("1000001/2026", "575.00", "existe"), ("1000002/2026", "4020.00", "criar")]
+    assert not plano["resumo"]["erros"]
+    corpo.update(linhas=plano["linhas"], numeros=plano["numeros"])
+    res = cliente.post(f"{base}/aplicar", headers=h, json=corpo).json()["resultados"]
+    assert [(x["caso"], x["regra"]) for x in res] == [("existente", "criada"), ("existente", "criada"), ("criado", "criada")]
+    novo = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"tomador_id": cli["id"]}).json()
+            if c["campos"].get(str(sin["id"])) == "1000002/2026"][0]
+    assert novo["titulo"] == "Ana Lima X Loja Ltda - 1000002/2026 - GRANDE MONTA"

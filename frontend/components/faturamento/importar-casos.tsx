@@ -69,6 +69,9 @@ interface Item {
 }
 interface Plano {
   itens: Item[];
+  /** linhas já limpas (sem totais, grupos preenchidos): são elas que vão para a importação */
+  linhas: Celula[][];
+  numeros: number[];
   resumo: {
     linhas: number;
     erros: number;
@@ -129,6 +132,7 @@ export function ImportarCasosDialog({
   const [campoChave, setCampoChave] = useState<number | null>(null);
   const [contratoPadrao, setContratoPadrao] = useState<number | null>(null);
   const [vencPadrao, setVencPadrao] = useState<string | null>(null);
+  const [descPadrao, setDescPadrao] = useState("Honorários");
   const [plano, setPlano] = useState<Plano | null>(null);
   const [perguntaData, setPerguntaData] = useState<"pergunta" | "data" | null>(
     null,
@@ -158,6 +162,7 @@ export function ImportarCasosDialog({
     linhas: Celula[][],
     primeira: number,
     venc: string | null,
+    numeros: number[] | null = null,
   ) => ({
     linhas,
     mapa: Object.fromEntries(
@@ -167,6 +172,8 @@ export function ImportarCasosDialog({
     contrato_padrao_id: contratoPadrao,
     vencimento_padrao: venc,
     primeira_linha: primeira,
+    numeros,
+    descricao_padrao: descPadrao.trim() || null,
   });
 
   const enviarArquivo = async (f: File) => {
@@ -219,13 +226,15 @@ export function ImportarCasosDialog({
     setImportando(true);
     setFeitos([]);
     try {
-      for (let i = 0; i < lido.linhas.length; i += LOTE) {
+      // manda as linhas já limpas pela análise: cada lote fica completo (o caso já vem repetido no grupo)
+      for (let i = 0; i < plano.linhas.length; i += LOTE) {
         const r = await api.post<{ resultados: Resultado[] }>(
           `/faturamento/clientes/${tomadorId}/importar-casos/aplicar`,
           corpo(
-            lido.linhas.slice(i, i + LOTE),
-            lido.primeira_linha + i,
+            plano.linhas.slice(i, i + LOTE),
+            plano.numeros[i] ?? lido.primeira_linha + i,
             vencPadrao,
+            plano.numeros.slice(i, i + LOTE),
           ),
         );
         setFeitos((o) => [...o, ...r.resultados]);
@@ -357,14 +366,14 @@ export function ImportarCasosDialog({
                         : "Arraste a planilha aqui ou clique para escolher"}
                     </span>
                     <span className="max-w-md text-sm text-muted-foreground">
-                      Excel (.xlsx) ou .csv. O sistema descobre sozinho qual
+                      Excel (.xlsx ou .xls) ou .csv, inclusive relatórios exportados de outros sistemas. O sistema descobre sozinho qual
                       coluna é o sinistro, o contrato, o texto, o valor e o
                       vencimento. Você confere antes de importar.
                     </span>
                     <input
                       ref={arquivo}
                       type="file"
-                      accept=".xlsx,.xlsm,.csv"
+                      accept=".xlsx,.xlsm,.xls,.xml,.csv"
                       className="hidden"
                       onChange={(e) => {
                         const f = e.target.files?.[0];
@@ -494,6 +503,22 @@ export function ImportarCasosDialog({
                             </option>
                           ))}
                         </NativeSelect>
+                      </Field>
+                    )}
+                    {(mapa.descricao === null ||
+                      mapa.descricao === undefined) && (
+                      <Field
+                        label="Texto da cobrança para todas"
+                        htmlFor="desc-padrao"
+                        dica="A planilha não tem coluna de texto: este vai para a regra de cobrança (e para a nota)."
+                      >
+                        <Input
+                          id="desc-padrao"
+                          value={descPadrao}
+                          onChange={(e) => setDescPadrao(e.target.value)}
+                          maxLength={300}
+                          placeholder="ex.: Honorários advocatícios"
+                        />
                       </Field>
                     )}
                   </div>

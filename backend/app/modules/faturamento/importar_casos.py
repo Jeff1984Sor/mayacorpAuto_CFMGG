@@ -54,6 +54,46 @@ def _chave(v) -> str:
     return s.lstrip("0") or s
 
 
+_NUM_CHAVE = re.compile(r"(?<![\d])\d{5,}(?:\s*[/-]\s*\d{2,4})?(?![\d])")
+
+
+def _extrair_chave(texto: str) -> str:
+    """"Fulano X Beltrano - 1042599/2026 - GRANDE MONTA" → "1042599/2026". Texto que já é só a chave fica igual."""
+    t = (texto or "").strip()
+    if not re.search(r"[a-zA-Z]{3,}", t):
+        return t
+    m = _NUM_CHAVE.search(t)
+    return re.sub(r"\s+", "", m.group(0)) if m else t
+
+
+def _eh_total(linha: list) -> bool:
+    return any(isinstance(c, str) and _norm(c) in ("total", "subtotal", "total geral", "soma") for c in linha)
+
+
+def normalizar(linhas: list[list], numeros: list[int], m: "Mapa") -> tuple[list[list], list[int]]:
+    """Relatório agrupado → uma linha por cobrança: tira as linhas de total e repete o caso (e o contrato,
+    título...) nas linhas de baixo do mesmo grupo, que só trazem o valor."""
+    herdar = [i for i in (m.chave, m.titulo, m.contrato, m.processo, m.parte_contraria) if i is not None]
+    out, nums, anterior = [], [], None
+    for linha, n in zip(linhas, numeros, strict=False):
+        if _eh_total(linha):
+            continue
+        tem_chave = _pega(linha, m.chave) not in (None, "")
+        tem_valor = m.valor is not None and ler_valor(_pega(linha, m.valor)) is not None
+        if not tem_chave and not tem_valor:
+            continue  # cabeçalho repetido, linha de título do relatório...
+        linha = list(linha)
+        if not tem_chave and anterior is not None:
+            for i in herdar:
+                if _pega(linha, i) in (None, ""):
+                    linha += [None] * (i + 1 - len(linha))
+                    linha[i] = _pega(anterior, i)
+        anterior = linha
+        out.append(linha)
+        nums.append(n)
+    return out, nums
+
+
 def _celula(v):
     if isinstance(v, datetime):
         return v.date().isoformat()
@@ -68,8 +108,55 @@ def _celula(v):
     return v
 
 
+def _ler_xml_2003(conteudo: bytes) -> list[list]:
+    """"Planilha XML 2003" (Excel): muitos sistemas exportam assim com extensão .xls."""
+    from lxml import etree
+
+    try:
+        conteudo.decode("utf-8")
+    except UnicodeDecodeError:  # arquivo em Windows-1252 sem dizer no cabeçalho: os acentos viram lixo
+        texto = re.sub(r"^<\?xml[^>]*\?>", "", conteudo.decode("cp1252"), count=1)
+        conteudo = texto.encode("utf-8")
+    try:
+        raiz = etree.fromstring(conteudo, etree.XMLParser(resolve_entities=False, no_network=True))
+    except etree.XMLSyntaxError as e:
+        raise HTTPException(400, "Não consegui ler a planilha (XML inválido). Salve como .xlsx e tente de novo.") from e
+    ss = "{urn:schemas-microsoft-com:office:spreadsheet}"
+    melhor: list[list] = []
+    for ws in raiz.iter(f"{ss}Worksheet"):
+        if _norm(ws.get(f"{ss}Name")).startswith(("instruc", "como preencher", "leia")):
+            continue
+        linhas = []
+        for row in ws.iter(f"{ss}Row"):
+            linha: list = []
+            for cel in row.findall(f"{ss}Cell"):
+                if cel.get(f"{ss}Index"):
+                    linha += [None] * (int(cel.get(f"{ss}Index")) - 1 - len(linha))
+                d = cel.find(f"{ss}Data")
+                v = d.text if d is not None else None
+                tipo = d.get(f"{ss}Type") if d is not None else None
+                if v is not None and tipo == "Number":
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+                elif v is not None and tipo == "DateTime":
+                    v = v[:10]
+                linha.append(v)
+            if any(c not in (None, "") for c in linha):
+                linhas.append(linha)
+        if len(linhas) > len(melhor):
+            melhor = linhas
+    return melhor
+
+
 def _ler_arquivo(conteudo: bytes, nome: str) -> list[list]:
     nome = nome.lower()
+    inicio = conteudo[:200].lstrip(b"\xef\xbb\xbf \r\n\t")
+    if inicio.startswith((b"<?xml", b"<Workbook")):
+        return _ler_xml_2003(conteudo)
+    if conteudo[:4] == b"\xd0\xcf\x11\xe0":
+        raise HTTPException(400, "Este .xls é do Excel antigo: abra no Excel e use Salvar como › .xlsx.")
     if nome.endswith(".csv"):
         import csv
 
@@ -83,7 +170,7 @@ def _ler_arquivo(conteudo: bytes, nome: str) -> list[list]:
         sep = ";" if (texto or "").count(";") > (texto or "").count(",") else ","
         return [list(r) for r in csv.reader(io.StringIO(texto or ""), delimiter=sep)]
     if not nome.endswith((".xlsx", ".xlsm")):
-        raise HTTPException(400, "Envie a planilha em .xlsx ou .csv.")
+        raise HTTPException(400, "Envie a planilha em .xlsx, .xls (XML) ou .csv.")
     try:
         wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
     except Exception as e:  # noqa: BLE001
@@ -122,29 +209,53 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
                 sug[papel] = achou
                 usados.add(achou)
                 break
-    # valor: se o nome não ajudou, a primeira coluna só com números decimais
+    def amostra(i):
+        return [r[i] for r in linhas[:60] if i < len(r) and r[i] not in (None, "") and not _eh_total(r)]
+
+    def numerica(i):
+        vals = amostra(i)
+        return bool(vals) and sum(isinstance(v, float | int) and not isinstance(v, bool) for v in vals) >= 0.7 * len(vals)
+
+    def datas(i):
+        vals = amostra(i)
+        return bool(vals) and sum(ler_data(v) is not None for v in vals) >= 0.8 * len(vals)
+
+    # o nome enganou (ex.: coluna "Total" com textos): descarta
+    for papel, ok in (("valor", numerica), ("vencimento", datas)):
+        if sug[papel] is not None and not ok(sug[papel]):
+            usados.discard(sug[papel])
+            sug[papel] = None
+    # chave: coluna cujos textos trazem um número longo (ex.: "Fulano X Beltrano - 1042599/2026")
+    if sug["chave"] is None or not any(_NUM_CHAVE.search(str(v)) for v in amostra(sug["chave"])):
+        melhor = None
+        for i in range(len(colunas)):
+            vals = [str(v) for v in amostra(i)]
+            if vals and sum(bool(_NUM_CHAVE.search(v)) for v in vals) >= 0.7 * len(vals):
+                comp = sum(map(len, vals)) / len(vals)
+                if melhor is None or comp > melhor[0]:
+                    melhor = (comp, i)
+        if melhor:
+            if sug["chave"] is not None:
+                usados.discard(sug["chave"])
+            sug["chave"] = melhor[1]
+            usados.add(melhor[1])
+            # o texto completo do caso também serve de título
+            if sug["titulo"] is None and any(re.search(r"[a-zA-Z]{3,}", str(v)) for v in amostra(melhor[1])):
+                sug["titulo"] = melhor[1]
+    if sug["vencimento"] is None:
+        sug["vencimento"] = next((i for i in range(len(colunas)) if i not in usados and datas(i)), None)
+        if sug["vencimento"] is not None:
+            usados.add(sug["vencimento"])
+    # valor: se o nome não ajudou, a 1ª coluna numérica com centavos; senão a 1ª com números de tamanho de
+    # valor (códigos e nº de sinistro costumam passar de 1 milhão)
     if sug["valor"] is None:
-        for i in range(len(colunas)):
-            if i in usados:
-                continue
-            vals = [r[i] for r in linhas[:30] if i < len(r) and r[i] not in (None, "")]
-            if vals and all(isinstance(v, float | int) and not isinstance(v, bool) for v in vals) and any(
-                isinstance(v, float) for v in vals
-            ):
-                sug["valor"] = i
-                usados.add(i)
-                break
-    # descrição: a coluna de texto mais longa que sobrou
-    if sug["descricao"] is None:
-        medias = []
-        for i in range(len(colunas)):
-            if i in usados:
-                continue
-            vals = [str(r[i]) for r in linhas[:30] if i < len(r) and isinstance(r[i], str)]
-            if vals:
-                medias.append((sum(map(len, vals)) / len(vals), i))
-        if medias:
-            sug["descricao"] = max(medias)[1]
+        livres = [i for i in range(len(colunas)) if i not in usados and numerica(i)]
+        com_centavos = [i for i in livres if any(isinstance(v, float) for v in amostra(i))]
+        cara_de_valor = [i for i in livres if max(abs(float(v)) for v in amostra(i) if isinstance(v, int | float)) < 1_000_000]
+        escolha = (com_centavos or cara_de_valor or [None])[0]
+        if escolha is not None:
+            sug["valor"] = escolha
+            usados.add(escolha)
     return sug
 
 
@@ -167,6 +278,8 @@ class AnalisarIn(BaseModel):
     contrato_padrao_id: int | None = None  # sem coluna de contrato: vai tudo para este
     vencimento_padrao: date | None = None  # resposta do "mesma data para todos?"
     primeira_linha: int = 2  # número da 1ª linha de dados na planilha (para mostrar ao usuário)
+    numeros: list[int] | None = None  # nº de cada linha na planilha (linhas já normalizadas pela análise)
+    descricao_padrao: str | None = Field(default=None, max_length=300)  # sem coluna de texto da cobrança
 
 
 class AplicarIn(AnalisarIn):
@@ -246,11 +359,17 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
         ativos = [c for c in contratos if c.ativo]
         padrao = ativos[0] if len(ativos) == 1 else None
     casos = _casos_por_chave(ctx, tid, dados.campo_chave_id)
+    if dados.numeros is None:  # 1ª análise: limpa o relatório (linhas de total, grupos)
+        linhas, numeros = normalizar(dados.linhas, [dados.primeira_linha + i for i in range(len(dados.linhas))], m)
+    else:
+        linhas, numeros = dados.linhas, dados.numeros
     vistos: dict[str, int] = {}
     itens = []
-    for n, linha in enumerate(dados.linhas):
-        chave_txt = _texto(_pega(linha, m.chave))
-        item = {"linha": dados.primeira_linha + n, "indice": n, "chave": chave_txt, "erro": None, "caso": None,
+    for n, linha in enumerate(linhas):
+        texto_chave = _texto(_pega(linha, m.chave))
+        chave_txt = _extrair_chave(texto_chave)
+        item = {"linha": numeros[n] if n < len(numeros) else n, "indice": n, "chave": chave_txt,
+                "texto_chave": texto_chave, "erro": None, "caso": None,
                 "contrato": None, "contrato_novo": None, "descricao": "", "valor": None, "vencimento": None,
                 "acao_caso": None, "acao_regra": None, "motivo": None}
         if not chave_txt:
@@ -275,7 +394,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
             else:
                 item["contrato_novo"] = txt or f"{t.nome} — casos importados"
         # regra de cobrança
-        desc = _texto(_pega(linha, m.descricao))
+        desc = _texto(_pega(linha, m.descricao)) or (dados.descricao_padrao or "").strip()
         valor = ler_valor(_pega(linha, m.valor)) if m.valor is not None else None
         venc = ler_data(_pega(linha, m.vencimento)) if m.vencimento is not None else None
         venc = venc or dados.vencimento_padrao
@@ -296,6 +415,8 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
 
     return {
         "itens": itens,
+        "linhas": linhas,
+        "numeros": numeros,
         "resumo": {
             "linhas": len(itens), "erros": sum(1 for i in itens if i["erro"]),
             "casos_novos": qtd("acao_caso", "criar"), "casos_existentes": qtd("acao_caso", "existe"),
@@ -315,7 +436,9 @@ async def ler(tid: int, ctx: Operador, arquivo: UploadFile = File(...)):
     if len(linhas) < 2:
         raise HTTPException(400, "A planilha não tem linhas de dados.")
     i = _linha_cabecalho(linhas)
+    largura = max(len(r) for r in linhas)  # relatório: o cabeçalho pode ter menos colunas que os dados
     colunas = [_texto(c) or f"Coluna {n + 1}" for n, c in enumerate(linhas[i])]
+    colunas += [f"Coluna {n + 1}" for n in range(len(colunas), largura)]
     dados = [[_celula(c) for c in r] for r in linhas[i + 1:]][:MAX_LINHAS]
     campos = list(ctx.db.scalars(select(CampoAdicional).where(
         CampoAdicional.tenant_id == ctx.tenant_id, CampoAdicional.entidade == "caso", CampoAdicional.ativo,
@@ -372,9 +495,10 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
                     ctx.auditar("faturamento.contrato.criar", "fat_contrato", contrato.id,
                                 descricao=f"#{contrato.numero} {contrato.nome} (importação de planilha)")
             numero = (ctx.db.scalar(select(func.max(Caso.numero)).where(Caso.tenant_id == ctx.tenant_id)) or 0) + 1
-            linha = dados.linhas[item["indice"]]
+            linha = plano["linhas"][item["indice"]]
+            texto_caso = item["texto_chave"] if item["texto_chave"] != item["chave"] else ""
             caso = Caso(tenant_id=ctx.tenant_id, numero=numero, contrato_id=contrato.id, data_abertura=date.today(),
-                        titulo=(_texto(_pega(linha, m.titulo)) or f"{campo.nome}: {item['chave']}")[:250],
+                        titulo=(_texto(_pega(linha, m.titulo)) or texto_caso or f"{campo.nome}: {item['chave']}")[:250],
                         numero_processo=_texto(_pega(linha, m.processo))[:40] or None,
                         parte_contraria=_texto(_pega(linha, m.parte_contraria))[:200] or None,
                         campos={str(campo.id): item["chave"]})
