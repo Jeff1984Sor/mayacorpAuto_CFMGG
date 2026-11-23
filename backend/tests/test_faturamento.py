@@ -849,3 +849,35 @@ def test_importar_dois_lancamentos_iguais_no_mesmo_caso(cliente):  # noqa: F811
     # importar de novo: tudo igual, nada novo
     plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
     assert [i["acao_regra"] for i in plano["itens"]] == ["pular", "pular", "pular"]
+
+
+def test_agrupamento_das_faturas_por_cliente(cliente):  # noqa: F811
+    """O cliente escolhe: tudo numa fatura (contrato), uma por caso ou uma por cobrança."""
+    h = _login(cliente)
+    cli, contrato, caso1 = _base(cliente, h, "G")
+    caso2 = cliente.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={"titulo": "Outro caso"}).json()
+    hoje = date.today().isoformat()
+
+    def cobrar(caso, desc, valor):
+        cliente.post(f"/api/faturamento/casos/{caso['id']}/regras", headers=h, json={
+            "tipo": "fixo", "descricao": desc, "valor": valor, "data_pagamento": hoje})
+
+    def faturar(modo):
+        r = cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h, json={"fatura_agrupamento": modo})
+        assert r.status_code == 200 and r.json()["fatura_agrupamento"] == (None if modo == "contrato" else modo), r.text
+        params = {"de": hoje, "ate": hoje, "cliente_ids": [cli["id"]]}
+        itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]["itens"]
+        r = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params, "chaves": [i["chave"] for i in itens]})
+        assert r.status_code in (200, 201), r.text
+        return sorted(float(f["valor"]) for f in r.json()["faturas"])
+
+    cobrar(caso1, "Iniciais", "1150.00")
+    cobrar(caso1, "Finais", "575.00")
+    cobrar(caso2, "Iniciais", "1720.00")
+    assert faturar("caso") == [1720.0, 1725.0]  # caso 1 junta as duas cobranças
+    cobrar(caso1, "Complemento A", "100.00")
+    cobrar(caso1, "Complemento B", "200.00")
+    assert faturar("cobranca") == [100.0, 200.0]
+    cobrar(caso1, "Extra", "50.00")
+    cobrar(caso2, "Extra", "60.00")
+    assert faturar("contrato") == [110.0]

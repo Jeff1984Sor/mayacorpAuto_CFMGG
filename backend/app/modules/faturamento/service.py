@@ -251,9 +251,46 @@ def _pct(d: Decimal) -> str:
     return f"{d:f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
+def _grupos(contrato: Contrato, sel: list[Pendente]) -> list[list[Pendente]]:
+    """Como o cliente quer as faturas (Cadastros › Clientes › aba Casos › Ao faturar):
+    contrato = tudo numa fatura (padrão) · caso = uma por caso · cobranca = uma por cobrança
+    (as horas e as despesas de uma mesma regra/caso ficam juntas: são uma cobrança só)."""
+    modo = (contrato.tomador.fatura_agrupamento if contrato.tomador else None) or "contrato"
+    if modo == "contrato" or len(sel) <= 1:
+        return [sel]
+    grupos: dict[tuple, list[Pendente]] = {}
+    for p in sel:
+        if modo == "caso":
+            k = ("caso", p.caso_id)
+        elif p.tipo in ("hora", "despesa"):
+            k = (p.tipo, p.regra_id, p.caso_id)
+        else:
+            k = ("cobranca", p.chave)
+        grupos.setdefault(k, []).append(p)
+    return list(grupos.values())
+
+
 def criar_faturas(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pendente], tipo: TipoFatura, *,
                   dias_vencimento: int = 10, vencimento_na_emissao: bool = False,
                   observacao: str | None = None) -> list[Fatura]:
+    """Faturas dos itens escolhidos, agrupadas como o cliente pediu (por contrato, por caso ou por cobrança)."""
+    sem_valor = [p for p in sel if p.aviso]
+    if sem_valor:
+        raise RegraFaturamento(f"Há itens sem valor definido: {sem_valor[0].aviso}. Ajuste a tabela de preço.")
+    criadas: list[Fatura] = []
+    for grupo in _grupos(contrato, sel):
+        if sum((p.valor for p in grupo), Decimal(0)) <= 0:
+            continue  # grupo zerado (ex.: só itens sem valor) não vira fatura
+        criadas += _criar_faturas_grupo(db, tenant_id, contrato, grupo, tipo, dias_vencimento=dias_vencimento,
+                                        vencimento_na_emissao=vencimento_na_emissao, observacao=observacao)
+    if not criadas:
+        raise RegraFaturamento("A fatura ficaria com valor zero.")
+    return criadas
+
+
+def _criar_faturas_grupo(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pendente], tipo: TipoFatura, *,
+                         dias_vencimento: int = 10, vencimento_na_emissao: bool = False,
+                         observacao: str | None = None) -> list[Fatura]:
     """Uma fatura por pagador do contrato. Na divisão, cada item sai com a cota do pagador.
 
     A primeira fatura da divisão é a que "segura" a cobrança (chave da parcela, horas e despesas); as demais

@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   ReceiptText,
+  Split,
   Trash2,
   Type,
 } from "lucide-react";
@@ -72,6 +73,9 @@ export function CasosDoCliente({
   const [texto, setTexto] = useState("");
   const [notaTitulo, setNotaTitulo] = useState<boolean | null>(null);
   const [notaRegra, setNotaRegra] = useState<boolean | null>(null);
+  const [agrupar, setAgrupar] = useState<"contrato" | "caso" | "cobranca">(
+    "contrato",
+  );
   const [dlg, setDlg] = useState<{ c: CampoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<CampoOut | null>(null);
   const [importar, setImportar] = useState(false);
@@ -83,6 +87,7 @@ export function CasosDoCliente({
     setTexto(modelo.data.modelo_titulo_caso ?? "");
     setNotaTitulo(modelo.data.nota_titulo_caso);
     setNotaRegra(modelo.data.nota_texto_regra);
+    setAgrupar(modelo.data.fatura_agrupamento ?? "contrato");
   }, [modelo.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -108,7 +113,8 @@ export function CasosDoCliente({
   const mudou =
     (modelo.data?.modelo_titulo_caso ?? "") !== texto.trim() ||
     (modelo.data?.nota_titulo_caso ?? null) !== notaTitulo ||
-    (modelo.data?.nota_texto_regra ?? null) !== notaRegra;
+    (modelo.data?.nota_texto_regra ?? null) !== notaRegra ||
+    (modelo.data?.fatura_agrupamento ?? "contrato") !== agrupar;
 
   const inserir = (rotulo: string) => {
     const el = input.current;
@@ -134,6 +140,7 @@ export function CasosDoCliente({
           modelo_titulo_caso: texto.trim() || null,
           nota_titulo_caso: notaTitulo,
           nota_texto_regra: notaRegra,
+          fatura_agrupamento: agrupar,
         },
       ),
     onSuccess: (r) => {
@@ -335,6 +342,64 @@ export function CasosDoCliente({
               sem modelo: o título é digitado em cada caso
             </span>
           )}
+        </div>
+      </section>
+
+      {/* ---------------- ao faturar: quantas notas */}
+      <section className="rounded-2xl border p-4">
+        <div className="mb-3 flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-success/10 text-success-ink">
+            <Split className="size-4" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold">Ao faturar</h3>
+            <p className="text-xs text-muted-foreground">
+              Quando houver mais de uma cobrança de {nomeCliente}, como elas
+              viram faturas e notas fiscais.
+            </p>
+          </div>
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="Como agrupar as cobranças"
+          className="grid gap-2 sm:grid-cols-3"
+        >
+          {(
+            [
+              [
+                "contrato",
+                "Unificar em 1 nota",
+                "Todas as cobranças do contrato juntas.",
+              ],
+              [
+                "caso",
+                "Uma nota por caso",
+                "As cobranças do mesmo caso juntas; cada caso tem a sua.",
+              ],
+              [
+                "cobranca",
+                "Uma nota por cobrança",
+                "Cada cobrança vira uma nota separada.",
+              ],
+            ] as const
+          ).map(([v, t, d]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={agrupar === v}
+              onClick={() => setAgrupar(v)}
+              className={cn(
+                "rounded-xl border p-3 text-left transition",
+                agrupar === v
+                  ? "border-brand bg-brand/8 ring-1 ring-brand/30"
+                  : "hover:border-brand/40 hover:bg-muted/30",
+              )}
+            >
+              <p className="text-sm font-medium">{t}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{d}</p>
+            </button>
+          ))}
         </div>
       </section>
 

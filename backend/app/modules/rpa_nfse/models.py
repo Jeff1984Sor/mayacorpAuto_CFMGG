@@ -167,6 +167,8 @@ class Tomador(Base, Timestamped):
     # Texto da NFS-e das faturas deste cliente; vazio = segue Configurações › Automações
     nota_titulo_caso: Mapped[bool | None] = mapped_column(Boolean)
     nota_texto_regra: Mapped[bool | None] = mapped_column(Boolean)
+    # Ao faturar: contrato (tudo numa fatura/nota, o padrão) | caso (uma por caso) | cobranca (uma por cobrança)
+    fatura_agrupamento: Mapped[str | None] = mapped_column(String(10))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha
 
     __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)
