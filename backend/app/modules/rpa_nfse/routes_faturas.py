@@ -21,7 +21,11 @@ router = APIRouter(prefix="/nfse", tags=["Faturas"])
 
 
 def fatura_out(f: Fatura) -> FaturaOut:
+    from sqlalchemy.orm import object_session
+
     tom = faturas.dados_cliente(f)
+    db = object_session(f)
+    retido = faturas.retencoes(db, f) if db is not None else Decimal(0)
     contrato = faturas._contrato(f) if f.contrato_id else None
     return FaturaOut(
         id=f.id, codigo=f.codigo, numero=f.numero, ano=f.ano, tipo=f.tipo.value, origem=f.origem,
@@ -31,6 +35,7 @@ def fatura_out(f: Fatura) -> FaturaOut:
         lote_id=f.nfse.rps.lote_id if f.nfse else None, emissora_id=f.emissora_id, tomador_id=f.tomador_id,
         tomador_nome=tom.get("nome") or "", tomador_doc=tom.get("cpf_cnpj"), data_emissao=f.data_emissao,
         data_vencimento=f.data_vencimento, valor=f.valor, desconto=f.desconto, juros=f.juros, total=f.total,
+        retencoes=retido, valor_liquido=f.total - retido,
         status=f.status, situacao=faturas.situacao(f), pago_em=f.pago_em, descricao=f.descricao,
         pix_copia_e_cola=faturas.pix_da_fatura(f), simulada=bool(f.nfse and f.nfse.simulada),
     )
@@ -49,6 +54,7 @@ def listar(
     lote_id: int | None = None, de: date | None = None, ate: date | None = None,
     tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$"), contrato_id: int | None = None,
     sem_nfse: bool = False, pagina: int = Query(1, ge=1), por_pagina: int = Query(25, ge=1, le=200),
+    tomador_id: int | None = None,
 ):
     base = select(Fatura).outerjoin(Nfse, Fatura.nfse_id == Nfse.id).outerjoin(Tomador, Fatura.tomador_id == Tomador.id)
     f = [Fatura.tenant_id == ctx.tenant_id]
@@ -75,6 +81,8 @@ def listar(
         f.append(Fatura.tipo == TipoFatura(tipo))
     if contrato_id:
         f.append(Fatura.contrato_id == contrato_id)
+    if tomador_id:
+        f.append(Fatura.tomador_id == tomador_id)
     if sem_nfse:
         f += [Fatura.nfse_id.is_(None), Fatura.tipo == TipoFatura.honorarios, Fatura.status != StatusFatura.cancelada]
     if de:
@@ -88,9 +96,12 @@ def listar(
 
 
 @router.get("/faturas/resumo")
-def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$")):
+def resumo(ctx: Ctx, tipo: str | None = Query(None, pattern="^(honorarios|despesas|robo)$"),
+           tomador_id: int | None = None):
     hoje = date.today()
     f = [Fatura.tenant_id == ctx.tenant_id]
+    if tomador_id:
+        f.append(Fatura.tomador_id == tomador_id)
     if tipo == "robo":
         f.append(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
     elif tipo:

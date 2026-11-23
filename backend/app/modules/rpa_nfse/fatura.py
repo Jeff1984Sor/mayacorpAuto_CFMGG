@@ -100,6 +100,34 @@ def espelhar_no_financeiro(db: Session, fat: Fatura, conta_id: int | None = None
     espelhar_recebimento(db, fat, conta_id)
 
 
+def retencoes(db: Session, fat: Fatura) -> Decimal:
+    """Retenções federais (IR, PIS, COFINS, CSLL, INSS) da nota desta fatura.
+
+    Com NFS-e emitida: as que foram na nota. Sem nota ainda: as que a nota vai ter, pela regra fiscal do cliente.
+    Nota de Despesas (ND) não vira NFS-e: zero.
+    """
+    from app.core.documentos import so_digitos
+    from app.modules.rpa_nfse import validator
+
+    if fat.tipo == TipoFatura.despesas:
+        return Decimal(0)
+    if fat.nfse and fat.nfse.rps:
+        rps = fat.nfse.rps
+        dados = rps.dados_json or {}
+        doc = so_digitos((dados.get("tomador") or {}).get("cpf_cnpj"))
+        ret = validator.calcular_retencoes(fat.nfse.valor, dados.get("layout2") or {}, doc)
+    else:
+        tomador = fat.tomador
+        doc = so_digitos(tomador.cpf_cnpj if tomador else None)
+        if len(doc) != 14:  # pessoa física não retém
+            return Decimal(0)
+        emissora = fat.emissora
+        params = validator.resolver_parametros(service.parametros_da_emissora(db, fat.emissora_id),
+                                               (emissora.cod_servico_padrao if emissora else "") or "", fat.tomador_id)
+        ret = validator.calcular_retencoes(fat.total, params, doc)
+    return sum(ret.values(), Decimal(0))
+
+
 def situacao(fat: Fatura) -> str:
     if fat.status == StatusFatura.aberta and fat.data_vencimento < date.today():
         return "vencida"

@@ -988,3 +988,31 @@ def test_importar_base_separando_o_titulo_nos_campos(cliente):  # noqa: F811
     r2 = cliente.post(f"{base}/analisar", headers=h, json={**corpo, "numeros": None, "ocorrencias": None,
                                                          "linhas": lido["linhas"]}).json()["resumo"]
     assert (r2["casos_novos"], r2["casos_existentes"], r2["regras_iguais"]) == (0, 3, 1)
+
+
+def test_fatura_mostra_valor_bruto_e_liquido(cliente):  # noqa: F811
+    """Líquido = bruto − retenções federais da nota (regra fiscal do cliente; depois de emitida, as da própria nota)."""
+    h = _login(cliente)
+    cli, contrato, caso = _base(cliente, h, "L")
+    ficha = cliente.get(f"/api/nfse/tomadores/{cli['id']}", headers=h).json()
+    ficha.update(cpf_cnpj="73428195000149")
+    assert cliente.put(f"/api/nfse/tomadores/{cli['id']}", headers=h, json=ficha).status_code == 200
+    emissora = cliente.get("/api/nfse/emissoras", headers=h).json()[0]
+    r = cliente.post("/api/config/parametros-fiscais", headers=h, json={
+        "emissora_id": emissora["id"], "escopo": "tomador", "tomador_id": cli["id"], "descricao": "Retém",
+        "ret_ir": "0.015", "ret_pis": "0.0065", "ret_cofins": "0.03", "ret_csll": "0.01", "retencao_pis_cofins": "3"})
+    assert r.status_code in (200, 201), r.text
+    hoje = date.today().isoformat()
+    cliente.post(f"/api/faturamento/casos/{caso['id']}/regras", headers=h, json={
+        "tipo": "fixo", "descricao": "Honorários iniciais", "valor": "1150.00", "data_pagamento": hoje})
+    params = {"de": hoje, "ate": hoje, "cliente_ids": [cli["id"]]}
+    itens = cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"][0]["itens"]
+    nh = cliente.post("/api/faturamento/faturar", headers=h, json={
+        "aba": "honorarios", **params, "chaves": [i["chave"] for i in itens]}).json()["faturas"][0]
+    f = cliente.get(f"/api/nfse/faturas/{nh['id']}", headers=h).json()
+    # 17,25 + 7,48 + 34,50 + 11,50 = 70,73 → líquido 1.079,27 (como a NFS-e 20806)
+    assert (f["total"], f["retencoes"], f["valor_liquido"]) == ("1150.00", "70.73", "1079.27"), f
+    # filtro por cliente na lista e no resumo
+    lista = cliente.get("/api/nfse/faturas", headers=h, params={"tomador_id": cli["id"]}).json()
+    assert lista["total"] == 1 and lista["itens"][0]["id"] == nh["id"]
+    assert cliente.get("/api/nfse/faturas/resumo", headers=h, params={"tomador_id": cli["id"]}).status_code == 200

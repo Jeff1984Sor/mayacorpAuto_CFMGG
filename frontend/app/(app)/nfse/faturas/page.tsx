@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/mayacorp/empty-state";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
+import { type ClienteEscolhido, ClientesMulti } from "@/components/faturamento/clientes-multi";
 import { FiltroDocumento, type TipoDocumento } from "@/components/faturamento/filtro-documento";
 import { useZipFaturas } from "@/components/nfse/acoes-fatura";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { data, documento, moeda, numero } from "@/lib/format";
+import { data, documento, moeda, numero, toNum } from "@/lib/format";
 import type { FaturaOut, ResumoFaturas, SituacaoFatura } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -43,10 +44,15 @@ export default function FaturasPage() {
   const podeEmitir = pode("nfse_emissao.emitir");
   const tipo = ((lista.filtros.tipo as string | undefined) ?? "") as TipoDocumento;
   const resumo = useQuery({
-    queryKey: ["faturas-resumo", tipo],
-    queryFn: () => api.get<ResumoFaturas>("/nfse/faturas/resumo", { tipo: tipo || undefined }),
+    queryKey: ["faturas-resumo", tipo, lista.filtros.tomador_id ?? null],
+    queryFn: () =>
+      api.get<ResumoFaturas>("/nfse/faturas/resumo", {
+        tipo: tipo || undefined,
+        tomador_id: (lista.filtros.tomador_id as number | undefined) ?? undefined,
+      }),
   });
   const [sel, setSel] = useState<Set<number>>(new Set());
+  const [clienteSel, setClienteSel] = useState<ClienteEscolhido[]>([]);
   const situacao = (lista.filtros.situacao as SituacaoFatura | undefined) ?? null;
   const { setFiltro } = lista;
 
@@ -69,7 +75,10 @@ export default function FaturasPage() {
     });
   const todos = lista.itens.length > 0 && lista.itens.every((f) => sel.has(f.id));
   const alguns = lista.itens.some((f) => sel.has(f.id));
-  const filtrando = !!(lista.q || situacao || lista.filtros.de || lista.filtros.ate || lista.filtros.lote_id || tipo || lista.filtros.sem_nfse);
+  const filtrando = !!(
+    lista.q || situacao || lista.filtros.de || lista.filtros.ate || lista.filtros.lote_id || tipo || lista.filtros.sem_nfse ||
+    lista.filtros.tomador_id
+  );
   const emitiveis = lista.itens.filter((f) => sel.has(f.id) && f.pode_emitir_nfse).map((f) => f.id);
 
   return (
@@ -132,6 +141,17 @@ export default function FaturasPage() {
               </button>
             ) : null}
             <FiltroDocumento valor={tipo} onChange={(v) => lista.setFiltro("tipo", v || undefined)} />
+            <div className="w-64">
+              <ClientesMulti
+                unico
+                id="faturas-cliente"
+                valor={clienteSel}
+                onChange={(v) => {
+                  setClienteSel(v);
+                  lista.setFiltro("tomador_id", v[0]?.id);
+                }}
+              />
+            </div>
             <label className="flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs">
               <Checkbox checked={!!lista.filtros.sem_nfse} onCheckedChange={(v) => lista.setFiltro("sem_nfse", v ? true : undefined)} aria-label="Só sem NFS-e" /> Sem NFS-e
             </label>
@@ -141,7 +161,7 @@ export default function FaturasPage() {
           </div>
         </Toolbar>
         {lista.isPending ? (
-          <TableSkeleton colunas={7} />
+          <TableSkeleton colunas={8} />
         ) : lista.itens.length === 0 ? (
           <EmptyState
             icone={ReceiptText}
@@ -166,7 +186,10 @@ export default function FaturasPage() {
                   <th className="px-3 py-2.5 font-medium">Cliente</th>
                   <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Emissão</th>
                   <th className="px-3 py-2.5 font-medium">Vencimento</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Total</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Valor bruto</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Valor bruto menos as retenções federais da nota (IR, PIS, COFINS, CSLL)">
+                    Valor líquido
+                  </th>
                   <th className="px-3 py-2.5 font-medium">Situação</th>
                 </tr>
               </thead>
@@ -213,6 +236,14 @@ export default function FaturasPage() {
                     </td>
                     <td className="px-3 py-3 text-right whitespace-nowrap">
                       <Mono>{moeda(f.total)}</Mono>
+                    </td>
+                    <td className="px-3 py-3 text-right whitespace-nowrap">
+                      <Mono>{moeda(f.valor_liquido ?? f.total)}</Mono>
+                      {toNum(f.retencoes ?? 0) > 0 && (
+                        <span className="block text-[11px] text-muted-foreground" title="Retenções federais da nota">
+                          − {moeda(f.retencoes ?? 0)} retidos
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <StatusBadge status={f.situacao} />

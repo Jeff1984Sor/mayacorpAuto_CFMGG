@@ -503,6 +503,9 @@ class FaturaOut(Schema):
     desconto: Decimal
     juros: Decimal
     total: Decimal
+    # retenções federais da nota (IR, PIS, COFINS, CSLL, INSS) e o que o cliente paga de fato
+    retencoes: Decimal = Decimal(0)
+    valor_liquido: Decimal | None = None
     status: StatusFatura
     situacao: str  # aberta | vencida | paga | cancelada
     pago_em: date | None

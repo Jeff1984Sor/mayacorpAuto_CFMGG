@@ -565,6 +565,10 @@ export interface FaturaOut {
   desconto: Decimal;
   juros: Decimal;
   total: Decimal;
+  /** retenções federais da nota (IR, PIS, COFINS, CSLL, INSS); sem nota ainda, as que ela vai ter */
+  retencoes?: Decimal;
+  /** o que o cliente paga de fato: total − retenções */
+  valor_liquido?: Decimal | null;
   status: "aberta" | "paga" | "cancelada";
   situacao: SituacaoFatura;
   pago_em: string | null;
