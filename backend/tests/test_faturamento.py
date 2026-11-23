@@ -881,3 +881,36 @@ def test_agrupamento_das_faturas_por_cliente(cliente):  # noqa: F811
     cobrar(caso1, "Extra", "50.00")
     cobrar(caso2, "Extra", "60.00")
     assert faturar("contrato") == [110.0]
+
+
+def test_xlsx_com_tamanho_declarado_errado_e_lido_inteiro():
+    """Relatório exportado que diz ter só "A1": o modo rápido do openpyxl veria a planilha vazia."""
+    import io
+    import re
+    import zipfile
+
+    from openpyxl import Workbook
+
+    from app.modules.faturamento import importar_casos as ic
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Filtros aplicados: Pagador = Exemplo"])
+    ws.append([])
+    ws.append(["Contrato_Num", "Contrato_Titulo", "Caso_Titulo", "NumeroExterno", "Data_Vencimento", "Valor_Bruto_Caso_Real"])
+    ws.append(["CO-4", "Sinistro Fiança - Tradicional", "Fulano X Beltrano - 1030059/2026", "4029013-47.2026.8.26.0007",
+               date(2026, 10, 30), 287.5])
+    buf = io.BytesIO()
+    wb.save(buf)
+    entrada, saida = zipfile.ZipFile(io.BytesIO(buf.getvalue())), io.BytesIO()
+    with zipfile.ZipFile(saida, "w") as z:
+        for item in entrada.infolist():
+            dados = entrada.read(item.filename)
+            if item.filename.startswith("xl/worksheets/sheet"):
+                dados = re.sub(rb'<dimension ref="[^"]*"/>', b'<dimension ref="A1"/>', dados)
+            z.writestr(item, dados)
+    linhas = ic._ler_arquivo(saida.getvalue(), "data.xlsx")
+    assert len(linhas) == 3
+    i = ic._linha_cabecalho(linhas)
+    sug = ic._sugerir([str(c) for c in linhas[i]], [[ic._celula(c) for c in r] for r in linhas[i + 1:]], "Nº do sinistro")
+    assert (sug["contrato"], sug["chave"], sug["titulo"], sug["processo"], sug["vencimento"], sug["valor"]) == (1, 2, 2, 3, 4, 5)

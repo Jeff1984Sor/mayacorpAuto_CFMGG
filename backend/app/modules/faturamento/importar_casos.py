@@ -54,6 +54,7 @@ def _chave(v) -> str:
     return s.lstrip("0") or s
 
 
+_CNJ = re.compile(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}")
 _NUM_CHAVE = re.compile(r"(?<![\d])\d{5,}(?:\s*[/-]\s*\d{2,4})?(?![\d])")
 
 
@@ -171,18 +172,23 @@ def _ler_arquivo(conteudo: bytes, nome: str) -> list[list]:
         return [list(r) for r in csv.reader(io.StringIO(texto or ""), delimiter=sep)]
     if not nome.endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Envie a planilha em .xlsx, .xls (XML) ou .csv.")
-    try:
-        wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, "Não consegui abrir a planilha. Salve como .xlsx e tente de novo.") from e
-    # a aba com mais linhas preenchidas costuma ser a de dados
     melhor: list[list] = []
-    for ws in wb.worksheets:
-        if _norm(ws.title).startswith(("instruc", "como preencher", "leia")):
-            continue  # aba de instruções da planilha modelo
-        linhas = [list(r) for r in ws.iter_rows(values_only=True) if any(c not in (None, "") for c in r)]
-        if len(linhas) > len(melhor):
-            melhor = linhas
+    # o modo rápido (read_only) confia no tamanho que o arquivo declara; relatórios exportados por outros
+    # sistemas às vezes declaram errado (só "A1") e a planilha parece vazia: aí lê do jeito completo
+    for rapido in (True, False):
+        try:
+            wb = load_workbook(io.BytesIO(conteudo), read_only=rapido, data_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, "Não consegui abrir a planilha. Salve como .xlsx e tente de novo.") from e
+        # a aba com mais linhas preenchidas costuma ser a de dados
+        for ws in wb.worksheets:
+            if _norm(ws.title).startswith(("instruc", "como preencher", "leia")):
+                continue  # aba de instruções da planilha modelo
+            linhas = [list(r) for r in ws.iter_rows(values_only=True) if any(c not in (None, "") for c in r)]
+            if len(linhas) > len(melhor):
+                melhor = linhas
+        if len(melhor) > 2 or len(conteudo) > 20_000_000:
+            break
     return melhor
 
 
@@ -204,7 +210,12 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
         pistas["chave"] = (_norm(campo_chave).replace("n ", "").replace("no ", ""), *PISTAS["chave"])
     for papel in ("chave", "valor", "vencimento", "processo", "parte_contraria", "contrato", "titulo", "descricao"):
         for pista in pistas[papel]:
-            achou = next((i for i, n in enumerate(nomes) if i not in usados and pista and pista in n), None)
+            achou = None
+            if papel == "contrato":  # entre as colunas de contrato, a do nome/título vence a do código
+                achou = next((i for i, n in enumerate(nomes) if i not in usados and pista in n
+                              and any(x in n for x in ("titulo", "nome", "descricao"))), None)
+            if achou is None:
+                achou = next((i for i, n in enumerate(nomes) if i not in usados and pista and pista in n), None)
             if achou is not None:
                 sug[papel] = achou
                 usados.add(achou)
@@ -225,11 +236,21 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
         if sug[papel] is not None and not ok(sug[papel]):
             usados.discard(sug[papel])
             sug[papel] = None
+    def cnj(i):
+        vals = [str(v) for v in amostra(i)]
+        return bool(vals) and sum(bool(_CNJ.search(v)) for v in vals) >= 0.7 * len(vals)
+
+    if sug["processo"] is None:
+        sug["processo"] = next((i for i in range(len(colunas)) if i not in usados and cnj(i)), None)
+        if sug["processo"] is not None:
+            usados.add(sug["processo"])
     # chave: coluna cujos textos trazem um número longo (ex.: "Fulano X Beltrano - 1042599/2026")
     if sug["chave"] is None or not any(_NUM_CHAVE.search(str(v)) for v in amostra(sug["chave"])):
         melhor = None
         for i in range(len(colunas)):
             vals = [str(v) for v in amostra(i)]
+            if i == sug["processo"] or cnj(i):
+                continue
             if vals and sum(bool(_NUM_CHAVE.search(v)) for v in vals) >= 0.7 * len(vals):
                 comp = sum(map(len, vals)) / len(vals)
                 if melhor is None or comp > melhor[0]:
