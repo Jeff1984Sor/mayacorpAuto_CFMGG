@@ -566,6 +566,8 @@ export interface FaturaOut {
   origem: "nota" | "faturamento";
   contrato_id: number | null;
   contrato_nome: string | null;
+  /** título do(s) caso(s) cobrados nesta fatura */
+  caso_titulo?: string | null;
   pode_emitir_nfse: boolean;
   data_emissao: string;
   data_vencimento: string;

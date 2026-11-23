@@ -279,9 +279,20 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
         q = q.where(false())  # "emitidas pelo robô": revisão é do Faturamento, não do robô
     elif tipo:
         q = q.where(Revisao.aba == tipo)  # a aba da revisão usa os mesmos nomes: honorarios | despesas
-    for r in ctx.db.scalars(q.order_by(Revisao.criado_em)):
+    revisoes = list(ctx.db.scalars(q.order_by(Revisao.criado_em)))
+    casos_rev: dict[int, list[str]] = {}
+    if revisoes:
+        for rid, titulo in ctx.db.execute(
+            select(RevisaoItem.revisao_id, Caso.titulo).join(Caso, RevisaoItem.caso_id == Caso.id)
+            .where(RevisaoItem.revisao_id.in_([r.id for r in revisoes])).order_by(RevisaoItem.id)
+        ):
+            lista = casos_rev.setdefault(rid, [])
+            if titulo and titulo not in lista:
+                lista.append(titulo)
+    for r in revisoes:
         res = _resumo(ctx, r)
         colunas["em_revisao"].append({
+            "caso": " · ".join(casos_rev.get(r.id, [])) or None,
             "tipo": "revisao", "id": r.id, "titulo": f"Revisão #{r.numero}", "cliente": res["tomador_nome"],
             "contrato": f"#{res['contrato_numero']} {res['contrato_nome']}", "valor": res["total"], "data": r.criado_em.date(),
             "documento": "ND" if r.aba == "despesas" else "NH", "responsavel": res["responsavel_nome"],
@@ -295,9 +306,11 @@ def fluxo(ctx: Ctx, de: date | None = None, ate: date | None = None, tomador_id:
         q = q.where(Fatura.origem == "nota")  # NH criada pela NFS-e emitida pelo robô (arquivo de RPS)
     elif tipo:
         q = q.where(Fatura.tipo == TipoFatura(tipo))
-    for f in ctx.db.scalars(q.order_by(Fatura.data_vencimento)):
+    lista_faturas = list(ctx.db.scalars(q.order_by(Fatura.data_vencimento)))
+    casos = faturas_nfse.casos_das_faturas(ctx.db, [f.id for f in lista_faturas])
+    for f in lista_faturas:
         card = {"tipo": "fatura", "id": f.id, "titulo": f.codigo, "cliente": f.tomador.nome if f.tomador else "",
-                "contrato": None, "valor": f.total, "valor_liquido": faturas_nfse.valor_a_pagar(ctx.db, f),
+                "contrato": None, "caso": casos.get(f.id), "valor": f.total, "valor_liquido": faturas_nfse.valor_a_pagar(ctx.db, f),
                 "data": f.data_emissao, "vencimento": f.data_vencimento,
                 "documento": "ND" if f.tipo == TipoFatura.despesas else "NH", "nfse_numero": f.nfse.numero if f.nfse else None,
                 "nfse_link": faturas_nfse.link_da_nota(f),

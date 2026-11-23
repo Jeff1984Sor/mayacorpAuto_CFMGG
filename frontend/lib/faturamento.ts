@@ -401,6 +401,8 @@ export interface FluxoCard {
   titulo: string;
   cliente: string;
   contrato: string | null;
+  /** título do(s) caso(s) cobrados (a busca do Fluxo também procura aqui) */
+  caso?: string | null;
   valor: Decimal;
   /** fatura: valor bruto menos as retenções federais da nota (o que o cliente paga) */
   valor_liquido?: Decimal | null;

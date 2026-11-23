@@ -130,7 +130,7 @@ export default function FaturasPage() {
 
       <TableCard>
         <Toolbar>
-          <SearchInput value={lista.q} onChange={lista.setQ} placeholder="Cliente, nº da fatura, NFS-e ou CPF/CNPJ" className="sm:w-96" />
+          <SearchInput value={lista.q} onChange={lista.setQ} placeholder="Cliente, caso, nº da fatura, NFS-e ou CPF/CNPJ" className="sm:w-96" />
           <div className="flex flex-wrap items-center gap-2">
             {lista.filtros.lote_id ? (
               <button
@@ -231,6 +231,11 @@ export default function FaturasPage() {
                     </td>
                     <td className="max-w-60 px-3 py-3">
                       <p className="truncate">{f.tomador_nome}</p>
+                      {f.caso_titulo && (
+                        <p className="truncate text-xs text-foreground/80" title={f.caso_titulo}>
+                          {f.caso_titulo}
+                        </p>
+                      )}
                       <p className="truncate text-[11px] text-muted-foreground">
                         <span className="num">{documento(f.tomador_doc)}</span>
                         {f.contrato_nome && ` · ${f.contrato_nome}`}

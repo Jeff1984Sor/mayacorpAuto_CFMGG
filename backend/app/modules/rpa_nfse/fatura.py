@@ -142,6 +142,23 @@ def valor_a_pagar(db: Session | None, fat: Fatura) -> Decimal:
     return fat.total - (retencoes(db, fat) if db is not None else Decimal(0))
 
 
+def casos_das_faturas(db: Session, ids: list[int]) -> dict[int, str]:
+    """Título do(s) caso(s) de cada fatura (os itens dizem de que caso é a cobrança), para mostrar e buscar."""
+    from app.modules.faturamento.models import Caso, FaturaItem
+
+    if not ids:
+        return {}
+    titulos: dict[int, list[str]] = {}
+    for fid, titulo in db.execute(
+        select(FaturaItem.fatura_id, Caso.titulo).join(Caso, FaturaItem.caso_id == Caso.id)
+        .where(FaturaItem.fatura_id.in_(ids)).order_by(FaturaItem.id)
+    ):
+        lista = titulos.setdefault(fid, [])
+        if titulo and titulo not in lista:
+            lista.append(titulo)
+    return {fid: " · ".join(lista) for fid, lista in titulos.items()}
+
+
 def link_da_nota(fat: Fatura) -> str | None:
     """Link público da NFS-e desta fatura na Prefeitura (nota simulada não tem)."""
     from app.modules.rpa_nfse.prefeitura_sp import link_nota

@@ -20,16 +20,19 @@ from app.modules.rpa_nfse.schemas import BaixaManualIn, FaturaOut, ZipIn
 router = APIRouter(prefix="/nfse", tags=["Faturas"])
 
 
-def fatura_out(f: Fatura) -> FaturaOut:
+def fatura_out(f: Fatura, casos: dict[int, str] | None = None) -> FaturaOut:
     from sqlalchemy.orm import object_session
 
     tom = faturas.dados_cliente(f)
     db = object_session(f)
+    if casos is None:
+        casos = faturas.casos_das_faturas(db, [f.id]) if db is not None else {}
     retido = faturas.retencoes(db, f) if db is not None else Decimal(0)
     contrato = faturas._contrato(f) if f.contrato_id else None
     return FaturaOut(
         id=f.id, codigo=f.codigo, numero=f.numero, ano=f.ano, tipo=f.tipo.value, origem=f.origem,
         contrato_id=f.contrato_id, contrato_nome=f"#{contrato.numero} {contrato.nome}" if contrato else None,
+        caso_titulo=casos.get(f.id),
         pode_emitir_nfse=f.tipo == TipoFatura.honorarios and not f.nfse_id and f.status != StatusFatura.cancelada,
         nfse_id=f.nfse_id, nfse_numero=f.nfse.numero if f.nfse else None,
         lote_id=f.nfse.rps.lote_id if f.nfse else None, emissora_id=f.emissora_id, tomador_id=f.tomador_id,
@@ -61,7 +64,11 @@ def listar(
     f = [Fatura.tenant_id == ctx.tenant_id]
     if q:
         dig = so_digitos(q)
-        conds = [Tomador.nome.ilike(f"%{q}%")]
+        from app.modules.faturamento.models import Caso, FaturaItem
+
+        # também pelo título do caso (ex.: nome da parte ou nº do sinistro que está no título)
+        do_caso = select(FaturaItem.fatura_id).join(Caso, FaturaItem.caso_id == Caso.id).where(Caso.titulo.ilike(f"%{q.strip()}%"))
+        conds = [Tomador.nome.ilike(f"%{q}%"), Fatura.id.in_(do_caso)]
         if dig:
             conds += [Fatura.numero == int(dig), Nfse.numero == int(dig), Tomador.cpf_cnpj.like(f"%{dig}%")]
         f.append(or_(*conds))
@@ -91,9 +98,11 @@ def listar(
     if ate:
         f.append(Fatura.data_emissao <= ate)
     total = ctx.db.scalar(select(func.count()).select_from(base.where(*f).subquery())) or 0
-    itens = ctx.db.scalars(base.where(*f).order_by(Fatura.data_emissao.desc(), Fatura.id.desc())
-                           .offset((pagina - 1) * por_pagina).limit(por_pagina))
-    return Pagina[FaturaOut](itens=[fatura_out(x) for x in itens], total=total, pagina=pagina, por_pagina=por_pagina)
+    itens = list(ctx.db.scalars(base.where(*f).order_by(Fatura.data_emissao.desc(), Fatura.id.desc())
+                                .offset((pagina - 1) * por_pagina).limit(por_pagina)))
+    casos = faturas.casos_das_faturas(ctx.db, [x.id for x in itens])
+    return Pagina[FaturaOut](itens=[fatura_out(x, casos) for x in itens], total=total, pagina=pagina,
+                             por_pagina=por_pagina)
 
 
 @router.get("/faturas/resumo")

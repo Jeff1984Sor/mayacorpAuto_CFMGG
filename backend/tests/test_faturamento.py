@@ -1046,6 +1046,14 @@ def test_fatura_mostra_valor_bruto_e_liquido(cliente):  # noqa: F811
     lista = cliente.get("/api/nfse/faturas", headers=h, params={"tomador_id": cli["id"]}).json()
     assert lista["total"] == 1 and lista["itens"][0]["id"] == nh["id"]
     assert cliente.get("/api/nfse/faturas/resumo", headers=h, params={"tomador_id": cli["id"]}).status_code == 200
+    # busca pelo título do caso, em Faturas e no Fluxo (o cartão traz o caso)
+    assert f["caso_titulo"] == caso["titulo"], f
+    achou = cliente.get("/api/nfse/faturas", headers=h, params={"q": caso["titulo"][:-1]}).json()
+    assert nh["id"] in [x["id"] for x in achou["itens"]] and achou["itens"][0]["caso_titulo"], achou
+    assert cliente.get("/api/nfse/faturas", headers=h, params={"q": "caso que nao existe zzz"}).json()["total"] == 0
+    fluxo = cliente.get("/api/faturamento/fluxo", headers=h, params={"tomador_id": cli["id"]}).json()["colunas"]
+    cards = [c for col in fluxo.values() for c in col["cards"] if c["tipo"] == "fatura" and c["id"] == nh["id"]]
+    assert cards and cards[0]["caso"] == caso["titulo"], cards
     # a NH (PDF) traz a tabela de tributos e o valor a pagar líquido; o PIX também sai no líquido
     import io as _io
 

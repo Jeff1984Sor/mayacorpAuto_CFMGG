@@ -497,6 +497,7 @@ class FaturaOut(Schema):
     origem: str = "nota"  # nota (Lello) | faturamento (Itens a faturar)
     contrato_id: int | None = None
     contrato_nome: str | None = None
+    caso_titulo: str | None = None  # título do(s) caso(s) cobrados nesta fatura
     pode_emitir_nfse: bool = False
     nfse_id: int | None
     nfse_numero: int | None

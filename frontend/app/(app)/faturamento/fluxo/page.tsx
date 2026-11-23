@@ -93,7 +93,7 @@ export default function FluxoPage() {
     return todas.filter(
       (l) =>
         (filtro === "todos" || l.status === filtro) &&
-        (!t || [l.titulo, l.cliente, l.contrato, l.nfse_numero ? String(l.nfse_numero) : ""].some((x) => x?.toLowerCase().includes(t))),
+        (!t || [l.titulo, l.cliente, l.contrato, l.caso, l.nfse_numero ? String(l.nfse_numero) : ""].some((x) => x?.toLowerCase().includes(t))),
     );
   }, [todas, filtro, busca]);
   const totalTodos = todas.reduce((s, l) => s + Number(l.valor), 0);
@@ -167,7 +167,7 @@ export default function FluxoPage() {
 
       <TableCard>
         <Toolbar>
-          <SearchInput value={busca} onChange={setBusca} placeholder="Fatura, cliente, contrato ou NFS-e" className="sm:w-80" />
+          <SearchInput value={busca} onChange={setBusca} placeholder="Fatura, cliente, caso, contrato ou NFS-e" className="sm:w-80" />
           <div className="flex flex-wrap items-center gap-2">
             <FiltroDocumento
               valor={tipo}
@@ -284,6 +284,11 @@ export default function FluxoPage() {
                       </td>
                       <td className="max-w-72 px-3 py-3">
                         <p className="truncate">{l.cliente}</p>
+                        {l.caso && (
+                          <p className="truncate text-xs text-foreground/80" title={l.caso}>
+                            {l.caso}
+                          </p>
+                        )}
                         {l.contrato && <p className="truncate text-[11px] text-muted-foreground">{l.contrato}</p>}
                       </td>
                       <td className="px-3 py-3">
