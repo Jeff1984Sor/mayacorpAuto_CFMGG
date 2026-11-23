@@ -167,6 +167,9 @@ class Tomador(Base, Timestamped):
     # Texto da NFS-e das faturas deste cliente; vazio = segue Configurações › Automações
     nota_titulo_caso: Mapped[bool | None] = mapped_column(Boolean)
     nota_texto_regra: Mapped[bool | None] = mapped_column(Boolean)
+    nota_contrato: Mapped[bool | None] = mapped_column(Boolean)  # nome do contrato na 1ª linha (vazio = sim)
+    # campo adicional do caso que abre o texto da nota (ex.: Nº Sinistro → "Sinistro 1037344/2026")
+    nota_campo_inicio_id: Mapped[int | None] = mapped_column(Integer)
     # Ao faturar: contrato (tudo numa fatura/nota, o padrão) | caso (uma por caso) | cobranca (uma por cobrança)
     fatura_agrupamento: Mapped[str | None] = mapped_column(String(10))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha

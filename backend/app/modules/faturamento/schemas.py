@@ -153,6 +153,8 @@ class ModeloTituloIn(BaseModel):
     nota_titulo_caso: bool | None = None  # vazio = segue Configurações › Automações
     nota_texto_regra: bool | None = None
     fatura_agrupamento: str | None = Field(default=None, pattern="^(contrato|caso|cobranca)$")
+    nota_contrato: bool | None = None  # nome do contrato na nota (vazio = sim)
+    nota_campo_inicio_id: int | None = None  # campo do caso que abre o texto da nota
 
 
 class ModeloTituloOut(BaseModel):
@@ -161,6 +163,8 @@ class ModeloTituloOut(BaseModel):
     nota_titulo_caso: bool | None = None
     nota_texto_regra: bool | None = None
     fatura_agrupamento: str | None = None
+    nota_contrato: bool | None = None
+    nota_campo_inicio_id: int | None = None
     padrao: list[str]  # rótulos dos campos padrão que podem ir entre chaves
     atualizados: int = 0
 

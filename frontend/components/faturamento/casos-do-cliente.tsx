@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
+import { NativeSelect } from "@/components/mayacorp/form";
 import { Pill } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +77,8 @@ export function CasosDoCliente({
   const [agrupar, setAgrupar] = useState<"contrato" | "caso" | "cobranca">(
     "contrato",
   );
+  const [notaContrato, setNotaContrato] = useState<boolean | null>(null);
+  const [notaCampo, setNotaCampo] = useState<number | null>(null);
   const [dlg, setDlg] = useState<{ c: CampoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<CampoOut | null>(null);
   const [importar, setImportar] = useState(false);
@@ -88,6 +91,8 @@ export function CasosDoCliente({
     setNotaTitulo(modelo.data.nota_titulo_caso);
     setNotaRegra(modelo.data.nota_texto_regra);
     setAgrupar(modelo.data.fatura_agrupamento ?? "contrato");
+    setNotaContrato(modelo.data.nota_contrato ?? null);
+    setNotaCampo(modelo.data.nota_campo_inicio_id ?? null);
   }, [modelo.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -114,7 +119,9 @@ export function CasosDoCliente({
     (modelo.data?.modelo_titulo_caso ?? "") !== texto.trim() ||
     (modelo.data?.nota_titulo_caso ?? null) !== notaTitulo ||
     (modelo.data?.nota_texto_regra ?? null) !== notaRegra ||
-    (modelo.data?.fatura_agrupamento ?? "contrato") !== agrupar;
+    (modelo.data?.fatura_agrupamento ?? "contrato") !== agrupar ||
+    (modelo.data?.nota_contrato ?? null) !== notaContrato ||
+    (modelo.data?.nota_campo_inicio_id ?? null) !== notaCampo;
 
   const inserir = (rotulo: string) => {
     const el = input.current;
@@ -141,6 +148,8 @@ export function CasosDoCliente({
           nota_titulo_caso: notaTitulo,
           nota_texto_regra: notaRegra,
           fatura_agrupamento: agrupar,
+          nota_contrato: notaContrato,
+          nota_campo_inicio_id: notaCampo,
         },
       ),
     onSuccess: (r) => {
@@ -432,6 +441,33 @@ export function CasosDoCliente({
             valor={notaRegra}
             onChange={setNotaRegra}
           />
+          <OpcaoNota
+            titulo="Nome do contrato"
+            exemplo="ex.: Honorários advocatícios — Contencioso (Padrão = aparece)"
+            valor={notaContrato}
+            onChange={setNotaContrato}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/30 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Começar o texto com o campo</p>
+              <p className="text-xs text-muted-foreground">
+                ex.: “Sinistro 1037344/2026” na primeira linha da nota
+              </p>
+            </div>
+            <NativeSelect
+              aria-label="Campo que abre o texto da nota"
+              className="w-56"
+              value={notaCampo ?? ""}
+              onChange={(e) => setNotaCampo(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">— nenhum —</option>
+              {usaveis.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
         </div>
       </section>
 

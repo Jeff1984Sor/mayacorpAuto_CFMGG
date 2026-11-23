@@ -618,7 +618,7 @@ def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota
 def discriminacao_nfse(db: Session, fat: Fatura) -> str:
     """Texto da NFS-e da NH, montado na emissão pelos itens da fatura, conforme Configurações › Automações:
     o texto da regra de cobrança e o título do caso entram quando ligados (vale para faturas já criadas)."""
-    from app.modules.faturamento.models import RegraCobranca
+    from app.modules.faturamento.models import CampoAdicional, RegraCobranca
     from app.modules.rpa_nfse import service as nfse
 
     itens = list(getattr(fat, "itens", None) or [])
@@ -631,8 +631,19 @@ def discriminacao_nfse(db: Session, fat: Fatura) -> str:
     com_titulo = cliente.nota_titulo_caso if cliente and cliente.nota_titulo_caso is not None else cfg.nota_titulo_caso
     com_regra = cliente.nota_texto_regra if cliente and cliente.nota_texto_regra is not None else cfg.nota_texto_regra
     linhas = [(fat.descricao or "").split("\n")[0]]  # "Honorários advocatícios — contrato (cota)"
+    casos = {i.caso.id: i.caso for i in itens if i.caso}
+    if cliente and cliente.nota_contrato is False and contrato:  # sem o nome do contrato: fica só "Honorários..."
+        linhas[0] = linhas[0].replace(f" — {contrato.nome}", "", 1).replace(f" #{contrato.numero} {contrato.nome}", "", 1)
+    if cliente and cliente.nota_campo_inicio_id:  # o texto abre com um campo do caso (ex.: "Sinistro 1037344/2026")
+        campo = db.get(CampoAdicional, cliente.nota_campo_inicio_id)
+        valores = [str(v) for c in sorted(casos.values(), key=lambda c: c.numero)
+                   if (v := (c.campos or {}).get(str(cliente.nota_campo_inicio_id))) not in (None, "")]
+        if campo and valores:
+            import re
+
+            rotulo = re.sub(r"^(n[ºo°.]*|numero|número)(\s+d[oae])?\s+", "", campo.nome.strip(), flags=re.I) or campo.nome
+            linhas.insert(0, f"{rotulo} {', '.join(dict.fromkeys(valores))}")
     if com_titulo:
-        casos = {i.caso.id: i.caso for i in itens if i.caso}
         so_titulo = getattr(cfg, "nota_titulo_formato", "numero") == "titulo"
         linhas += [c.titulo if so_titulo else f"Caso #{c.numero} — {c.titulo}"
                    for c in sorted(casos.values(), key=lambda c: c.numero)]

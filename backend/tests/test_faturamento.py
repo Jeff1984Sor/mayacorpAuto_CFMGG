@@ -768,6 +768,21 @@ def test_texto_da_nota_por_cliente(cliente):  # noqa: F811
     lote_id = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nh["id"]]}).json()["lote_id"]
     texto = cliente.get(f"/api/nfse/importacoes/{lote_id}", headers=h).json()["rps"][0]["discriminacao"]
     assert f"Caso #{caso['numero']} — Ação de cobrança" in texto and "Honorarios iniciais sinistro 123" in texto, texto
+    assert texto.split(chr(10))[0] == "Honorários advocatícios — Consultivo N"
+    # o cliente tira o nome do contrato e abre o texto com um campo do caso (ex.: nº do sinistro)
+    sin = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "N° Sinistro", "tipo": "texto",
+                                                                    "tomador_id": cli["id"]}).json()
+    ficha = cliente.get(f"/api/faturamento/casos/{caso['id']}", headers=h).json()
+    cliente.put(f"/api/faturamento/casos/{caso['id']}", headers=h, json={
+        "titulo": ficha["titulo"], "campos": {str(sin["id"]): "1037344/2026"}})
+    r = cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h, json={
+        "nota_titulo_caso": True, "nota_texto_regra": True, "nota_contrato": False, "nota_campo_inicio_id": sin["id"]})
+    assert r.status_code == 200 and r.json()["nota_campo_inicio_id"] == sin["id"], r.text
+    cliente.delete(f"/api/nfse/importacoes/{lote_id}", headers=h)  # descarta o lote: a fatura volta a poder emitir
+    lote2 = cliente.post("/api/faturamento/emitir-nfse", headers=h, json={"fatura_ids": [nh["id"]]})
+    assert lote2.status_code == 200, lote2.text
+    linhas = cliente.get(f"/api/nfse/importacoes/{lote2.json()['lote_id']}", headers=h).json()["rps"][0]["discriminacao"].split(chr(10))
+    assert linhas[:2] == ["Sinistro 1037344/2026", "Honorários advocatícios"], linhas
 
 
 def test_planilha_modelo_da_importacao_volta_reconhecida(cliente):  # noqa: F811

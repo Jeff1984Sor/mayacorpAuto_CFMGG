@@ -13,6 +13,9 @@ export interface ModeloTituloOut {
   nota_texto_regra: boolean | null;
   /** ao faturar: null/contrato = tudo numa nota · caso = uma por caso · cobranca = uma por cobrança */
   fatura_agrupamento: "contrato" | "caso" | "cobranca" | null;
+  /** nome do contrato na nota (null = sim) e o campo do caso que abre o texto (ex.: Nº Sinistro) */
+  nota_contrato?: boolean | null;
+  nota_campo_inicio_id?: number | null;
   /** rótulos dos campos padrão que podem ir entre chaves */
   padrao: string[];
   atualizados: number;
