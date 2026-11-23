@@ -9,6 +9,7 @@ import { Fragment, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
+import { SearchInput } from "@/components/mayacorp/data-table";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field } from "@/components/mayacorp/form";
@@ -203,6 +204,12 @@ function ResultadoDialog({
   );
 }
 
+const semAcento = (x: string) =>
+  x
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
 export default function ItensAFaturarPage() {
   const qc = useQueryClient();
   const router = useRouter();
@@ -230,7 +237,21 @@ export default function ItensAFaturarPage() {
     queryFn: () => api.get<ItensAFaturarOut>("/faturamento/itens-a-faturar", params!),
     enabled: !!params,
   });
-  const clientes = useMemo(() => q.data?.clientes ?? [], [q.data]);
+  const todos = useMemo(() => q.data?.clientes ?? [], [q.data]);
+  // busca no caso (título, nº/sinistro) e no texto da cobrança: filtra na tela, sem ir ao servidor
+  const [busca, setBusca] = useState("");
+  const clientes = useMemo(() => {
+    const t = semAcento(busca.trim());
+    if (!t) return todos;
+    const digitos = t.replace(/\D/g, "");
+    const bate = (i: ItemPendente) =>
+      semAcento(`${i.caso_titulo ?? ""} ${i.descricao ?? ""}`).includes(t) ||
+      (!!digitos && (String(i.caso_numero ?? "") === digitos.replace(/^0+/, "") ||
+        (i.caso_titulo ?? "").replace(/\D/g, "").includes(digitos)));
+    return todos
+      .map((c) => ({ ...c, contratos: c.contratos.map((k) => ({ ...k, itens: k.itens.filter(bate) })).filter((k) => k.itens.length) }))
+      .filter((c) => c.contratos.length);
+  }, [todos, busca]);
   const porChave = useMemo(() => {
     const m = new Map<string, ItemPendente>();
     clientes.forEach((c) => c.contratos.forEach((k) => k.itens.forEach((i) => m.set(i.chave, i))));
@@ -388,7 +409,7 @@ export default function ItensAFaturarPage() {
             <Skeleton key={i} className="h-16 rounded-2xl" />
           ))}
         </div>
-      ) : clientes.length === 0 ? (
+      ) : todos.length === 0 ? (
         <div className="card-surface">
           <EmptyState
             icone={ListChecks}
@@ -404,6 +425,12 @@ export default function ItensAFaturarPage() {
       ) : (
         <section className="card-surface overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+            <SearchInput
+              value={busca}
+              onChange={setBusca}
+              placeholder="Buscar caso: título, nº do sinistro ou texto"
+              className="w-full sm:w-80"
+            />
             <p className="text-sm text-muted-foreground">
               <strong className="text-foreground">{clientes.length}</strong> cliente(s) · <strong className="text-foreground">{q.data!.qtd_itens}</strong> item(ns) ·{" "}
               <strong className="font-mono text-foreground">{moeda(q.data!.total)}</strong>
@@ -427,8 +454,15 @@ export default function ItensAFaturarPage() {
                 </tr>
               </thead>
               <tbody>
+                {clientes.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                      Nenhum caso encontrado para “{busca}”.
+                    </td>
+                  </tr>
+                )}
                 {clientes.map((c) => {
-                  const aberto = abertos.has(c.tomador_id);
+                  const aberto = abertos.has(c.tomador_id) || !!busca.trim();
                   const itens = itensDo(c);
                   return (
                     <Fragment key={c.tomador_id}>
