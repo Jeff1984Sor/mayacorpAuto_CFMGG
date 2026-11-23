@@ -729,6 +729,10 @@ def test_importar_casos_por_planilha(cliente):  # noqa: F811
 
     corpo = {"linhas": lido["linhas"], "mapa": {k: v for k, v in s.items() if v is not None},
              "campo_chave_id": sin["id"], "primeira_linha": lido["primeira_linha"]}
+    # cliente com um contrato só: sem escolha na tela, nada de contrato novo
+    so_um = cliente.post(f"/api/faturamento/clientes/{cli['id']}/importar-casos/analisar", headers=h, json=corpo).json()
+    assert so_um["resumo"]["contratos_novos"] == []
+    corpo["contratos_de_para"] = {"Carteira Nova": "Carteira Nova"}  # escolhido na tela: aí sim cria
     plano = cliente.post(f"/api/faturamento/clientes/{cli['id']}/importar-casos/analisar", headers=h, json=corpo).json()
     res = plano["resumo"]
     assert (res["casos_existentes"], res["casos_novos"], res["regras_iguais"], res["regras_novas"], res["sem_data"]) == (2, 1, 1, 1, 1)
@@ -994,7 +998,8 @@ def test_importar_base_separando_o_titulo_nos_campos(cliente):  # noqa: F811
     # sem de-para, um número solto da planilha é código do sistema antigo: nunca o nº de um contrato do MayaJus
     sem_de_para = cliente.post(f"{base}/analisar", headers=h, json={
         **corpo, "contratos_de_para": {}, "linhas": [[contrato_mj["numero"], "Zé X Lia - 1000009/2024", "Ativa", 10, 44935, "x"]]}).json()
-    assert sem_de_para["itens"][0]["contrato"] is None and sem_de_para["itens"][0]["contrato_novo"] == f"Contrato {contrato_mj['numero']}"
+    # cliente com um contrato só: sem escolha na tela, vai para ele (não cria "Contrato N")
+    assert sem_de_para["itens"][0]["contrato"]["id"] == contrato_mj["id"] and not sem_de_para["itens"][0]["contrato_novo"]
     # padrão: todas as regras entram, ativas e inativas
     todas = cliente.post(f"{base}/analisar", headers=h, json={**corpo, "so_ativas": False}).json()["resumo"]
     assert (todas["regras_historico"], todas["inativas_ignoradas"]) == (3, 0)
@@ -1074,3 +1079,57 @@ def test_fatura_mostra_valor_bruto_e_liquido(cliente):  # noqa: F811
     rps = lote["rps"][0]
     assert (rps["valor"], rps["retencoes"], rps["valor_liquido"]) == ("1150.00", "70.73", "1079.27"), rps
     assert (lote["resumo"]["retencoes_total"], lote["resumo"]["valor_liquido_total"]) == ("70.73", "1079.27"), lote["resumo"]
+
+
+def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
+    """"Sinistro: 1038248/2026ref.: 39067-1Contrato:55095Autor: ..." → 1 caso por sinistro, com Sinistro e Ref."""
+    from app.modules.faturamento.importar_casos import extrair_rotulados
+
+    class C:
+        def __init__(self, id, nome):
+            self.id, self.nome = id, nome
+
+    cs = [C(1, "Sinistro"), C(2, "Ref"), C(3, "N° do Contrato")]
+    assert extrair_rotulados("Sinistro: 1038248/2026ref.: 39067-1Contrato:55095Autor: Agostinho", cs) == {
+        1: "1038248/2026", 2: "39067-1", 3: "55095"}
+    assert extrair_rotulados("Porto LelloSinistro: 1045549/2026ref.: 39031/2Contrato: 71308Autor: MARILENE", cs) == {
+        1: "1045549/2026", 2: "39031/2", 3: "71308"}
+    assert extrair_rotulados("Sinistro: 1042289/2026 ref.: 50261-1Contrato: 70841", cs[:2]) == {
+        1: "1042289/2026", 2: "50261-1"}
+    assert extrair_rotulados("Referente: 12345 sem rotulo", cs) == {}
+
+    h = _login(cliente)
+    cli, contrato, _ = _base(cliente, h, "R")
+    tid = cli["id"]
+    ids = {}
+    for nome in ("Sinistro", "Ref"):
+        r = cliente.post("/api/faturamento/campos", headers=h, json={"nome": nome, "tipo": "texto", "tomador_id": tid})
+        assert r.status_code in (200, 201), r.text
+        ids[nome] = r.json()["id"]
+    r = cliente.put(f"/api/faturamento/clientes/{tid}/modelo-caso", headers=h, json={"modelo_titulo_caso": "{Sinistro} - {Ref}"})
+    assert r.status_code == 200, r.text
+    obs1 = "Sinistro: 1038248/2026ref.: 39067-1Contrato:55095Autor: Agostinho Gomes da SilvaGarantido: Maria"
+    obs2 = "Porto LelloSinistro: 1045549/2026ref.: 39031/2Contrato: 71308Autor: MARILENE"
+    hoje = date.today().isoformat()
+    corpo = {"linhas": [[obs1, 500.0, hoje], [obs1, 300.0, hoje], [obs2, 700.0, hoje]],
+             "mapa": {"chave": 0, "valor": 1, "vencimento": 2}, "campo_chave_id": ids["Sinistro"],
+             "descricao_padrao": "Honorários"}
+    # cliente com um contrato só: tudo vai para ele, mesmo com a coluna de contrato dizendo outra coisa
+    corpo["linhas"] = [[*ln, "Contrato que nao existe 55095"] for ln in corpo["linhas"]]
+    corpo["mapa"]["contrato"] = 3
+    plano = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/analisar", headers=h, json=corpo)
+    assert plano.status_code == 200, plano.text
+    plano = plano.json()
+    assert plano["resumo"]["casos_novos"] == 2 and plano["resumo"]["regras_novas"] == 3, plano["resumo"]
+    assert plano["resumo"]["contratos_novos"] == [] and plano["itens"][0]["contrato"]["id"] == contrato["id"]
+    assert plano["itens"][0]["chave"] == "1038248/2026" and plano["itens"][0]["campos_extra"] == {str(ids["Ref"]): "39067-1"}
+    r = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/aplicar", headers=h, json={
+        **corpo, "linhas": plano["linhas"], "numeros": plano["numeros"], "ocorrencias": plano["ocorrencias"]})
+    assert r.status_code == 200, r.text
+    casos = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"contrato_id": contrato["id"]}).json()
+             if (c.get("campos") or {}).get(str(ids["Sinistro"]))]
+    por_sinistro = {c["campos"][str(ids["Sinistro"])]: c for c in casos}
+    assert set(por_sinistro) == {"1038248/2026", "1045549/2026"}, por_sinistro
+    c1 = por_sinistro["1038248/2026"]
+    assert c1["campos"][str(ids["Ref"])] == "39067-1" and c1["titulo"] == "1038248/2026 - 39067-1", c1
+    assert por_sinistro["1045549/2026"]["titulo"] == "1045549/2026 - 39031/2"

@@ -69,6 +69,33 @@ def _extrair_chave(texto: str) -> str:
     return re.sub(r"\s+", "", m.group(0)) if m else t
 
 
+_PREFIXO_NUMERO = re.compile(r"^(?:n[°ºo.]*|numero|número|nro\.?)\s+(?:d[oae]\s+)?", re.I)
+
+
+def extrair_rotulados(texto: str, campos: list) -> dict[int, str]:
+    """Lê do texto os campos do cliente escritos como "Rótulo: valor", mesmo colados uns nos outros.
+
+    "Sinistro: 1038248/2026ref.: 39067-1Contrato:55095Autor: Fulano" com os campos Sinistro e Ref
+    → {Sinistro: "1038248/2026", Ref: "39067-1"}. Só valores com cara de número/código (dígitos . / -).
+    """
+    achados: dict[int, str] = {}
+    for c in campos:
+        nomes = {c.nome.strip(), _PREFIXO_NUMERO.sub("", c.nome.strip())}
+        for nome in sorted((n for n in nomes if len(n) >= 2), key=len, reverse=True):
+            # rótulo curto ("Ref") não pode ser o fim de outra palavra; o longo pode vir colado ("LelloSinistro:")
+            m = re.search(("(?<![a-zà-ÿ])" if len(nome) < 4 else "") + re.escape(nome) + r"\s*\.?\s*:\s*(\d[\d./-]*)", texto or "", re.I)
+            if m:
+                achados[c.id] = m.group(1).rstrip("./-")
+                break
+    return achados
+
+
+def _campos_do_cliente(ctx, tid: int) -> list:
+    return list(ctx.db.scalars(select(CampoAdicional).where(
+        CampoAdicional.tenant_id == ctx.tenant_id, CampoAdicional.entidade == "caso", CampoAdicional.ativo,
+        CampoAdicional.tomador_id == tid).order_by(CampoAdicional.ordem)))
+
+
 _SEP_PARTES = re.compile(r"\s+[xX]\s+|(?<=[a-zà-ÿ])X\s+")
 _SINISTRO = re.compile(
     r"(?:sinistro\s*(?:n[ºo°.]*\s*)?)?(?<![\d.])(\d{3,7}\s*[/-]\s*\d{2,4}|\d{2}\s*/\s*\d{4})(?![\d.])", re.I)
@@ -352,6 +379,22 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
             # o texto completo do caso também serve de título
             if sug["titulo"] is None and any(re.search(r"[a-zA-Z]{3,}", str(v)) for v in amostra(melhor[1])):
                 sug["titulo"] = melhor[1]
+    # coluna que traz o próprio rótulo do campo-chave ("Sinistro: 1038248/2026ref.: ...") vence qualquer outra
+    if campo_chave:
+        class _C:
+            id, nome = 0, campo_chave
+
+        for i in range(len(colunas)):
+            vals = [str(v) for v in amostra(i)]
+            if vals and sum(bool(extrair_rotulados(v, [_C])) for v in vals) >= 0.5 * len(vals):
+                if sug["chave"] is not None:
+                    usados.discard(sug["chave"])
+                sug["chave"] = i
+                usados.add(i)
+                for papel in ("descricao", "titulo"):  # a mesma coluna não serve de texto da cobrança nem de título
+                    if sug[papel] == i:
+                        sug[papel] = None
+                break
     if sug["vencimento"] is None:
         sug["vencimento"] = next((i for i in range(len(colunas)) if i not in usados and datas(i)), None)
         if sug["vencimento"] is not None:
@@ -530,6 +573,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
     if padrao is None and m.contrato is None:
         ativos = [c for c in contratos if c.ativo]
         padrao = ativos[0] if len(ativos) == 1 else None
+    unico = contratos[0] if len(contratos) == 1 else None
     dec = dados.decompor if por_titulo and dados.decompor else None
     if dec:
         for cid in dec.values():
@@ -552,15 +596,19 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
     repeticao: dict[tuple, int] = {}
     ocorrencias: list[int] = []
     itens = []
+    # texto com rótulos ("Sinistro: 123/2026ref.: 39067-1..."): cada campo do cliente é lido pelo seu nome
+    campos_cliente = [] if dec else _campos_do_cliente(ctx, tid)
     for n, linha in enumerate(linhas):
         texto_chave = _texto(_pega(linha, m.chave))
+        rotulados = extrair_rotulados(texto_chave, campos_cliente) if campos_cliente else {}
         # pelo título: a chave é o título inteiro; o nº (sinistro) tirado dele só é guardado no campo
-        chave_txt = texto_chave if por_titulo else _extrair_chave(texto_chave)
-        numero_extraido = _extrair_chave(texto_chave)
+        numero_extraido = rotulados.get(dados.campo_chave_id or 0) or _extrair_chave(texto_chave)
+        chave_txt = texto_chave if por_titulo else numero_extraido
         item = {"linha": numeros[n] if n < len(numeros) else n, "indice": n, "chave": chave_txt,
                 "texto_chave": texto_chave, "erro": None, "caso": None,
                 "numero_extraido": numero_extraido if numero_extraido != texto_chave else None,
                 "contrato": None, "contrato_novo": None, "descricao": "", "valor": None, "vencimento": None,
+                "campos_extra": {str(k_): v for k_, v in rotulados.items() if k_ != dados.campo_chave_id},
                 "acao_caso": None, "acao_regra": None, "motivo": None}
         if not chave_txt:
             if not any(c not in (None, "") for c in linha):
@@ -584,7 +632,12 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
             item["contrato"] = {"id": caso.contrato_id, "nome": caso.contrato.nome, "numero": caso.contrato.numero}
         else:
             txt = _texto(_pega(linha, m.contrato))
-            c, novo = _resolver_contrato(contratos, txt, dados.contratos_de_para) if txt else (padrao, None)
+            # cliente com um contrato só: tudo vai para ele, diga o que disser a planilha (não cria outro);
+            # só muda se a pessoa escolher outro destino na tela (de-para)
+            if unico and dados.contratos_de_para.get(txt) in (None, ""):
+                c, novo = unico, None
+            else:
+                c, novo = _resolver_contrato(contratos, txt, dados.contratos_de_para) if txt else (padrao, None)
             if c:
                 item["contrato"] = {"id": c.id, "nome": c.nome, "numero": c.numero}
             else:
@@ -754,6 +807,8 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
             else:
                 titulo = _texto(_pega(linha, m.titulo)) or texto_caso or f"{campo.nome}: {item['chave']}"
                 campos = {str(campo.id): item["chave"]}
+            if not dec:  # demais campos do cliente lidos do texto (ex.: Ref)
+                campos = {**item.get("campos_extra", {}), **campos}
             processo = _texto(_pega(linha, m.processo)) or (item["partes"]["processo"] if dec else "")
             caso = Caso(tenant_id=ctx.tenant_id, numero=numero, contrato_id=contrato.id, data_abertura=date.today(),
                         titulo=titulo[:250], numero_processo=processo[:40] or None, descricao=descricao_caso,
@@ -768,6 +823,11 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
             r["caso"] = "criado"
         else:
             r["caso"] = "existente"
+            # caso que já existia: completa só os campos que estavam vazios (ex.: Ref)
+            faltam = {k_: v for k_, v in item.get("campos_extra", {}).items() if not (caso.campos or {}).get(k_)}
+            if faltam:
+                caso.campos = {**(caso.campos or {}), **faltam}
+                titulo_caso.aplicar(ctx.db, caso)
         r["caso_numero"] = caso.numero
         # regra: confere de novo na hora de gravar (repetir a importação não duplica)
         valor = Decimal(item["valor"]) if item["valor"] else None
