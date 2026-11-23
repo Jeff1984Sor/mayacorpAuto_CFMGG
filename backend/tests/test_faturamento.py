@@ -919,6 +919,6 @@ def test_xlsx_com_tamanho_declarado_errado_e_lido_inteiro():
 def test_data_em_numero_de_serie_do_excel():
     from app.modules.faturamento import importar_casos as ic
 
-    assert ic._data(44201.0) == date(2021, 1, 4)
+    assert ic._data(44201.0) == date(2021, 1, 5)  # 44197 = 01/01/2021
     assert ic._data("30/10/2026") == date(2026, 10, 30)
     assert ic._data(1150.0) is None  # valor não é data

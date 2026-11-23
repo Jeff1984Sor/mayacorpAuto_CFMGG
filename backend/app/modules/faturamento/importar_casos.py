@@ -68,7 +68,7 @@ def _extrair_chave(texto: str) -> str:
 
 
 def _data(v) -> date | None:
-    """Data em texto, data de verdade ou número de série do Excel (44201 = 04/01/2021)."""
+    """Data em texto, data de verdade ou número de série do Excel (44201 = 05/01/2021)."""
     if isinstance(v, int | float) and not isinstance(v, bool) and 20000 <= v <= 80000:
         from datetime import timedelta
 
