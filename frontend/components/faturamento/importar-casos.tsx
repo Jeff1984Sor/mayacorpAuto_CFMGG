@@ -72,6 +72,8 @@ interface Plano {
   /** linhas já limpas (sem totais, grupos preenchidos): são elas que vão para a importação */
   linhas: Celula[][];
   numeros: number[];
+  /** repetição da mesma cobrança (caso + valor + vencimento) antes desta linha */
+  ocorrencias: number[];
   resumo: {
     linhas: number;
     erros: number;
@@ -163,6 +165,7 @@ export function ImportarCasosDialog({
     primeira: number,
     venc: string | null,
     numeros: number[] | null = null,
+    ocorrencias: number[] | null = null,
   ) => ({
     linhas,
     mapa: Object.fromEntries(
@@ -173,6 +176,7 @@ export function ImportarCasosDialog({
     vencimento_padrao: venc,
     primeira_linha: primeira,
     numeros,
+    ocorrencias,
     descricao_padrao: descPadrao.trim() || null,
   });
 
@@ -235,6 +239,7 @@ export function ImportarCasosDialog({
             plano.numeros[i] ?? lido.primeira_linha + i,
             vencPadrao,
             plano.numeros.slice(i, i + LOTE),
+            plano.ocorrencias.slice(i, i + LOTE),
           ),
         );
         setFeitos((o) => [...o, ...r.resultados]);

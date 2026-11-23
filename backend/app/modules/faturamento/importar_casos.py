@@ -279,6 +279,8 @@ class AnalisarIn(BaseModel):
     vencimento_padrao: date | None = None  # resposta do "mesma data para todos?"
     primeira_linha: int = 2  # número da 1ª linha de dados na planilha (para mostrar ao usuário)
     numeros: list[int] | None = None  # nº de cada linha na planilha (linhas já normalizadas pela análise)
+    # quantas vezes a mesma cobrança (caso + valor + vencimento) já apareceu antes desta linha na planilha
+    ocorrencias: list[int] | None = None
     descricao_padrao: str | None = Field(default=None, max_length=300)  # sem coluna de texto da cobrança
 
 
@@ -341,12 +343,13 @@ def _texto(v) -> str:
     return str(v).strip()
 
 
-def _regra_igual(ctx, caso: Caso | None, valor: Decimal, venc: date | None) -> RegraCobranca | None:
+def _qtd_iguais(ctx, caso: Caso | None, valor: Decimal, venc: date | None) -> int:
+    """Quantas cobranças o caso já tem com este valor e vencimento."""
     if caso is None or caso.id is None:
-        return None
-    return ctx.db.scalar(select(RegraCobranca).where(
+        return 0
+    return ctx.db.scalar(select(func.count()).select_from(RegraCobranca).where(
         RegraCobranca.caso_id == caso.id, RegraCobranca.tipo == TipoRegra.fixo,
-        RegraCobranca.valor == valor, RegraCobranca.data_pagamento == venc).limit(1))
+        RegraCobranca.valor == valor, RegraCobranca.data_pagamento == venc)) or 0
 
 
 def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
@@ -364,6 +367,8 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
     else:
         linhas, numeros = dados.linhas, dados.numeros
     vistos: dict[str, int] = {}
+    repeticao: dict[tuple, int] = {}
+    ocorrencias: list[int] = []
     itens = []
     for n, linha in enumerate(linhas):
         texto_chave = _texto(_pega(linha, m.chave))
@@ -376,6 +381,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
             if not any(c not in (None, "") for c in linha):
                 continue  # linha em branco
             item["erro"] = "Linha sem a chave do caso."
+            ocorrencias.append(0)
             itens.append(item)
             continue
         k = _chave(chave_txt)
@@ -404,10 +410,20 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
             item["acao_regra"], item["motivo"] = "sem_valor", "Sem valor: só o caso é cadastrado."
         elif venc is None:
             item["acao_regra"], item["motivo"] = "sem_data", "Falta a data de vencimento."
-        elif _regra_igual(ctx, caso, valor, venc):
-            item["acao_regra"], item["motivo"] = "pular", "Já tem regra com o mesmo valor e vencimento."
         else:
-            item["acao_regra"] = "criar"
+            # dois lançamentos iguais no mesmo caso são duas cobranças: conta em vez de só perguntar "existe?"
+            chave_rep = (k, valor, venc)
+            if dados.ocorrencias is not None and n < len(dados.ocorrencias):
+                ocorr = dados.ocorrencias[n]
+            else:
+                ocorr = repeticao.get(chave_rep, 0)
+            repeticao[chave_rep] = repeticao.get(chave_rep, 0) + 1
+            item["ocorrencia"] = ocorr
+            if _qtd_iguais(ctx, caso, valor, venc) > ocorr:
+                item["acao_regra"], item["motivo"] = "pular", "Já tem regra com o mesmo valor e vencimento."
+            else:
+                item["acao_regra"] = "criar"
+        ocorrencias.append(item.get("ocorrencia", 0))
         itens.append(item)
 
     def qtd(campo, valor):
@@ -417,6 +433,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
         "itens": itens,
         "linhas": linhas,
         "numeros": numeros,
+        "ocorrencias": ocorrencias,
         "resumo": {
             "linhas": len(itens), "erros": sum(1 for i in itens if i["erro"]),
             "casos_novos": qtd("acao_caso", "criar"), "casos_existentes": qtd("acao_caso", "existe"),
@@ -516,7 +533,7 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
         valor = Decimal(item["valor"]) if item["valor"] else None
         venc = date.fromisoformat(item["vencimento"]) if item["vencimento"] else None
         if item["acao_regra"] in ("criar", "pular") and valor and venc:
-            if _regra_igual(ctx, caso, valor, venc):
+            if _qtd_iguais(ctx, caso, valor, venc) > item.get("ocorrencia", 0):
                 r["regra"] = "igual"
             else:
                 regra = RegraCobranca(tenant_id=ctx.tenant_id, contrato_id=caso.contrato_id, caso_id=caso.id,

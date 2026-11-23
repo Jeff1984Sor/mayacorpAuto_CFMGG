@@ -823,3 +823,29 @@ def test_importar_relatorio_xml_agrupado(cliente):  # noqa: F811
     novo = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"tomador_id": cli["id"]}).json()
             if c["campos"].get(str(sin["id"])) == "1000002/2026"][0]
     assert novo["titulo"] == "Ana Lima X Loja Ltda - 1000002/2026 - GRANDE MONTA"
+
+
+def test_importar_dois_lancamentos_iguais_no_mesmo_caso(cliente):  # noqa: F811
+    """Duas parcelas iguais (mesmo valor e vencimento) no mesmo caso são duas cobranças, e repetir não duplica."""
+    h = _login(cliente)
+    cli, contrato, _ = _base(cliente, h, "Y")
+    sin = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Nº do sinistro", "tipo": "texto",
+                                                                    "tomador_id": cli["id"]}).json()
+    linhas = [["555", "Parcela", 575.0], ["555", "Parcela", 575.0], ["555", "Outra", 1150.0]]
+    corpo = {"linhas": linhas, "mapa": {"chave": 0, "descricao": 1, "valor": 2}, "campo_chave_id": sin["id"],
+             "contrato_padrao_id": contrato["id"], "vencimento_padrao": "2026-12-15"}
+    base = f"/api/faturamento/clientes/{cli['id']}/importar-casos"
+    plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
+    assert [i["acao_regra"] for i in plano["itens"]] == ["criar", "criar", "criar"]
+    # aplica em dois lotes, como a tela faz (a contagem atravessa os lotes)
+    for de, ate in ((0, 1), (1, 3)):
+        lote = {**corpo, "linhas": plano["linhas"][de:ate], "numeros": plano["numeros"][de:ate],
+                "ocorrencias": plano["ocorrencias"][de:ate]}
+        cliente.post(f"{base}/aplicar", headers=h, json=lote)
+    caso = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"tomador_id": cli["id"]}).json()
+            if c["campos"].get(str(sin["id"])) == "555"][0]
+    regras = cliente.get("/api/faturamento/regras", headers=h, params={"caso_id": caso["id"]}).json()
+    assert sorted(float(r["valor"]) for r in regras) == [575.0, 575.0, 1150.0]
+    # importar de novo: tudo igual, nada novo
+    plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
+    assert [i["acao_regra"] for i in plano["itens"]] == ["pular", "pular", "pular"]
