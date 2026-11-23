@@ -26,7 +26,7 @@ import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { EnviarEmailsLote } from "@/components/email/enviar-lote";
 import { BotaoEmailNota } from "@/components/email/enviar-nota";
-import { CancelarNotaDialog, SelosNota, useAcoesNota } from "@/components/nfse/acoes-nota";
+import { CancelarNotaDialog, CancelarNotasLoteDialog, SelosNota, useAcoesNota } from "@/components/nfse/acoes-nota";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -52,6 +52,7 @@ export default function NotasPage() {
   const [todasDoFiltro, setTodasDoFiltro] = useState(false);
   const [emailLote, setEmailLote] = useState(false);
   const [cancelar, setCancelar] = useState<NfseOut | null>(null);
+  const [cancelarLote, setCancelarLote] = useState<NfseOut[] | null>(null);
 
   const ids = [...sel.keys()];
   const todos = lista.itens.length > 0 && lista.itens.every((n) => sel.has(n.id));
@@ -315,6 +316,18 @@ export default function NotasPage() {
               >
                 <FileSpreadsheet /> Exportar
               </Button>
+              {pode("nfse_notas.cancelar") && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-300 hover:bg-white/10 hover:text-red-200"
+                  onClick={() => setCancelarLote([...sel.values()])}
+                  disabled={todasDoFiltro || ![...sel.values()].some((n) => n.status === "emitida")}
+                  title={todasDoFiltro ? "Para cancelar, selecione as notas da página" : undefined}
+                >
+                  <Ban /> Cancelar notas
+                </Button>
+              )}
               <Button size="sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={limparSel}>
                 <X /> Limpar
               </Button>
@@ -334,6 +347,7 @@ export default function NotasPage() {
       )}
 
       <CancelarNotaDialog nota={cancelar} onClose={() => setCancelar(null)} />
+      <CancelarNotasLoteDialog notas={cancelarLote} onClose={() => setCancelarLote(null)} onConcluido={limparSel} />
     </div>
   );
 }
