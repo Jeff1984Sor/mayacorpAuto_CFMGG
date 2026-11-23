@@ -12,6 +12,7 @@ import { Pagination, SearchInput, TableCard, TableSkeleton, Toolbar, linhaClicav
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
+import { GerarBoletosBotao } from "@/components/boletos/gerar-lote";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { AcoesNfse } from "@/components/faturamento/acoes-nfse";
 import { type ClienteEscolhido, ClientesMulti } from "@/components/faturamento/clientes-multi";
@@ -290,6 +291,9 @@ export default function FaturasPage() {
                 <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => emitir.mutate(emitiveis)} disabled={emitir.isPending}>
                   {emitir.isPending ? <Loader2 className="animate-spin" /> : <ReceiptText />} Emitir NFS-e ({emitiveis.length})
                 </Button>
+              )}
+              {pode("boletos.editar") && (
+                <GerarBoletosBotao faturaIds={[...sel]} onConcluido={() => setSel(new Set())} className="text-white hover:bg-white/10 hover:text-white" />
               )}
               <Button size="icon-sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setSel(new Set())} aria-label="Limpar seleção">
                 <X />

@@ -40,6 +40,7 @@ CATALOGO: list[dict] = [
         {"id": "categorias_fin", "nome": "Categorias e subcategorias", "acoes": ["ver", "editar"]},
         {"id": "fornecedores", "nome": "Fornecedores", "acoes": ["ver", "editar", "excluir"]},
         {"id": "relatorios_fin", "nome": "Fluxo de caixa, DRE, previsão e projeção", "acoes": ["ver"]},
+        {"id": "boletos", "nome": "Boletos registrados (CNAB 240: emissão, remessa e retorno)", "acoes": ["ver", "editar", "excluir"]},
     ]},
     {"grupo": "NFS-e", "recursos": [
         {"id": "nfse_emissao", "nome": "Nova emissão em lote e lotes", "acoes": ["ver", "emitir"]},
@@ -77,7 +78,7 @@ def _todas_de(*recursos: str, acoes: tuple[str, ...] | None = None) -> set[str]:
 
 _CADASTROS = ("clientes", "contratos", "casos", "tarefas", "timesheet")
 _FATURAMENTO = ("itens_faturar", "revisoes", "faturas", "relatorio_faturamento", "impostos", "dashboard")
-_FINANCEIRO = ("contas_bancarias", "contas_pagar", "categorias_fin", "fornecedores", "relatorios_fin")
+_FINANCEIRO = ("contas_bancarias", "contas_pagar", "categorias_fin", "fornecedores", "relatorios_fin", "boletos")
 _NFSE = ("nfse_emissao", "nfse_notas", "nfse_recebimentos")
 _TRIBUNAIS = ("trib_processos", "trib_protocolos")
 _CONFIG = tuple(r["id"] for g in CATALOGO if g["grupo"] == "Configurações" for r in g["recursos"])
@@ -176,6 +177,10 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("GET", r"/financeiro/impostos$", "impostos.ver"),
     ("POST", r"/financeiro/impostos/(recalcular|\d+/simular)$", "impostos.ver"),
     ("*", r"/financeiro/impostos", "impostos.configurar"),
+    # boletos (CNAB 240)
+    ("GET", r"/boletos/(convenios|bancos)$", LIVRE),
+    ("*", r"/boletos/convenios", "cfg_financeiro.editar"),
+    ("*", r"/boletos", "boletos.*"),
     # financeiro
     ("*", r"/financeiro/contas-pagar/(\d+/(pagar|reabrir)|pagar-lote)$", "contas_pagar.pagar"),
     ("*", r"/financeiro/contas-pagar", "contas_pagar.*"),

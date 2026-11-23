@@ -37,6 +37,12 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     fluxo de caixa, DRE gerencial (pela `grupo_dre` da categoria), projeção de despesas, previsão de caixa e projeção de impostos (Simples ou Presumido).
     - O saldo nunca é gravado: é sempre calculado a partir dos lançamentos.
     - Pagar uma conta lança um débito no extrato. Fatura paga vira crédito na conta de recebimento (`fatura.espelhar_no_financeiro`).
+- `app/modules/boletos/` (tela **Boletos**, especificação em `SPEC_CNAB240_SANTANDER.md`): boletos registrados por arquivo CNAB 240, sem API de banco.
+  - `cnab/` é o motor genérico de campos fixos (o layout é conferido ao importar: 1 a 240, sem buraco). Cada banco é um adaptador em `bancos/` (hoje só `santander/`); banco novo = pacote novo + uma linha em `bancos/registry.py`.
+  - Fluxo: boleto (rascunho) → **remessa** `.REM` → upload no Internet Banking → **retorno** `.RET` → registrado / rejeitado / pago. Pagamento dá baixa na fatura (`service._baixar_fatura`).
+  - Nosso número: contador por convênio, travado ao reservar, nunca reaproveitado. Depois da remessa o boleto só muda por instrução (02 baixa, 06 vencimento).
+  - O boleto só vai ao cliente depois do retorno `02` (e-mail com boleto + NH/ND + NFS-e em `envio.py`). Convênio não homologado gera remessa de **teste**.
+  - Códigos marcados `TODO [CONFIRMAR]` em `bancos/santander/codigos.py` são editáveis no cadastro do convênio; confirmar com o banco na homologação.
 - `app/controle/` (banco `mayajus_controle`): escritórios, planos, contratos e **cobrança pelo Mercado Pago**
   (`cobranca.py` + `mercadopago.py` + `routes_cobranca.py`: mensalidade no dia 1, avulsa, cartão recorrente, régua de e-mails,
   webhook em `/api/public/mercadopago`, "Meu plano" do cliente). Token do MP fica cifrado no controle (tela Cobranças do admin).

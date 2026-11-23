@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  Barcode,
   BadgeDollarSign,
   BarChart3,
   Briefcase,
@@ -114,6 +115,7 @@ export const NAV: NavGrupo[] = [
       { label: "Revisões", href: "/faturamento/revisoes", icone: FileSearch, permissao: "revisoes.ver", badge: "revisoes" },
       { label: "Fluxo de Faturamento", href: "/faturamento/fluxo", icone: KanbanSquare, permissao: "faturas.ver" },
       { label: "Faturas", href: "/nfse/faturas", icone: ReceiptText, permissao: "faturas.ver", atalho: "G F" },
+      { label: "Boletos", href: "/boletos", icone: Barcode, permissao: "boletos.ver" },
       { label: "Relatório de Faturamento", href: "/faturamento/relatorio", icone: BarChart3, permissao: "relatorio_faturamento.ver" },
       { label: "Projeção de Impostos", href: "/faturamento/impostos", icone: Calculator, permissao: "impostos.ver" },
     ],
