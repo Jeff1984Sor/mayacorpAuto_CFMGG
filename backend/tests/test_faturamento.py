@@ -936,7 +936,7 @@ def test_importar_base_separando_o_titulo_nos_campos(cliente):  # noqa: F811
     assert ic.decompor_titulo("1020173/2022 - Ana Lima X Rui Souza")["numero"] == "1020173/2022"
 
     h = _login(cliente)
-    cli, _, _ = _base(cliente, h, "S")
+    cli, contrato_mj, _ = _base(cliente, h, "S")
     ids = {n: cliente.post("/api/faturamento/campos", headers=h, json={"nome": n, "tipo": "texto", "tomador_id": cli["id"]}).json()["id"]
            for n in ("Nº Sinistro", "Parte Polo Ativo", "Parte Polo Passivo")}
     cliente.put(f"/api/faturamento/clientes/{cli['id']}/modelo-caso", headers=h, json={
@@ -959,8 +959,15 @@ def test_importar_base_separando_o_titulo_nos_campos(cliente):  # noqa: F811
     assert lido["chave_modo"] == "titulo" and lido["decompor"] == {
         "ativo": ids["Parte Polo Ativo"], "passivo": ids["Parte Polo Passivo"], "numero": ids["Nº Sinistro"]}
     corpo = {"linhas": lido["linhas"], "mapa": {k: v for k, v in lido["sugestao"].items() if v is not None},
-             "chave_modo": "titulo", "decompor": lido["decompor"], "como_historico": True,
+             "chave_modo": "titulo", "decompor": lido["decompor"], "como_historico": True, "so_ativas": True,
              "contratos_de_para": {"4": "Sinistro Fiança - Tradicional", "35": "Seguro Fiança - Essencial"}}
+    # sem de-para, um número solto da planilha é código do sistema antigo: nunca o nº de um contrato do MayaJus
+    sem_de_para = cliente.post(f"{base}/analisar", headers=h, json={
+        **corpo, "contratos_de_para": {}, "linhas": [[contrato_mj["numero"], "Zé X Lia - 1000009/2024", "Ativa", 10, 44935, "x"]]}).json()
+    assert sem_de_para["itens"][0]["contrato"] is None and sem_de_para["itens"][0]["contrato_novo"] == f"Contrato {contrato_mj['numero']}"
+    # padrão: todas as regras entram, ativas e inativas
+    todas = cliente.post(f"{base}/analisar", headers=h, json={**corpo, "so_ativas": False}).json()["resumo"]
+    assert (todas["regras_historico"], todas["inativas_ignoradas"]) == (3, 0)
     plano = cliente.post(f"{base}/analisar", headers=h, json=corpo).json()
     r = plano["resumo"]
     assert (r["linhas"], r["casos_novos"], r["regras_historico"], r["inativas_ignoradas"]) == (3, 2, 1, 2), r

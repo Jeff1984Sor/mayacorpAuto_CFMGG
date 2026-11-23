@@ -389,7 +389,9 @@ class AnalisarIn(BaseModel):
     # onde guardar o nº tirado do título (opcional)
     chave_modo: Literal["campo", "titulo"] = "campo"
     campo_chave_id: int | None = None
-    so_ativas: bool = True  # com coluna de situação: linhas inativas/canceladas ficam de fora
+    # com coluna de situação: ignora as regras inativas (o caso entra). Desligado por padrão: em sistemas antigos
+    # "inativa" costuma ser só regra que já gerou cobrança, e a migração precisa trazer todas
+    so_ativas: bool = False
     como_historico: bool = False  # cobranças já faturadas em outro sistema: entram desativadas (nunca cobradas)
     contratos_de_para: dict[str, int | str] = {}  # valor da planilha → id de contrato ou nome do contrato a criar
     # pelo título: separa "Ativo X Passivo - nº" nos campos do cliente {"ativo": id, "passivo": id, "numero": id};
@@ -485,7 +487,8 @@ def _achar_contrato(contratos: list[Contrato], texto) -> Contrato | None:
     if texto in (None, ""):
         return None
     s = str(texto).strip()
-    if m := re.fullmatch(r"#?\s*(\d{1,6})", s):
+    # só "#12" aponta para o nº do contrato no MayaJus; um número solto ("4") é o código do sistema de origem
+    if m := re.fullmatch(r"#\s*(\d{1,6})", s):
         if c := next((c for c in contratos if c.numero == int(m.group(1))), None):
             return c
     alvo = _norm(s)

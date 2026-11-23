@@ -172,7 +172,7 @@ export function ImportarCasosDialog({
   const [descPadrao, setDescPadrao] = useState("Honorários");
   const [chaveModo, setChaveModo] = useState<"campo" | "titulo">("campo");
   const [decompor, setDecompor] = useState<Decompor | null>(null);
-  const [soAtivas, setSoAtivas] = useState(true);
+  const [soAtivas, setSoAtivas] = useState(false);
   const [historico, setHistorico] = useState(false);
   // de-para dos contratos da planilha: valor → id de contrato existente ou nome do contrato a criar
   const [dePara, setDePara] = useState<Record<string, number | string>>({});
