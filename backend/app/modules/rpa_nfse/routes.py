@@ -984,11 +984,13 @@ def pdf_nota(nid: int, ctx: Ctx):
 
 def _nome_pdf_da_nota(n: Nfse) -> str:
     """"NF - <nome do caso> - <nº da nota>.pdf"; sem caso (nota do robô), o nome do cliente no lugar."""
-    from app.modules.rpa_nfse.routes_faturas import _nome_arquivo, _titulo_da_fatura
+    from app.modules.rpa_nfse.routes_faturas import _nome_arquivo, nomes_dos_arquivos
 
     fat = _fatura_da_nota(n)
+    if fat:  # segue o nome da fatura (com o modelo de nome do cliente, se houver)
+        return f"{nomes_dos_arquivos(fat)[1] or f'NF - {n.numero}'}.pdf"
     tom = (n.rps.dados_json or {}).get("tomador", {})
-    titulo = _titulo_da_fatura(fat) if fat else (tom.get("nome") or (n.tomador.nome if n.tomador else ""))
+    titulo = tom.get("nome") or (n.tomador.nome if n.tomador else "")
     return f"NF - {_nome_arquivo(titulo or 'nota')} - {n.numero}.pdf"
 
 

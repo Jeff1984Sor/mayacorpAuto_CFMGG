@@ -79,6 +79,7 @@ export function CasosDoCliente({
   );
   const [notaContrato, setNotaContrato] = useState<boolean | null>(null);
   const [notaCampo, setNotaCampo] = useState<number | null>(null);
+  const [arquivoModelo, setArquivoModelo] = useState("");
   const [dlg, setDlg] = useState<{ c: CampoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<CampoOut | null>(null);
   const [importar, setImportar] = useState(false);
@@ -93,6 +94,7 @@ export function CasosDoCliente({
     setAgrupar(modelo.data.fatura_agrupamento ?? "contrato");
     setNotaContrato(modelo.data.nota_contrato ?? null);
     setNotaCampo(modelo.data.nota_campo_inicio_id ?? null);
+    setArquivoModelo(modelo.data.arquivo_modelo ?? "");
   }, [modelo.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -121,7 +123,8 @@ export function CasosDoCliente({
     (modelo.data?.nota_texto_regra ?? null) !== notaRegra ||
     (modelo.data?.fatura_agrupamento ?? "contrato") !== agrupar ||
     (modelo.data?.nota_contrato ?? null) !== notaContrato ||
-    (modelo.data?.nota_campo_inicio_id ?? null) !== notaCampo;
+    (modelo.data?.nota_campo_inicio_id ?? null) !== notaCampo ||
+    (modelo.data?.arquivo_modelo ?? "") !== arquivoModelo.trim();
 
   const inserir = (rotulo: string) => {
     const el = input.current;
@@ -150,6 +153,7 @@ export function CasosDoCliente({
           fatura_agrupamento: agrupar,
           nota_contrato: notaContrato,
           nota_campo_inicio_id: notaCampo,
+          arquivo_modelo: arquivoModelo.trim() || null,
         },
       ),
     onSuccess: (r) => {
@@ -467,6 +471,20 @@ export function CasosDoCliente({
                 </option>
               ))}
             </NativeSelect>
+          </div>
+          <div className="rounded-xl bg-muted/30 px-3 py-2">
+            <p className="text-sm font-medium">Nome dos arquivos (NH e NF)</p>
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Use os campos do caso entre chaves, ex.: {"{Sinistro} - {Ref}"} → “NH - 1038248-2026 - 39067-1.pdf”. Vazio = título do caso.
+            </p>
+            <Input
+              aria-label="Nome dos arquivos"
+              className="font-mono text-[13px]"
+              value={arquivoModelo}
+              onChange={(e) => setArquivoModelo(e.target.value)}
+              maxLength={300}
+              placeholder="{Sinistro} - {Ref}"
+            />
           </div>
         </div>
       </section>

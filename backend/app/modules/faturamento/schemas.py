@@ -150,6 +150,7 @@ class CampoOut(Schema):
 
 class ModeloTituloIn(BaseModel):
     modelo_titulo_caso: str | None = Field(default=None, max_length=300)
+    arquivo_modelo: str | None = Field(default=None, max_length=300)  # nome dos arquivos NH/NF (vazio = título do caso)
     nota_titulo_caso: bool | None = None  # vazio = segue Configurações › Automações
     nota_texto_regra: bool | None = None
     fatura_agrupamento: str | None = Field(default=None, pattern="^(contrato|caso|cobranca)$")
@@ -160,6 +161,7 @@ class ModeloTituloIn(BaseModel):
 class ModeloTituloOut(BaseModel):
     tomador_id: int
     modelo_titulo_caso: str | None
+    arquivo_modelo: str | None = None
     nota_titulo_caso: bool | None = None
     nota_texto_regra: bool | None = None
     fatura_agrupamento: str | None = None

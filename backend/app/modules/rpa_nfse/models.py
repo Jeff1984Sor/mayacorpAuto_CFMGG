@@ -164,6 +164,8 @@ class Tomador(Base, Timestamped):
     observacoes: Mapped[str | None] = mapped_column(Text)
     # Título dos casos deste cliente, ex.: "{Processo} - {Parte contrária} - {Sinistro}" (faturamento/titulo_caso.py)
     modelo_titulo_caso: Mapped[str | None] = mapped_column(String(300))
+    # nome dos arquivos (NH/ND e NF) deste cliente, com os campos do caso: "{Sinistro} - {Ref}" → "NH - 123-2026 - 39067-1.pdf"
+    arquivo_modelo: Mapped[str | None] = mapped_column(String(300))
     # Texto da NFS-e das faturas deste cliente; vazio = segue Configurações › Automações
     nota_titulo_caso: Mapped[bool | None] = mapped_column(Boolean)
     nota_texto_regra: Mapped[bool | None] = mapped_column(Boolean)

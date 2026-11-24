@@ -1155,13 +1155,30 @@ def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
     with _S() as _db:
         gravada = _db.scalar(select(_R).where(_R.valor == 900, _R.descricao.like("Sinistro: 1038248/2026%")))
         assert gravada is not None and gravada.descricao == longa.strip() and gravada.observacao == "Importada de planilha."
-    r = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/aplicar", headers=h, json={
-        **corpo, "linhas": plano["linhas"], "numeros": plano["numeros"], "ocorrencias": plano["ocorrencias"]})
-    assert r.status_code == 200, r.text
-    casos = [c for c in cliente.get("/api/faturamento/casos", headers=h, params={"contrato_id": contrato["id"]}).json()
-             if (c.get("campos") or {}).get(str(ids["Sinistro"]))]
-    por_sinistro = {c["campos"][str(ids["Sinistro"])]: c for c in casos}
-    assert set(por_sinistro) == {"1038248/2026", "1045549/2026"}, por_sinistro
-    c1 = por_sinistro["1038248/2026"]
-    assert c1["campos"][str(ids["Ref"])] == "39067-1" and c1["titulo"] == "1038248/2026 - 39067-1", c1
-    assert por_sinistro["1045549/2026"]["titulo"] == "1045549/2026 - 39031/2"
+    # nome dos arquivos pelo modelo do cliente: só "Sinistro - Ref", na NH, na NF e no ZIP
+    r = cliente.put(f"/api/faturamento/clientes/{tid}/modelo-caso", headers=h, json={
+        "modelo_titulo_caso": "Sinistro {Sinistro} - REF {Ref}", "arquivo_modelo": "{Sinistro} - {Ref}", "fatura_agrupamento": "cobranca"})
+    assert r.status_code == 200 and r.json()["arquivo_modelo"] == "{Sinistro} - {Ref}", r.text
+    params = {"de": hoje, "ate": hoje, "cliente_ids": [tid]}
+    itens = [i for k in cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"]
+             for i in k["itens"]]
+    assert itens, "sem itens a faturar"
+    fats = cliente.post("/api/faturamento/faturar", headers=h, json={"aba": "honorarios", **params, "chaves": [i["chave"] for i in itens]}).json()["faturas"]
+    import io as _io2
+    import re as _re
+    import zipfile as _zip
+
+    padrao = _re.compile("NH - 10[0-9]{5}-2026 - [0-9]{5}-[0-9]( - [0-9]{5})?[.]pdf")
+    pdf = cliente.get(f"/api/nfse/faturas/{fats[0]['id']}/pdf", headers=h)
+    from urllib.parse import unquote as _unq
+
+    assert pdf.status_code == 200 and padrao.search(_unq(pdf.headers["content-disposition"])), pdf.headers["content-disposition"]
+    z = cliente.post("/api/nfse/faturas/zip", headers=h, json={"ids": [f_["id"] for f_ in fats]})
+    assert z.status_code == 200, z.text
+    nomes = sorted(_zip.ZipFile(_io2.BytesIO(z.content)).namelist())
+    # pasta = título do caso; arquivo = só "Sinistro - Ref" (o nº da NH só entra para desempatar dois iguais na pasta)
+    assert len(nomes) == len(fats) and len(set(nomes)) == len(nomes), nomes
+    for nome in nomes:
+        pasta, arquivo = nome.split("/")
+        assert pasta.startswith("Sinistro 10") and " - REF " in pasta and padrao.fullmatch(arquivo), nome
+    assert any(_re.search("- [0-9]{5}-[0-9][.]pdf$", n_) for n_ in nomes), nomes

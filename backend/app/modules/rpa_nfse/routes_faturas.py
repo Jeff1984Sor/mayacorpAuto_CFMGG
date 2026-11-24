@@ -149,6 +149,41 @@ def _titulo_da_fatura(f: Fatura) -> str:
     return faturas.dados_cliente(f).get("nome") or f.codigo
 
 
+def _nome_personalizado(f: Fatura) -> str | None:
+    """Nome do arquivo pelo modelo do cliente (ex.: "{Sinistro} - {Ref}"), quando a fatura é de um caso só."""
+    from sqlalchemy.orm import object_session
+
+    from app.modules.faturamento import titulo_caso
+
+    casos = {i.caso.id: i.caso for i in (getattr(f, "itens", None) or []) if i.caso}
+    if len(casos) != 1:
+        return None
+    caso = next(iter(casos.values()))
+    contrato = caso.contrato
+    cliente = contrato.tomador if contrato else None
+    modelo = (cliente.arquivo_modelo or "").strip() if cliente else ""
+    db = object_session(f)
+    if not modelo or db is None:
+        return None
+    campos = titulo_caso.campos_do_caso(db, caso.tenant_id, cliente.id, caso.area_id)
+    return titulo_caso.renderizar(modelo, titulo_caso.valores_padrao(caso, contrato), campos, caso.campos or {}) or None
+
+
+def nomes_dos_arquivos(f: Fatura) -> tuple[str, str | None]:
+    """(nome da NH/ND, nome da NF) sem a extensão.
+
+    Cliente com modelo de nome: "NH - <modelo>" e "NF - <modelo>", sem mais nada. Sem modelo, o padrão de sempre:
+    "NH - <caso>" e "NF - <caso> - <nº da nota>".
+    """
+    sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
+    proprio = _nome_personalizado(f)
+    if proprio:
+        base = _nome_arquivo(proprio)
+        return f"{sigla} - {base}", (f"NF - {base}" if f.nfse else None)
+    base = _nome_arquivo(_titulo_da_fatura(f))
+    return f"{sigla} - {base}", (f"NF - {base} - {f.nfse.numero}" if f.nfse else None)
+
+
 def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
     """Pasta raiz = título do caso; dentro, "NH - <título>.pdf" / "ND - <título>.pdf" e os comprovantes das despesas."""
     from app.modules.faturamento.models import Despesa
@@ -158,8 +193,7 @@ def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
     if not f.pdf_path or not Path(f.pdf_path).exists():
         faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
         ctx.db.commit()
-    sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
-    arquivos = [{"caminho": f"{sigla} - {_nome_arquivo(titulo)}.pdf", "url": f"/nfse/faturas/{f.id}/pdf",
+    arquivos = [{"caminho": f"{nomes_dos_arquivos(f)[0]}.pdf", "url": f"/nfse/faturas/{f.id}/pdf",
                  "disco": f.pdf_path}]
     ids = [i.id for i in itens if i.tipo == "despesa"]
     if ids:
@@ -228,8 +262,7 @@ def pdf(fid: int, ctx: Ctx):
     if not f.pdf_path or not Path(f.pdf_path).exists():
         faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
         ctx.db.commit()
-    sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
-    nome = (f"{sigla} - {_nome_arquivo(_titulo_da_fatura(f))}.pdf" if getattr(f, "itens", None)
+    nome = (f"{nomes_dos_arquivos(f)[0]}.pdf" if getattr(f, "itens", None)
             else f"Fatura_{f.codigo.replace(' ', '_').replace('/', '-')}.pdf")
     return FileResponse(f.pdf_path, media_type="application/pdf", filename=nome, content_disposition_type="inline")
 
@@ -324,22 +357,26 @@ def zip_faturas(dados: ZipIn, ctx: Ctx):
     buf = io.BytesIO()
     usados: set[str] = set()
 
-    def gravar(z, origem: str, pasta: str, nome: str) -> None:
+    def gravar(z, origem: str, pasta: str, nome: str, desempate: str) -> None:
         caminho = f"{pasta}/{nome}.pdf"
-        if caminho in usados:  # dois arquivos com o mesmo nome não cabem na mesma pasta
-            caminho = f"{pasta}/{nome} ({len(usados)}).pdf"
+        if caminho in usados:  # dois arquivos com o mesmo nome não cabem na mesma pasta: o número do documento desempata
+            caminho = f"{pasta}/{nome} - {desempate}.pdf"
+        if caminho in usados:
+            caminho = f"{pasta}/{nome} - {desempate} ({len(usados)}).pdf"
         usados.add(caminho)
         z.write(origem, caminho)
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for f in ctx.db.scalars(q):
             titulo = _nome_arquivo(_titulo_da_fatura(f))[:100].strip()
-            sigla = "ND" if f.tipo == TipoFatura.despesas else "NH"
+            proprio = _nome_personalizado(f)
+            nome_nh, nome_nf = nomes_dos_arquivos(f)
             if f.pdf_path and Path(f.pdf_path).exists():
-                gravar(z, f.pdf_path, titulo, f"{sigla} - {titulo} - {f.numero:05d}")
+                # sem modelo do cliente, a NH leva o seu número; com modelo, só o que o cliente pediu
+                gravar(z, f.pdf_path, titulo, nome_nh if proprio else f"{nome_nh} - {f.numero:05d}", f"{f.numero:05d}")
             nota = f.nfse
             if nota and nota.pdf_path and Path(nota.pdf_path).exists():
-                gravar(z, nota.pdf_path, titulo, f"NF - {titulo} - {nota.numero}")
+                gravar(z, nota.pdf_path, titulo, nome_nf, str(nota.numero))
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="faturas_{date.today():%Y%m%d}.zip"'})
 

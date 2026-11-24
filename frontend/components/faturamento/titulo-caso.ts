@@ -16,6 +16,8 @@ export interface ModeloTituloOut {
   /** nome do contrato na nota (null = sim) e o campo do caso que abre o texto (ex.: Nº Sinistro) */
   nota_contrato?: boolean | null;
   nota_campo_inicio_id?: number | null;
+  /** nome dos arquivos NH/NF com os campos do caso, ex.: "{Sinistro} - {Ref}" (vazio = título do caso) */
+  arquivo_modelo?: string | null;
   /** rótulos dos campos padrão que podem ir entre chaves */
   padrao: string[];
   atualizados: number;
