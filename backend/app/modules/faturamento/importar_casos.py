@@ -77,13 +77,14 @@ def extrair_rotulados(texto: str, campos: list) -> dict[int, str]:
 
     "Sinistro: 1038248/2026ref.: 39067-1Contrato:55095Autor: Fulano" com os campos Sinistro e Ref
     → {Sinistro: "1038248/2026", Ref: "39067-1"}. Só valores com cara de número/código (dígitos . / -).
+    O rótulo pode vir com dois-pontos, ponto ou os dois: "ref.: 39067-1", "Ref. 39067-1", "Ref: 39067-1".
     """
     achados: dict[int, str] = {}
     for c in campos:
         nomes = {c.nome.strip(), _PREFIXO_NUMERO.sub("", c.nome.strip())}
         for nome in sorted((n for n in nomes if len(n) >= 2), key=len, reverse=True):
             # rótulo curto ("Ref") não pode ser o fim de outra palavra; o longo pode vir colado ("LelloSinistro:")
-            m = re.search(("(?<![a-zà-ÿ])" if len(nome) < 4 else "") + re.escape(nome) + r"\s*\.?\s*:\s*(\d[\d./-]*)", texto or "", re.I)
+            m = re.search(("(?<![a-zà-ÿ])" if len(nome) < 4 else "") + re.escape(nome) + r"\s*(?:\.\s*:?|:)\s*(\d[\d./-]*)", texto or "", re.I)
             if m:
                 achados[c.id] = m.group(1).rstrip("./-")
                 break

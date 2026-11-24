@@ -1097,6 +1097,10 @@ def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
     assert extrair_rotulados("Sinistro: 1042289/2026 ref.: 50261-1Contrato: 70841", cs[:2]) == {
         1: "1042289/2026", 2: "50261-1"}
     assert extrair_rotulados("Referente: 12345 sem rotulo", cs) == {}
+    # o rótulo também vale só com ponto, e em linhas separadas
+    assert extrair_rotulados("Sinistro: 1038248/2026" + chr(10) + "Ref. 39067-1" + chr(10) + "Contrato: 55095", cs) == {
+        1: "1038248/2026", 2: "39067-1", 3: "55095"}
+    assert extrair_rotulados("Ref 39067 sem pontuacao", cs[:2]) == {}
 
     h = _login(cliente)
     cli, contrato, _ = _base(cliente, h, "R")
