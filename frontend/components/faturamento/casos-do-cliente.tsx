@@ -80,6 +80,7 @@ export function CasosDoCliente({
   const [notaContrato, setNotaContrato] = useState<boolean | null>(null);
   const [notaCampo, setNotaCampo] = useState<number | null>(null);
   const [arquivoModelo, setArquivoModelo] = useState("");
+  const [pastaModelo, setPastaModelo] = useState("");
   const [dlg, setDlg] = useState<{ c: CampoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<CampoOut | null>(null);
   const [importar, setImportar] = useState(false);
@@ -95,6 +96,7 @@ export function CasosDoCliente({
     setNotaContrato(modelo.data.nota_contrato ?? null);
     setNotaCampo(modelo.data.nota_campo_inicio_id ?? null);
     setArquivoModelo(modelo.data.arquivo_modelo ?? "");
+    setPastaModelo(modelo.data.pasta_modelo ?? "");
   }, [modelo.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -124,7 +126,8 @@ export function CasosDoCliente({
     (modelo.data?.fatura_agrupamento ?? "contrato") !== agrupar ||
     (modelo.data?.nota_contrato ?? null) !== notaContrato ||
     (modelo.data?.nota_campo_inicio_id ?? null) !== notaCampo ||
-    (modelo.data?.arquivo_modelo ?? "") !== arquivoModelo.trim();
+    (modelo.data?.arquivo_modelo ?? "") !== arquivoModelo.trim() ||
+    (modelo.data?.pasta_modelo ?? "") !== pastaModelo.trim();
 
   const inserir = (rotulo: string) => {
     const el = input.current;
@@ -154,6 +157,7 @@ export function CasosDoCliente({
           nota_contrato: notaContrato,
           nota_campo_inicio_id: notaCampo,
           arquivo_modelo: arquivoModelo.trim() || null,
+          pasta_modelo: pastaModelo.trim() || null,
         },
       ),
     onSuccess: (r) => {
@@ -484,6 +488,20 @@ export function CasosDoCliente({
               onChange={(e) => setArquivoModelo(e.target.value)}
               maxLength={300}
               placeholder="{Sinistro} - {Ref}"
+            />
+          </div>
+          <div className="rounded-xl bg-muted/30 px-3 py-2">
+            <p className="text-sm font-medium">Pasta do caso na rede (botão “Salvar na Rede”)</p>
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Ex.: {"{Sinistro}"} → a NH e a NF vão para a pasta que tiver “1038248-2026” no nome (se não existir, é criada). Vazio = título do caso.
+            </p>
+            <Input
+              aria-label="Pasta do caso na rede"
+              className="font-mono text-[13px]"
+              value={pastaModelo}
+              onChange={(e) => setPastaModelo(e.target.value)}
+              maxLength={300}
+              placeholder="{Sinistro}"
             />
           </div>
         </div>

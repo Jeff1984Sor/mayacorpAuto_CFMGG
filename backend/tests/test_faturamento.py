@@ -1157,7 +1157,8 @@ def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
         assert gravada is not None and gravada.descricao == longa.strip() and gravada.observacao == "Importada de planilha."
     # nome dos arquivos pelo modelo do cliente: só "Sinistro - Ref", na NH, na NF e no ZIP
     r = cliente.put(f"/api/faturamento/clientes/{tid}/modelo-caso", headers=h, json={
-        "modelo_titulo_caso": "Sinistro {Sinistro} - REF {Ref}", "arquivo_modelo": "{Sinistro} - {Ref}", "fatura_agrupamento": "cobranca"})
+        "modelo_titulo_caso": "Sinistro {Sinistro} - REF {Ref}", "arquivo_modelo": "{Sinistro} - {Ref}", "pasta_modelo": "{Sinistro}",
+        "fatura_agrupamento": "cobranca"})
     assert r.status_code == 200 and r.json()["arquivo_modelo"] == "{Sinistro} - {Ref}", r.text
     params = {"de": hoje, "ate": hoje, "cliente_ids": [tid]}
     itens = [i for k in cliente.get("/api/faturamento/itens-a-faturar", headers=h, params=params).json()["clientes"][0]["contratos"]
@@ -1176,9 +1177,16 @@ def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
     z = cliente.post("/api/nfse/faturas/zip", headers=h, json={"ids": [f_["id"] for f_ in fats]})
     assert z.status_code == 200, z.text
     nomes = sorted(_zip.ZipFile(_io2.BytesIO(z.content)).namelist())
-    # pasta = título do caso; arquivo = só "Sinistro - Ref" (o nº da NH só entra para desempatar dois iguais na pasta)
+    # ZIP: pasta = título do caso; arquivo = só "Sinistro - Ref" (o nº da NH só entra para desempatar dois iguais na pasta)
     assert len(nomes) == len(fats) and len(set(nomes)) == len(nomes), nomes
     for nome in nomes:
         pasta, arquivo = nome.split("/")
         assert pasta.startswith("Sinistro 10") and " - REF " in pasta and padrao.fullmatch(arquivo), nome
     assert any(_re.search("- [0-9]{5}-[0-9][.]pdf$", n_) for n_ in nomes), nomes
+    # Salvar na Rede: pasta só com o nº do sinistro e os PDFs direto dentro, sem subpasta
+    rede = cliente.get("/api/nfse/rede-faturas", headers=h, params={"ids": [f_["id"] for f_ in fats]}).json()
+    assert rede and all(_re.fullmatch("10[0-9]{5}-2026", p_["nome"]) and p_["casada"] for p_ in rede), rede
+    arquivos = [a_["nome"] for p_ in rede for a_ in p_["arquivos"]]
+    assert len(arquivos) == len(fats) == len(set((p_["nome"], a_["nome"]) for p_ in rede for a_ in p_["arquivos"]))
+    assert all(padrao.fullmatch(a_) and "/" not in a_ for a_ in arquivos), arquivos
+    assert all(a_["url"].startswith("/nfse/faturas/") for p_ in rede for a_ in p_["arquivos"])

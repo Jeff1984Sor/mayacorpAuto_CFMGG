@@ -166,6 +166,8 @@ class Tomador(Base, Timestamped):
     modelo_titulo_caso: Mapped[str | None] = mapped_column(String(300))
     # nome dos arquivos (NH/ND e NF) deste cliente, com os campos do caso: "{Sinistro} - {Ref}" → "NH - 123-2026 - 39067-1.pdf"
     arquivo_modelo: Mapped[str | None] = mapped_column(String(300))
+    # pasta de cada caso na rede, botão "Salvar na Rede" (vazio = título do caso), ex.: "{Sinistro}" → "1038248-2026"
+    pasta_modelo: Mapped[str | None] = mapped_column(String(300))
     # Texto da NFS-e das faturas deste cliente; vazio = segue Configurações › Automações
     nota_titulo_caso: Mapped[bool | None] = mapped_column(Boolean)
     nota_texto_regra: Mapped[bool | None] = mapped_column(Boolean)

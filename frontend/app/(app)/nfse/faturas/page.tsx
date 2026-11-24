@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlarmClock, CheckCircle2, CircleSlash, Download, Loader2, ReceiptText, Wallet, X } from "lucide-react";
+import { AlarmClock, CheckCircle2, CircleSlash, Download, FolderDown, Loader2, ReceiptText, Wallet, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { AnimatedNumber } from "@/components/mayacorp/animated-number";
 import { Mono } from "@/components/mayacorp/brand";
@@ -24,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api } from "@/lib/api";
+import { salvarNaRede } from "@/lib/salvar-na-rede";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, numero, toNum } from "@/lib/format";
 import type { FaturaOut, ResumoFaturas, SituacaoFatura } from "@/lib/types";
@@ -54,6 +56,7 @@ export default function FaturasPage() {
       }),
   });
   const [sel, setSel] = useState<Set<number>>(new Set());
+  const [salvandoRede, setSalvandoRede] = useState(false);
   const [clienteSel, setClienteSel] = useState<ClienteEscolhido[]>([]);
   const situacao = (lista.filtros.situacao as SituacaoFatura | undefined) ?? null;
   const { setFiltro } = lista;
@@ -286,6 +289,21 @@ export default function FaturasPage() {
               </span>
               <Button size="sm" className="bg-white text-navy hover:bg-white/90" onClick={() => zip.mutate({ ids: [...sel] })} disabled={zip.isPending}>
                 {zip.isPending ? <Loader2 className="animate-spin" /> : <Download />} Baixar PDFs (ZIP)
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-white hover:bg-white/10 hover:text-white"
+                disabled={salvandoRede}
+                title="Grava a NH e a NF na pasta de cada caso, dentro da pasta da rede que você escolher"
+                onClick={() => {
+                  setSalvandoRede(true);
+                  salvarNaRede([...sel])
+                    .catch((e: Error) => toast.error(e.message))
+                    .finally(() => setSalvandoRede(false));
+                }}
+              >
+                {salvandoRede ? <Loader2 className="animate-spin" /> : <FolderDown />} Salvar na Rede
               </Button>
               {podeEmitir && emitiveis.length > 0 && (
                 <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => emitir.mutate(emitiveis)} disabled={emitir.isPending}>

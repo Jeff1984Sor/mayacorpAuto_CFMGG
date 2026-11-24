@@ -920,6 +920,7 @@ def ler_modelo_caso(tid: int, ctx: Ctx):
 
 def _modelo_out(t: Tomador, atualizados: int = 0) -> ModeloTituloOut:
     return ModeloTituloOut(tomador_id=t.id, modelo_titulo_caso=t.modelo_titulo_caso, arquivo_modelo=t.arquivo_modelo,
+                           pasta_modelo=t.pasta_modelo,
                            nota_titulo_caso=t.nota_titulo_caso,
                            nota_texto_regra=t.nota_texto_regra, fatura_agrupamento=t.fatura_agrupamento,
                            nota_contrato=t.nota_contrato, nota_campo_inicio_id=t.nota_campo_inicio_id,
@@ -932,11 +933,12 @@ def salvar_modelo_caso(tid: int, dados: ModeloTituloIn, ctx: Operador):
     """Grava o modelo e refaz o título de todos os casos do cliente."""
     t = _get(ctx, Tomador, tid, "Cliente")
     campos = ("modelo_titulo_caso", "nota_titulo_caso", "nota_texto_regra", "fatura_agrupamento", "nota_contrato",
-              "nota_campo_inicio_id", "arquivo_modelo")
+              "nota_campo_inicio_id", "arquivo_modelo", "pasta_modelo")
     antes = {k: getattr(t, k) for k in campos}
     modelo_mudou = ((dados.modelo_titulo_caso or "").strip() or None) != t.modelo_titulo_caso
     t.modelo_titulo_caso = (dados.modelo_titulo_caso or "").strip() or None
     t.arquivo_modelo = (dados.arquivo_modelo or "").strip() or None
+    t.pasta_modelo = (dados.pasta_modelo or "").strip() or None
     t.nota_titulo_caso, t.nota_texto_regra = dados.nota_titulo_caso, dados.nota_texto_regra
     t.fatura_agrupamento = None if dados.fatura_agrupamento in (None, "contrato") else dados.fatura_agrupamento
     if dados.nota_campo_inicio_id:

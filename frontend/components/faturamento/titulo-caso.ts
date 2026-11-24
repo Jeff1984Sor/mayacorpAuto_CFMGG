@@ -18,6 +18,8 @@ export interface ModeloTituloOut {
   nota_campo_inicio_id?: number | null;
   /** nome dos arquivos NH/NF com os campos do caso, ex.: "{Sinistro} - {Ref}" (vazio = título do caso) */
   arquivo_modelo?: string | null;
+  /** pasta de cada caso na rede (botão Salvar na Rede), ex.: "{Sinistro}" (vazio = título do caso) */
+  pasta_modelo?: string | null;
   /** rótulos dos campos padrão que podem ir entre chaves */
   padrao: string[];
   atualizados: number;

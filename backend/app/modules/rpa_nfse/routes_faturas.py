@@ -149,8 +149,8 @@ def _titulo_da_fatura(f: Fatura) -> str:
     return faturas.dados_cliente(f).get("nome") or f.codigo
 
 
-def _nome_personalizado(f: Fatura) -> str | None:
-    """Nome do arquivo pelo modelo do cliente (ex.: "{Sinistro} - {Ref}"), quando a fatura é de um caso só."""
+def _nome_personalizado(f: Fatura, qual: str = "arquivo_modelo") -> str | None:
+    """Nome pelo modelo do cliente (arquivo: "{Sinistro} - {Ref}"; pasta: "{Sinistro}"), quando a fatura é de um caso só."""
     from sqlalchemy.orm import object_session
 
     from app.modules.faturamento import titulo_caso
@@ -161,7 +161,7 @@ def _nome_personalizado(f: Fatura) -> str | None:
     caso = next(iter(casos.values()))
     contrato = caso.contrato
     cliente = contrato.tomador if contrato else None
-    modelo = (cliente.arquivo_modelo or "").strip() if cliente else ""
+    modelo = (getattr(cliente, qual) or "").strip() if cliente else ""
     db = object_session(f)
     if not modelo or db is None:
         return None
@@ -182,6 +182,11 @@ def nomes_dos_arquivos(f: Fatura) -> tuple[str, str | None]:
         return f"{sigla} - {base}", (f"NF - {base}" if f.nfse else None)
     base = _nome_arquivo(_titulo_da_fatura(f))
     return f"{sigla} - {base}", (f"NF - {base} - {f.nfse.numero}" if f.nfse else None)
+
+
+def nome_da_pasta(f: Fatura) -> str:
+    """Pasta do caso na rede: o modelo do cliente (ex.: só o nº do sinistro) ou, sem ele, o título do caso."""
+    return _nome_arquivo(_nome_personalizado(f, "pasta_modelo") or _titulo_da_fatura(f))[:100].strip()
 
 
 def _pasta_da_fatura(ctx, f: Fatura) -> tuple[str, list[dict]]:
@@ -228,6 +233,34 @@ def pasta_faturas(ctx: Ctx, ids: list[int] = Query(...)):
     """O que gravar no computador (ou, depois, no Drive do cliente): pastas por caso com NH, ND e anexos."""
     return [{"nome": p["nome"], "arquivos": [{"caminho": a["caminho"], "url": a["url"]} for a in p["arquivos"]]}
             for p in _pastas(ctx, ids)]
+
+
+@router.get("/rede-faturas")
+def rede_faturas(ctx: Ctx, ids: list[int] = Query(...)):
+    """O que o botão "Salvar na Rede" grava: uma pasta por caso (pelo modelo do cliente, ex.: o nº do sinistro) com a
+    NH/ND e a NF direto dentro, sem subpastas. `casada` diz se o cliente tem modelo de pasta: aí a tela procura na rede
+    uma pasta que já contenha esse número antes de criar outra."""
+    pastas: dict[str, dict] = {}
+    for fid in dict.fromkeys(ids):
+        f = _fatura(ctx, fid)
+        if f.status == StatusFatura.cancelada:
+            continue
+        if not f.pdf_path or not Path(f.pdf_path).exists():
+            faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
+            ctx.db.commit()
+        nome = nome_da_pasta(f)
+        p = pastas.setdefault(nome, {"nome": nome, "casada": bool(_nome_personalizado(f, "pasta_modelo")), "arquivos": []})
+        nome_nh, nome_nf = nomes_dos_arquivos(f)
+        novos = [(nome_nh, f"/nfse/faturas/{f.id}/pdf", f"{f.numero:05d}")]
+        n = f.nfse
+        if n and n.status != StatusNfse.cancelada and n.pdf_path and Path(n.pdf_path).exists():
+            novos.append((nome_nf, f"/nfse/notas/{n.id}/pdf", str(n.numero)))
+        usados = {a["nome"] for a in p["arquivos"]}
+        for base, url, desempate in novos:
+            arquivo = f"{base}.pdf" if f"{base}.pdf" not in usados else f"{base} - {desempate}.pdf"
+            usados.add(arquivo)
+            p["arquivos"].append({"nome": arquivo, "url": url})
+    return list(pastas.values())
 
 
 @router.get("/pasta-faturas.zip")
