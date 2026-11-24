@@ -235,7 +235,7 @@ class CasoOut(Schema):
 # ---------- regras de cobrança
 class RegraIn(BaseModel):
     tipo: TipoRegra
-    descricao: str = Field(min_length=2, max_length=300)
+    descricao: str = Field(min_length=2, max_length=4000)
     valor: Decimal | None = Field(default=None, ge=0)
     data_pagamento: date | None = None
     frequencia: Frequencia | None = None

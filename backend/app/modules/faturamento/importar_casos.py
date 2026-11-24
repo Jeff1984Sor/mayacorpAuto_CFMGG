@@ -391,9 +391,11 @@ def _sugerir(colunas: list[str], linhas: list[list], campo_chave: str | None) ->
                     usados.discard(sug["chave"])
                 sug["chave"] = i
                 usados.add(i)
-                for papel in ("descricao", "titulo"):  # a mesma coluna não serve de texto da cobrança nem de título
-                    if sug[papel] == i:
-                        sug[papel] = None
+                if sug["titulo"] == i:  # não serve de título: o título sai dos campos (modelo do cliente)
+                    sug["titulo"] = None
+                # a própria coluna é o texto da cobrança, inteira (ex.: "Observação" com sinistro, ref, autor, acordo…)
+                if sug["descricao"] is None:
+                    sug["descricao"] = i
                 break
     if sug["vencimento"] is None:
         sug["vencimento"] = next((i for i in range(len(colunas)) if i not in usados and datas(i)), None)
@@ -645,13 +647,13 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
         item["contrato_planilha"] = _texto(_pega(linha, m.contrato))
         # regra de cobrança
         desc = _texto(_pega(linha, m.descricao)) or (dados.descricao_padrao or "").strip()
-        desc = re.sub(r"[ \t]+\n", "\n", desc).strip()
-        item["texto_completo"] = desc if len(desc) > 300 or "\n" in desc else None
-        desc = re.sub(r"\s+", " ", desc)
+        # o texto da cobrança entra inteiro, como está na planilha (só sem espaço sobrando no fim das linhas)
+        desc = re.sub(r"[ \t]+\n", "\n", desc.replace("\r\n", "\n")).strip()
+        item["texto_completo"] = None
         valor = ler_valor(_pega(linha, m.valor)) if m.valor is not None else None
         venc = _data(_pega(linha, m.vencimento)) if m.vencimento is not None else None
         venc = venc or dados.vencimento_padrao
-        item.update(descricao=desc[:300], valor=str(valor) if valor is not None else None,
+        item.update(descricao=desc, valor=str(valor) if valor is not None else None,
                     vencimento=venc.isoformat() if venc else None)
         if inativa(linha):
             item["acao_regra"], item["motivo"] = "inativa", "Regra inativa: não é importada (só o caso)."
@@ -842,7 +844,7 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
                 if item.get("texto_completo"):
                     obs += "\n\n" + item["texto_completo"]
                 regra = RegraCobranca(tenant_id=ctx.tenant_id, contrato_id=caso.contrato_id, caso_id=caso.id,
-                                      tipo=TipoRegra.fixo, descricao=(item["descricao"] or "Honorários")[:300],
+                                      tipo=TipoRegra.fixo, descricao=item["descricao"] or "Honorários",
                                       valor=valor, data_pagamento=venc, observacao=obs, ativo=not historico)
                 ctx.db.add(regra)
                 ctx.db.flush()

@@ -335,7 +335,7 @@ class RegraCobranca(Base, Timestamped):
     contrato_id: Mapped[int] = mapped_column(ForeignKey("fat_contrato.id"), index=True)
     caso_id: Mapped[int | None] = mapped_column(ForeignKey("fat_caso.id"), index=True)
     tipo: Mapped[TipoRegra] = mapped_column(_enum(TipoRegra))
-    descricao: Mapped[str] = mapped_column(String(300))  # texto que sai na fatura
+    descricao: Mapped[str] = mapped_column(Text)  # texto que sai na fatura (inteiro, como veio da planilha)
     valor: Mapped[Decimal | None] = mapped_column(Dinheiro)
     data_pagamento: Mapped[date | None] = mapped_column(Date)  # fixo
     # recorrente: padrão + intervalo de recorrência

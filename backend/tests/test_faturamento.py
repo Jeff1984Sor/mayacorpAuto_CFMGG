@@ -1123,6 +1123,34 @@ def test_importar_lendo_campos_rotulados_da_observacao(cliente):  # noqa: F811
     assert plano["resumo"]["casos_novos"] == 2 and plano["resumo"]["regras_novas"] == 3, plano["resumo"]
     assert plano["resumo"]["contratos_novos"] == [] and plano["itens"][0]["contrato"]["id"] == contrato["id"]
     assert plano["itens"][0]["chave"] == "1038248/2026" and plano["itens"][0]["campos_extra"] == {str(ids["Ref"]): "39067-1"}
+    # a Observação vira o texto da regra, inteira (sem cortar em 300 letras)
+    longa = obs1 + " Honorários de êxito. Acionamento: 25/09/2026. Acordo em 09/10/2026. " + "Detalhe do acordo. " * 30
+    assert len(longa) > 700
+    lido = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/ler", headers=h, files={"arquivo": ("obs.csv", (
+        "Observação;Valor;Vencimento" + chr(10) + f"{longa};900,00;{date.today():%d/%m/%Y}" + chr(10)).encode("utf-8"))})
+    if lido.status_code == 200:
+        assert lido.json()["sugestao"]["chave"] == 0 and lido.json()["sugestao"]["descricao"] == 0, lido.json()["sugestao"]
+    corpo_longo = {"linhas": [[longa, 900.0, hoje]], "mapa": {"chave": 0, "descricao": 0, "valor": 1, "vencimento": 2},
+                   "campo_chave_id": ids["Sinistro"]}
+    pl = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/analisar", headers=h, json=corpo_longo).json()
+    assert pl["itens"][0]["descricao"] == longa.strip(), pl["itens"][0]
+    # as quebras de linha da célula também ficam (só sai o espaço sobrando no fim de cada linha)
+    quebrada = "Sinistro: 1038248/2026" + chr(10) + "ref.: 39067-1   " + chr(13) + chr(10) + "Autor: Fulano" + chr(10) + chr(10) + "Acordo em 09/10/2026"
+    pq = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/analisar", headers=h, json={
+        **corpo_longo, "linhas": [[quebrada, 901.0, hoje]]}).json()
+    assert pq["itens"][0]["descricao"] == chr(10).join(["Sinistro: 1038248/2026", "ref.: 39067-1", "Autor: Fulano", "", "Acordo em 09/10/2026"])
+    assert pq["itens"][0]["campos_extra"] == {str(ids["Ref"]): "39067-1"}
+    r = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/aplicar", headers=h, json={
+        **corpo_longo, "linhas": pl["linhas"], "numeros": pl["numeros"], "ocorrencias": pl["ocorrencias"]})
+    assert r.status_code == 200, r.text
+    from sqlalchemy import select
+
+    from app.core.db import SessionLocal as _S
+    from app.modules.faturamento.models import RegraCobranca as _R
+
+    with _S() as _db:
+        gravada = _db.scalar(select(_R).where(_R.valor == 900, _R.descricao.like("Sinistro: 1038248/2026%")))
+        assert gravada is not None and gravada.descricao == longa.strip() and gravada.observacao == "Importada de planilha."
     r = cliente.post(f"/api/faturamento/clientes/{tid}/importar-casos/aplicar", headers=h, json={
         **corpo, "linhas": plano["linhas"], "numeros": plano["numeros"], "ocorrencias": plano["ocorrencias"]})
     assert r.status_code == 200, r.text

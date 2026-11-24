@@ -381,11 +381,11 @@ export function RegraDialog({
               )}
             </AnimatePresence>
 
-            <Field label="Descrição" obrigatorio htmlFor="regra-descricao" dica={`Sai na fatura e na nota fiscal. ${f.descricao.length}/300`}>
+            <Field label="Descrição" obrigatorio htmlFor="regra-descricao" dica={`Sai na fatura e na nota fiscal. ${f.descricao.length}/4000`}>
               <Textarea
                 id="regra-descricao"
-                rows={3}
-                maxLength={300}
+                rows={4}
+                maxLength={4000}
                 value={f.descricao}
                 onChange={(e) => set("descricao", e.target.value)}
                 placeholder="ex.: Mensalidade do contencioso"
