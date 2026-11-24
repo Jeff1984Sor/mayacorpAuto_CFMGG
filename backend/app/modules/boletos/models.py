@@ -50,7 +50,7 @@ class Convenio(Base, Timestamped):
     conta: Mapped[str] = mapped_column(String(9))
     conta_dv: Mapped[str] = mapped_column(String(1))
     codigo_beneficiario: Mapped[str] = mapped_column(String(7))  # vai no código de barras
-    codigo_transmissao: Mapped[str] = mapped_column(String(15))  # vai no header da remessa
+    codigo_transmissao: Mapped[str] = mapped_column(String(20))  # vai no header da remessa (Bradesco: convênio)
     carteira: Mapped[str] = mapped_column(String(3), default="101")
     tipo_cobranca: Mapped[str] = mapped_column(String(1), default="5")  # P 058
     forma_cadastramento: Mapped[str] = mapped_column(String(1), default="1")  # P 059

@@ -144,5 +144,18 @@ class SantanderCNAB240(BancoBase):
             "tipo_cobranca_da_carteira": cod.TIPO_COBRANCA_DA_CARTEIRA,
         }
 
+    def padroes(self) -> dict:
+        return {"carteira": "101", "tipo_cobranca": "5", "forma_cadastramento": "1", "tipo_documento": "1",
+                "especie_titulo": "04", "codigo_juros": "2", "codigo_protesto": "0", "codigo_baixa": "1", "dias_baixa": 60}
+
+    def campos(self) -> dict:
+        return {
+            "codigo_beneficiario": {"rotulo": "Código do beneficiário", "obrigatorio": True, "tamanho": 7,
+                                    "dica": "Vai no código de barras"},
+            "codigo_transmissao": {"rotulo": "Código de transmissão", "obrigatorio": True, "tamanho": 15,
+                                   "dica": "Vai no cabeçalho da remessa"},
+            "conta_tamanho": 9,
+        }
+
     def sigla_especie(self, especie: str) -> str:
         return cod.ESPECIE_SIGLA.get(especie, "DS")

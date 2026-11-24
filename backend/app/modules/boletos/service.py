@@ -336,8 +336,13 @@ def _achar_convenio(db: Session, tenant_id: int, banco: str, agencia: str, conta
     return convs[0] if len(convs) == 1 else None
 
 
+def _tem_numero(nosso_numero: str | None) -> bool:
+    """Nosso número preenchido (não vazio nem só zeros). O DV pode ser letra (Bradesco usa "P")."""
+    return bool((nosso_numero or "").strip().strip("0"))
+
+
 def _achar_boleto(db: Session, conv: Convenio, oc: OcorrenciaRetorno) -> Boleto | None:
-    if oc.nosso_numero and int(oc.nosso_numero):
+    if _tem_numero(oc.nosso_numero):
         b = db.scalar(select(Boleto).where(Boleto.convenio_id == conv.id, Boleto.nosso_numero == oc.nosso_numero))
         if b:
             return b
@@ -375,7 +380,7 @@ def _aplicar(db: Session, conv: Convenio, b: Boleto, oc: OcorrenciaRetorno) -> t
     if codigo in cod.RETORNO_REGISTRADO:
         if b.status in (StatusBoleto.rascunho, StatusBoleto.em_remessa, StatusBoleto.rejeitado):
             b.status, b.motivos = StatusBoleto.registrado, []
-        if not b.nosso_numero and oc.nosso_numero and int(oc.nosso_numero):  # numeração do banco: chega agora
+        if not b.nosso_numero and _tem_numero(oc.nosso_numero):  # numeração do banco: chega agora
             b.nosso_numero = oc.nosso_numero
             _calcular_codigos(b, conv)
         return "registrados", None

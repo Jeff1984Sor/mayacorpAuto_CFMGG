@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Segmented } from "@/components/mayacorp/data-table";
-import { Field, FormSection, NativeSelect, SwitchRow } from "@/components/mayacorp/form";
+import { Field, NativeSelect, SwitchRow } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Pill } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,17 @@ import { data, dataHora, documento, moeda } from "@/lib/format";
 import type { EmissoraOut, Pagina } from "@/lib/types";
 
 const invalidar = (qc: ReturnType<typeof useQueryClient>) => qc.invalidateQueries({ queryKey: ["boletos"] });
+
+/** Bloco do formulário: título em cima, campos na largura toda. */
+function Secao({ titulo, descricao, children }: { titulo: string; descricao?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border bg-background/40 p-4">
+      <h3 className="text-sm font-semibold">{titulo}</h3>
+      {descricao && <p className="mt-0.5 text-xs text-muted-foreground">{descricao}</p>}
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
 
 export function useConvenios() {
   return useQuery({ queryKey: ["boletos", "convenios"], queryFn: () => api.get<ConvenioOut[]>("/boletos/convenios") });
@@ -287,7 +298,7 @@ export function BoletoDialog({ open, onOpenChange, boleto }: { open: boolean; on
                   <Input value={f.descricao} onChange={(e) => set("descricao", e.target.value)} maxLength={200} />
                 </Field>
               </div>
-              <FormSection titulo="Pagador">
+              <Secao titulo="Pagador">
                 <div className="grid gap-3 sm:grid-cols-6">
                   <Field label="Nome" obrigatorio className="sm:col-span-4">
                     <Input value={f.pagador_nome} onChange={(e) => set("pagador_nome", e.target.value)} required />
@@ -311,7 +322,7 @@ export function BoletoDialog({ open, onOpenChange, boleto }: { open: boolean; on
                     <Input value={f.pagador_uf} onChange={(e) => set("pagador_uf", e.target.value.toUpperCase())} maxLength={2} required />
                   </Field>
                 </div>
-              </FormSection>
+              </Secao>
             </>
           )}
         </div>
@@ -718,8 +729,16 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
     if (open && !convenio && !f.emissora_id && emissoras.data?.length) set("emissora_id", emissoras.data[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, convenio, emissoras.data]);
-  const op = bancos.data?.find((b) => b.codigo === f.banco)?.opcoes ?? {};
+  const banco = bancos.data?.find((b) => b.codigo === f.banco);
+  const op = banco?.opcoes ?? {};
+  const campoBenef = banco?.campos?.codigo_beneficiario;
+  const campoTransm = banco?.campos?.codigo_transmissao;
   const opcoes = (k: string) => Object.entries(op[k] ?? {});
+  const trocarBanco = (codigo: string) => {
+    // cada banco tem os seus códigos: ao trocar, entram os valores usuais dele
+    const novo = bancos.data?.find((b) => b.codigo === codigo);
+    setF((x) => ({ ...x, banco: codigo, ...(novo?.padroes ?? {}), ...(novo?.campos?.codigo_beneficiario === null ? { codigo_beneficiario: "" } : {}) }));
+  };
   const salvar = useMutation({
     mutationFn: () => {
       const corpo = { ...f, mensagem_1: f.mensagem_1 || null, mensagem_2: f.mensagem_2 || null, instrucoes: f.instrucoes || null, pix_chave: f.pix_chave || null, pix_chave_tipo: f.pix_chave_tipo || null };
@@ -736,8 +755,8 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
       <Input value={(f[k] as string | null) ?? ""} onChange={(e) => set(k, e.target.value as never)} maxLength={extra?.max} required={extra?.obrigatorio} />
     </Field>
   );
-  const escolha = (k: keyof ConvenioIn, label: string, tabela: string, dica?: string) => (
-    <Field label={label} dica={dica}>
+  const escolha = (k: keyof ConvenioIn, label: string, tabela: string, extra?: { dica?: string; className?: string }) => (
+    <Field label={label} dica={extra?.dica} className={extra?.className}>
       <NativeSelect value={(f[k] as string) ?? ""} onChange={(e) => set(k, e.target.value as never)}>
         {opcoes(tabela).map(([v, r]) => (
           <option key={v} value={v}>
@@ -747,12 +766,17 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
       </NativeSelect>
     </Field>
   );
+  const numero = (k: "dias_protesto" | "dias_baixa" | "proximo_nosso_numero" | "proximo_sequencial_arquivo", label: string, extra?: { dica?: string; max?: number; min?: number; className?: string }) => (
+    <Field label={label} dica={extra?.dica} className={extra?.className}>
+      <Input type="number" min={extra?.min ?? 0} max={extra?.max} value={f[k]} onChange={(e) => set(k, Number(e.target.value))} />
+    </Field>
+  );
   return (
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
       titulo={convenio ? `Convênio ${convenio.nome}` : "Novo convênio"}
-      descricao="Os códigos vêm do contrato de cobrança com o banco (peça ao gerente)."
+      descricao="Os dados vêm do contrato de cobrança com o banco (peça ao gerente)."
       largura="xl"
       salvando={salvar.isPending}
       onSubmit={(e) => {
@@ -761,12 +785,12 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
         salvar.mutate();
       }}
     >
-      <div className="space-y-5">
-        <FormSection titulo="Conta de cobrança">
-          <div className="grid gap-3 sm:grid-cols-6">
-            {texto("nome", "Apelido", { obrigatorio: true, className: "sm:col-span-2", max: 120 })}
-            <Field label="Banco" className="sm:col-span-2">
-              <NativeSelect value={f.banco} onChange={(e) => set("banco", e.target.value)}>
+      <div className="space-y-4">
+        <Secao titulo="Conta de cobrança">
+          <div className="grid gap-3 sm:grid-cols-12">
+            {texto("nome", "Apelido do convênio", { obrigatorio: true, className: "sm:col-span-6", max: 120 })}
+            <Field label="Banco" obrigatorio className="sm:col-span-6">
+              <NativeSelect value={f.banco} onChange={(e) => trocarBanco(e.target.value)} disabled={!!convenio && convenio.qtd_boletos > 0}>
                 {(bancos.data ?? []).map((b) => (
                   <option key={b.codigo} value={b.codigo}>
                     {b.codigo} · {b.nome}
@@ -774,7 +798,7 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
                 ))}
               </NativeSelect>
             </Field>
-            <Field label="Beneficiário (empresa emissora)" obrigatorio className="sm:col-span-2">
+            <Field label="Beneficiário (empresa emissora)" obrigatorio className="sm:col-span-12">
               <NativeSelect value={f.emissora_id || ""} onChange={(e) => set("emissora_id", Number(e.target.value))}>
                 <option value="">Escolha…</option>
                 {(emissoras.data ?? []).map((e) => (
@@ -784,14 +808,12 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
                 ))}
               </NativeSelect>
             </Field>
-            {texto("agencia", "Agência", { obrigatorio: true, max: 4 })}
-            {texto("agencia_dv", "Dígito", { obrigatorio: true, max: 1 })}
-            {texto("conta", "Conta", { obrigatorio: true, max: 9, className: "sm:col-span-2" })}
-            {texto("conta_dv", "Dígito", { obrigatorio: true, max: 1 })}
-            <span />
-            {texto("codigo_beneficiario", "Código do beneficiário", { obrigatorio: true, max: 7, className: "sm:col-span-2", dica: "Vai no código de barras" })}
-            {texto("codigo_transmissao", "Código de transmissão", { obrigatorio: true, max: 15, className: "sm:col-span-2", dica: "Vai no cabeçalho da remessa" })}
-            <Field label="O crédito cai em" className="sm:col-span-2" dica="Conta do Financeiro que recebe os pagamentos">
+
+            {texto("agencia", "Agência", { obrigatorio: true, max: 4, className: "sm:col-span-3" })}
+            {texto("agencia_dv", "Dígito", { obrigatorio: true, max: 1, className: "sm:col-span-2" })}
+            {texto("conta", "Conta", { obrigatorio: true, max: banco?.campos?.conta_tamanho ?? 9, className: "sm:col-span-5" })}
+            {texto("conta_dv", "Dígito", { obrigatorio: true, max: 1, className: "sm:col-span-2" })}
+            <Field label="O crédito cai em" className="sm:col-span-12" dica="Conta do Financeiro que recebe os pagamentos">
               <NativeSelect value={f.conta_bancaria_id ?? ""} onChange={(e) => set("conta_bancaria_id", e.target.value ? Number(e.target.value) : null)}>
                 <option value="">Conta de recebimento padrão</option>
                 {(contas.data ?? []).map((c) => (
@@ -801,12 +823,17 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
                 ))}
               </NativeSelect>
             </Field>
-          </div>
-        </FormSection>
 
-        <FormSection titulo="Parâmetros da cobrança" descricao="Já vêm com o mais comum para honorários. Confirme com o banco antes da primeira remessa.">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Carteira">
+            {campoBenef &&
+              texto("codigo_beneficiario", campoBenef.rotulo, { obrigatorio: campoBenef.obrigatorio, max: campoBenef.tamanho, dica: campoBenef.dica, className: "sm:col-span-6" })}
+            {campoTransm &&
+              texto("codigo_transmissao", campoTransm.rotulo, { obrigatorio: campoTransm.obrigatorio, max: campoTransm.tamanho, dica: campoTransm.dica, className: "sm:col-span-6" })}
+          </div>
+        </Secao>
+
+        <Secao titulo="Parâmetros da cobrança" descricao="Já vêm com o mais comum para honorários. Confirme com o banco antes da primeira remessa.">
+          <div className="grid gap-3 sm:grid-cols-12">
+            <Field label="Carteira" className="sm:col-span-4">
               <NativeSelect
                 value={f.carteira}
                 onChange={(e) => {
@@ -821,50 +848,44 @@ export function ConvenioDialog({ open, onOpenChange, convenio }: { open: boolean
                 ))}
               </NativeSelect>
             </Field>
-            {escolha("tipo_cobranca", "Tipo de cobrança", "tipo_cobranca")}
-            {escolha("forma_cadastramento", "Forma de cadastramento", "forma_cadastramento")}
-            {escolha("tipo_documento", "Tipo de documento", "tipo_documento")}
-            {escolha("especie_titulo", "Espécie do título", "especie_titulo", "Honorários = duplicata de serviço")}
-            <Field label="Quem numera o boleto" dica="Pela empresa, o PDF sai antes do retorno do banco">
+            {escolha("tipo_cobranca", "Tipo de cobrança", "tipo_cobranca", { className: "sm:col-span-4" })}
+            {escolha("forma_cadastramento", "Forma de cadastramento", "forma_cadastramento", { className: "sm:col-span-4" })}
+
+            {escolha("especie_titulo", "Espécie do título", "especie_titulo", { dica: "Honorários = duplicata de serviço", className: "sm:col-span-4" })}
+            {escolha("tipo_documento", "Tipo de documento", "tipo_documento", { className: "sm:col-span-4" })}
+            <Field label="Quem numera o boleto" dica="Pelo sistema, o PDF sai antes do retorno do banco" className="sm:col-span-4">
               <NativeSelect value={f.numeracao} onChange={(e) => set("numeracao", e.target.value as "EMPRESA" | "BANCO")}>
                 <option value="EMPRESA">O sistema (recomendado)</option>
                 <option value="BANCO">O banco</option>
               </NativeSelect>
             </Field>
-            {escolha("codigo_juros", "Juros de mora", "codigo_juros")}
-            <Field label="Juros ao mês (%)">
+
+            {escolha("codigo_juros", "Juros de mora", "codigo_juros", { className: "sm:col-span-4" })}
+            <Field label="Juros ao mês (%)" className="sm:col-span-4">
               <Input inputMode="decimal" value={f.juros_mensal_pct} onChange={(e) => set("juros_mensal_pct", e.target.value.replace(",", "."))} />
             </Field>
-            <Field label="Multa (%)">
+            <Field label="Multa (%)" className="sm:col-span-4">
               <Input inputMode="decimal" value={f.multa_pct} onChange={(e) => set("multa_pct", e.target.value.replace(",", "."))} />
             </Field>
-            {escolha("codigo_protesto", "Protesto", "codigo_protesto")}
-            <Field label="Dias para protesto">
-              <Input type="number" min={0} max={99} value={f.dias_protesto} onChange={(e) => set("dias_protesto", Number(e.target.value))} />
-            </Field>
-            <span />
-            {escolha("codigo_baixa", "Baixa/devolução", "codigo_baixa")}
-            <Field label="Dias para baixa">
-              <Input type="number" min={0} max={99} value={f.dias_baixa} onChange={(e) => set("dias_baixa", Number(e.target.value))} />
-            </Field>
-          </div>
-        </FormSection>
 
-        <FormSection titulo="Numeração e mensagens">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Próximo nosso número" dica="Nunca volta: número de boleto não é reaproveitado">
-              <Input type="number" min={1} value={f.proximo_nosso_numero} onChange={(e) => set("proximo_nosso_numero", Number(e.target.value))} />
-            </Field>
-            <Field label="Próxima remessa (sequencial)">
-              <Input type="number" min={1} value={f.proximo_sequencial_arquivo} onChange={(e) => set("proximo_sequencial_arquivo", Number(e.target.value))} />
-            </Field>
-            {texto("mensagem_1", "Mensagem 1 (até 40 letras)", { max: 40 })}
-            {texto("mensagem_2", "Mensagem 2 (até 40 letras)", { max: 40 })}
-            <Field label="Instruções no boleto" className="sm:col-span-2">
+            {escolha("codigo_protesto", "Protesto", "codigo_protesto", { className: "sm:col-span-4" })}
+            {numero("dias_protesto", "Dias para protesto", { max: 99, className: "sm:col-span-2" })}
+            {escolha("codigo_baixa", "Baixa/devolução", "codigo_baixa", { className: "sm:col-span-4" })}
+            {numero("dias_baixa", "Dias para baixa", { max: 99, className: "sm:col-span-2" })}
+          </div>
+        </Secao>
+
+        <Secao titulo="Numeração e mensagens">
+          <div className="grid gap-3 sm:grid-cols-12">
+            {numero("proximo_nosso_numero", "Próximo nosso número", { min: 1, dica: "Nunca volta: número de boleto não é reaproveitado", className: "sm:col-span-6" })}
+            {numero("proximo_sequencial_arquivo", "Próxima remessa (sequencial)", { min: 1, className: "sm:col-span-6" })}
+            {texto("mensagem_1", "Mensagem 1 (até 40 letras)", { max: 40, className: "sm:col-span-6" })}
+            {texto("mensagem_2", "Mensagem 2 (até 40 letras)", { max: 40, className: "sm:col-span-6" })}
+            <Field label="Instruções no boleto" className="sm:col-span-12">
               <Textarea rows={2} value={f.instrucoes ?? ""} onChange={(e) => set("instrucoes", e.target.value)} maxLength={600} />
             </Field>
           </div>
-        </FormSection>
+        </Secao>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <SwitchRow titulo="Homologado pelo banco" descricao="Enquanto desligado, toda remessa sai marcada como TESTE.">

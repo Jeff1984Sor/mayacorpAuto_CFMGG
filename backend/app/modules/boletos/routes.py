@@ -45,7 +45,8 @@ def _erro(e: Exception) -> HTTPException:
 # ================================================================ bancos
 @router.get("/bancos")
 def bancos(ctx: Ctx):
-    return [{"codigo": b.codigo, "nome": b.nome_curto, "opcoes": b.opcoes()} for b in bancos_disponiveis()]
+    return [{"codigo": b.codigo, "nome": b.nome_curto, "opcoes": b.opcoes(), "padroes": b.padroes(), "campos": b.campos()}
+            for b in bancos_disponiveis()]
 
 
 # ================================================================ convênios
@@ -55,12 +56,13 @@ class ConvenioIn(BaseModel):
     conta_bancaria_id: int | None = None
     banco: str = Field(default="033", pattern=r"^\d{3}$")
     agencia: str = Field(pattern=r"^\d{1,4}$")
-    agencia_dv: str = Field(default="0", pattern=r"^\d$")
+    agencia_dv: str = Field(default="0", pattern=r"^[0-9Xx]$")
     conta: str = Field(pattern=r"^\d{1,9}$")
-    conta_dv: str = Field(pattern=r"^\d$")
-    codigo_beneficiario: str = Field(pattern=r"^\d{1,7}$")
-    codigo_transmissao: str = Field(pattern=r"^\d{1,15}$")
-    carteira: str = Field(default="101", pattern=r"^\d{3}$")
+    conta_dv: str = Field(pattern=r"^[0-9XxPp]$")
+    # o que cada banco exige destes dois é conferido pelo adaptador do banco (pendências do convênio)
+    codigo_beneficiario: str = Field(default="", pattern=r"^\d{0,7}$")
+    codigo_transmissao: str = Field(default="", pattern=r"^\d{0,20}$")
+    carteira: str = Field(default="101", pattern=r"^\d{2,3}$")
     tipo_cobranca: str = Field(default="5", max_length=1)
     forma_cadastramento: str = Field(default="1", max_length=1)
     tipo_documento: str = Field(default="1", max_length=1)
@@ -127,6 +129,13 @@ def _conferir_convenio(ctx, dados: ConvenioIn) -> None:
             raise HTTPException(400, "Conta bancária não encontrada.")
 
 
+def _exigir_completo(c: Convenio) -> None:
+    """O banco diz o que falta (agência, conta, códigos do contrato): convênio incompleto não é gravado."""
+    pendencias = service.validar_convenio(c)
+    if pendencias:
+        raise HTTPException(400, pendencias[0])
+
+
 @router.get("/convenios", response_model=list[ConvenioOut])
 def listar_convenios(ctx: Ctx):
     cs = ctx.db.scalars(select(Convenio).where(Convenio.tenant_id == ctx.tenant_id).order_by(Convenio.ativo.desc(), Convenio.nome))
@@ -139,6 +148,7 @@ def criar_convenio(dados: ConvenioIn, ctx: Operador):
     c = Convenio(tenant_id=ctx.tenant_id, **dados.model_dump())
     ctx.db.add(c)
     ctx.db.flush()
+    _exigir_completo(c)
     ctx.auditar("boletos.convenio.criar", "bol_convenio", c.id, descricao=f"{c.nome} (banco {c.banco})")
     ctx.db.commit()
     return _convenio_out(ctx, c)
@@ -154,8 +164,12 @@ def alterar_convenio(cid: int, dados: ConvenioIn, ctx: Operador):
     if dados.proximo_sequencial_arquivo < c.proximo_sequencial_arquivo:
         raise HTTPException(400, f"O sequencial da remessa não pode voltar (o atual é {c.proximo_sequencial_arquivo}).")
     antes = {"homologado": c.homologado, "ativo": c.ativo, "carteira": c.carteira}
+    if dados.banco != c.banco and ctx.db.scalar(select(func.count()).select_from(Boleto).where(Boleto.convenio_id == c.id)):
+        raise HTTPException(400, "Este convênio já tem boletos: não dá para trocar o banco. Cadastre outro convênio.")
     for k, v in dados.model_dump().items():
         setattr(c, k, v)
+    ctx.db.flush()
+    _exigir_completo(c)
     ctx.auditar("boletos.convenio.alterar", "bol_convenio", c.id, descricao=c.nome, antes=antes,
                 depois={"homologado": c.homologado, "ativo": c.ativo, "carteira": c.carteira})
     ctx.db.commit()

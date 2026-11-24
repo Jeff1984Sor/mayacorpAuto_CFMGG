@@ -359,7 +359,7 @@ def test_validacoes_do_convenio_e_do_boleto():
 
 
 def test_registro_de_bancos():
-    assert [b.codigo for b in bancos_disponiveis()] == ["033"]
+    assert [b.codigo for b in bancos_disponiveis()] == ["033", "237"]
     assert get_banco("33").nome == "BANCO SANTANDER"
     with pytest.raises(BancoNaoSuportado):
         get_banco("341")

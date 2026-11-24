@@ -349,7 +349,7 @@ export default function BoletosPage() {
       {aba === "convenios" && (
         <TableCard>
           <Toolbar>
-            <p className="text-sm text-muted-foreground">Contrato de cobrança com o banco. Hoje: Santander (CNAB 240).</p>
+            <p className="text-sm text-muted-foreground">Contrato de cobrança com o banco. Bancos: Santander e Bradesco (CNAB 240).</p>
             {podeConvenio && (
               <Button className="ml-auto" onClick={() => setConvenio({ c: null })}>
                 <Plus /> Novo convênio

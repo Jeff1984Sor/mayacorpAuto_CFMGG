@@ -123,10 +123,21 @@ export interface ConvenioOut extends ConvenioIn {
   pendencias: string[];
 }
 
+export interface CampoDoBanco {
+  rotulo: string;
+  obrigatorio: boolean;
+  tamanho: number;
+  dica?: string;
+}
+
 export interface BancoBoleto {
   codigo: string;
   nome: string;
   opcoes: Record<string, Record<string, string>>;
+  /** valores usuais do banco, aplicados ao escolhê-lo no convênio */
+  padroes: Partial<ConvenioIn>;
+  /** campos que mudam de banco para banco; null = o banco não usa */
+  campos: { codigo_beneficiario?: CampoDoBanco | null; codigo_transmissao?: CampoDoBanco | null; conta_tamanho?: number };
 }
 
 export interface RemessaOut {

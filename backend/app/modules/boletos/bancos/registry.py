@@ -1,10 +1,12 @@
 """Bancos disponíveis. Um banco novo é só mais uma linha aqui (e o pacote dele ao lado)."""
 
 from app.modules.boletos.bancos.base import BancoBase
+from app.modules.boletos.bancos.bradesco import BradescoCNAB240
 from app.modules.boletos.bancos.santander import SantanderCNAB240
 
 _BANCOS: dict[str, type[BancoBase]] = {
     SantanderCNAB240.codigo: SantanderCNAB240,
+    BradescoCNAB240.codigo: BradescoCNAB240,
 }
 
 

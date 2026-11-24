@@ -38,7 +38,7 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     - O saldo nunca é gravado: é sempre calculado a partir dos lançamentos.
     - Pagar uma conta lança um débito no extrato. Fatura paga vira crédito na conta de recebimento (`fatura.espelhar_no_financeiro`).
 - `app/modules/boletos/` (tela **Boletos**, especificação em `SPEC_CNAB240_SANTANDER.md`): boletos registrados por arquivo CNAB 240, sem API de banco.
-  - `cnab/` é o motor genérico de campos fixos (o layout é conferido ao importar: 1 a 240, sem buraco). Cada banco é um adaptador em `bancos/` (hoje só `santander/`); banco novo = pacote novo + uma linha em `bancos/registry.py`.
+  - `cnab/` é o motor genérico de campos fixos (o layout é conferido ao importar: 1 a 240, sem buraco). Cada banco é um adaptador em `bancos/` (hoje `santander/` e `bradesco/`; o que é do padrão FEBRABAN fica em `bancos/retorno_comum.py`); banco novo = pacote novo + uma linha em `bancos/registry.py`.
   - Fluxo: boleto (rascunho) → **remessa** `.REM` → upload no Internet Banking → **retorno** `.RET` → registrado / rejeitado / pago. Pagamento dá baixa na fatura (`service._baixar_fatura`).
   - Nosso número: contador por convênio, travado ao reservar, nunca reaproveitado. Depois da remessa o boleto só muda por instrução (02 baixa, 06 vencimento).
   - O boleto só vai ao cliente depois do retorno `02` (e-mail com boleto + NH/ND + NFS-e em `envio.py`). Convênio não homologado gera remessa de **teste**.

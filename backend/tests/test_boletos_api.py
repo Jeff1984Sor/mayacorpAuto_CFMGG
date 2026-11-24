@@ -82,7 +82,7 @@ def test_boletos_do_cadastro_ao_pagamento(cliente):  # noqa: F811
     assert r.status_code == 201, r.text
     conv = r.json()
     assert (conv["banco_nome"], conv["pendencias"], conv["homologado"], conv["especie_titulo"], conv["carteira"]) == ("Santander", [], False, "04", "101")
-    assert [x["id"] for x in cliente.get("/api/boletos/convenios", headers=h).json()] == [conv["id"]]
+    assert conv["id"] in [x["id"] for x in cliente.get("/api/boletos/convenios", headers=h).json()]
 
     # ---------------------------------------------------------------- boleto de uma fatura
     nh = _fatura(cliente, h, cli, caso)

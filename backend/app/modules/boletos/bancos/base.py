@@ -151,3 +151,11 @@ class BancoBase(ABC):
     @abstractmethod
     def opcoes(self) -> dict[str, dict[str, str]]:
         """Tabelas de códigos para os selects do cadastro do convênio."""
+
+    def padroes(self) -> dict:
+        """Valores iniciais do convênio neste banco (a tela aplica quando o banco é escolhido)."""
+        return {}
+
+    def campos(self) -> dict:
+        """Campos do convênio que mudam de banco para banco: rótulo, se é obrigatório, tamanho; None = o banco não usa."""
+        return {}
