@@ -18,6 +18,7 @@ import {
   User,
   UserRound,
   UsersRound,
+  ChartPie,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -534,6 +535,9 @@ export default function ClientesPage() {
         migalhas={[{ label: "Cadastros", href: "/cadastros" }, { label: "Clientes" }]}
         acoes={
           <>
+            <Button variant="outline" render={<Link href="/relatorios#clientes" />}>
+              <ChartPie /> Relatórios
+            </Button>
             <Button variant="outline" onClick={() => exportar.mutate()} disabled={exportar.isPending}>
               <Download /> Exportar
             </Button>

@@ -112,6 +112,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("POST", r"/auth/usuarios/\d+/foto$", "cfg_profissionais.editar"),
     ("DELETE", r"/auth/usuarios/\d+/foto$", "cfg_profissionais.editar"),
     ("*", r"/(auth|public|health|hub)(/|$)", LIVRE),
+    ("*", r"/relatorios(/|$)", LIVRE),  # cada fonte exige a permissão do seu dado (relatorios/fontes.py)
     ("GET", r"/cadastros/(cidades|cnpj)/", LIVRE),
     ("GET", r"/faturamento/(judiciario|profissionais)(/|$)", LIVRE),
     ("GET", r"/faturamento/(areas|campos|tabelas)$", LIVRE),

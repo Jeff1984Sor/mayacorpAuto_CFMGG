@@ -43,6 +43,9 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
   - Nosso número: contador por convênio, travado ao reservar, nunca reaproveitado. Depois da remessa o boleto só muda por instrução (02 baixa, 06 vencimento).
   - O boleto só vai ao cliente depois do retorno `02` (e-mail com boleto + NH/ND + NFS-e em `envio.py`). Convênio não homologado gera remessa de **teste**.
   - Códigos marcados `TODO [CONFIRMAR]` em `bancos/santander/codigos.py` são editáveis no cadastro do convênio; confirmar com o banco na homologação.
+- `app/modules/relatorios/` (menu **Relatórios**): gerador genérico. `fontes.py` declara cada fonte (horas, casos, andamentos, tarefas, regras, despesas, faturas) com colunas e permissão e carrega as linhas; `motor.py` filtra, agrupa para o gráfico e ordena (igual para toda fonte); `prontos.py` são só configurações (os relatórios de Clientes, Casos e Financeiro).
+  - Relatório novo = uma entrada em `prontos.py`; dado novo = uma `Fonte` em `fontes.py`. A rota é livre: quem decide o acesso é a permissão da fonte e de cada coluna (valor de horas exige `faturas.ver`; sem `ver_todos`/`ver_todas`, só as próprias horas/tarefas).
+  - Gráfico: paleta categórica `--viz-c1..c8` (validada claro/escuro), no máximo 8 séries, o resto vira "Outros". Excel sai com a aba Gráfico nativa. Salvos em `relatorio_salvo`.
 - `app/controle/` (banco `mayajus_controle`): escritórios, planos, contratos e **cobrança pelo Mercado Pago**
   (`cobranca.py` + `mercadopago.py` + `routes_cobranca.py`: mensalidade no dia 1, avulsa, cartão recorrente, régua de e-mails,
   webhook em `/api/public/mercadopago`, "Meu plano" do cliente). Token do MP fica cifrado no controle (tela Cobranças do admin).

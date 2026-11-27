@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, FolderPlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Briefcase, FolderPlus, MoreHorizontal, Pencil, Trash2, ChartPie } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -73,6 +74,9 @@ export default function CasosPage() {
         migalhas={[{ label: "Cadastros" }, { label: "Casos" }]}
         acoes={
           <>
+            <Button variant="outline" render={<Link href="/relatorios#casos" />}>
+              <ChartPie /> Relatórios
+            </Button>
             <PlanilhaAcoes recurso="casos" rotulo="casos" podeImportar={pode("casos.importar")} />
             {podeEditar && (
               <Button onClick={() => setNovo(true)}>

@@ -50,6 +50,7 @@ import {
   ScanSearch,
   Stamp,
   BadgeCheck,
+  ChartPie,
   type LucideIcon,
 } from "lucide-react";
 
@@ -95,6 +96,7 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Início", href: "/", icone: Home, exato: true },
       { label: "Comunicador", href: "/comunicador", icone: MessagesSquare, permissao: "comunicador.usar", atalho: "G M", badge: "comunicador" },
+      { label: "Relatórios", href: "/relatorios", icone: ChartPie, foraDoPainel: true },
     ],
   },
   {

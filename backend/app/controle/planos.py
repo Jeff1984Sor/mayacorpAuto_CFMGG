@@ -12,6 +12,7 @@ RECURSOS: dict[str, str] = {
     "automacoes": "Automações padrão",
     "contador": "Integração com contador",
     "boletos": "Boletos registrados (CNAB 240, remessa e retorno)",
+    "relatorios": "Relatórios com gráficos, gerador de relatórios e Excel",
 }
 
 # robôs feitos sob medida, liberados cliente a cliente na ficha do admin (Clientes › Ficha › Robôs liberados)
@@ -22,10 +23,10 @@ ROBOS: dict[str, str] = {
 
 PADRAO = [
     # nome, mensal, anual (2 meses grátis), usuários, notas/mês, recursos
-    ("Solo", "119", "1190", 1, 20, ["gestao"]),
-    ("Escritório", "279", "2790", 5, 100, ["gestao", "boletos"]),
-    ("Pro", "549", "5490", 15, 500, ["gestao", "automacoes", "contador", "boletos"]),
-    ("Ilimitado", "990", "9900", 30, None, ["gestao", "automacoes", "contador", "boletos"]),
+    ("Solo", "119", "1190", 1, 20, ["gestao", "relatorios"]),
+    ("Escritório", "279", "2790", 5, 100, ["gestao", "boletos", "relatorios"]),
+    ("Pro", "549", "5490", 15, 500, ["gestao", "automacoes", "contador", "boletos", "relatorios"]),
+    ("Ilimitado", "990", "9900", 30, None, ["gestao", "automacoes", "contador", "boletos", "relatorios"]),
 ]
 
 

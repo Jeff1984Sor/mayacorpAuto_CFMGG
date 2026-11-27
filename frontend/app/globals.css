@@ -281,8 +281,25 @@ html.ambiente-hml {
   --viz-muted: color-mix(in oklab, #0f1729 22%, #ffffff);
   --viz-grid: color-mix(in oklab, #1e2d6b 9%, #ffffff);
   --viz-axis: color-mix(in oklab, #0f1729 50%, #ffffff);
+  /* categórica (relatórios): ordem fixa, 8 cores, validada claro/escuro; a 9ª série vira "Outros" */
+  --viz-c1: #4a5bc4;
+  --viz-c2: #f47230;
+  --viz-c3: #00b894;
+  --viz-c4: #f2a600;
+  --viz-c5: #ee7fac;
+  --viz-c6: #008a17;
+  --viz-c7: #6a4ce2;
+  --viz-c8: #ec4647;
 }
 .dark {
+  --viz-c1: #6c7ff0;
+  --viz-c2: #e76624;
+  --viz-c3: #00a888;
+  --viz-c4: #d28e05;
+  --viz-c5: #e24d8b;
+  --viz-c6: #0aac23;
+  --viz-c7: #9887ef;
+  --viz-c8: #eb6263;
   --viz-1: #6c7ff0;
   --viz-2: #1f9e68;
   --viz-aberta: #6c7ff0;
@@ -317,4 +334,10 @@ html.ambiente-hml {
   outline: 2px solid var(--brand);
   outline-offset: 4px;
   border-radius: 8px;
+}
+
+/* gráficos (recharts): sem contorno azul depois do clique; o teclado continua com o foco visível */
+.recharts-wrapper :focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible) {
+  outline: none;
 }

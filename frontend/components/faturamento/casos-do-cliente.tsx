@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ChartPie,
   Download,
   FileSpreadsheet,
   Layers,
@@ -13,6 +14,7 @@ import {
   Trash2,
   Type,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -179,8 +181,34 @@ export function CasosDoCliente({
     },
   });
 
+  const rel = (id: string) =>
+    `/relatorios/${id}?cliente=${encodeURIComponent(nomeCliente)}`;
   return (
     <div className="space-y-5">
+      {/* ---------------- relatórios já filtrados por este cliente */}
+      <nav
+        aria-label="Relatórios deste cliente"
+        className="flex flex-wrap items-center gap-2 text-sm"
+      >
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <ChartPie className="size-3.5" /> Relatórios deste cliente:
+        </span>
+        {[
+          ["horas-por-cliente", "Horas"],
+          ["casos-por-cliente", "Casos"],
+          ["informacoes-processuais", "Informações processuais"],
+          ["regras-de-cobranca", "Regras de cobrança"],
+          ["despesas-lancadas", "Despesas"],
+        ].map(([id, rotulo]) => (
+          <Link
+            key={id}
+            href={rel(id)}
+            className="rounded-full border px-3 py-1 text-xs hover:border-brand/40 hover:bg-brand/8"
+          >
+            {rotulo}
+          </Link>
+        ))}
+      </nav>
       {/* ---------------- importar casos por planilha */}
       <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-brand/10 via-card to-success/8 p-4">
         <div className="pointer-events-none absolute -top-10 -right-6 size-32 rounded-full bg-brand/15 blur-2xl" />
@@ -466,7 +494,9 @@ export function CasosDoCliente({
               aria-label="Campo que abre o texto da nota"
               className="w-56"
               value={notaCampo ?? ""}
-              onChange={(e) => setNotaCampo(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) =>
+                setNotaCampo(e.target.value ? Number(e.target.value) : null)
+              }
             >
               <option value="">— nenhum —</option>
               {usaveis.map((c) => (
@@ -479,7 +509,8 @@ export function CasosDoCliente({
           <div className="rounded-xl bg-muted/30 px-3 py-2">
             <p className="text-sm font-medium">Nome dos arquivos (NH e NF)</p>
             <p className="mb-1.5 text-xs text-muted-foreground">
-              Use os campos do caso entre chaves, ex.: {"{Sinistro} - {Ref}"} → “NH - 1038248-2026 - 39067-1.pdf”. Vazio = título do caso.
+              Use os campos do caso entre chaves, ex.: {"{Sinistro} - {Ref}"} →
+              “NH - 1038248-2026 - 39067-1.pdf”. Vazio = título do caso.
             </p>
             <Input
               aria-label="Nome dos arquivos"
@@ -491,9 +522,13 @@ export function CasosDoCliente({
             />
           </div>
           <div className="rounded-xl bg-muted/30 px-3 py-2">
-            <p className="text-sm font-medium">Pasta do caso na rede (botão “Salvar na Rede”)</p>
+            <p className="text-sm font-medium">
+              Pasta do caso na rede (botão “Salvar na Rede”)
+            </p>
             <p className="mb-1.5 text-xs text-muted-foreground">
-              Ex.: {"{Sinistro}"} → a NH e a NF vão para a pasta que tiver “1038248-2026” no nome (se não existir, é criada). Vazio = título do caso.
+              Ex.: {"{Sinistro}"} → a NH e a NF vão para a pasta que tiver
+              “1038248-2026” no nome (se não existir, é criada). Vazio = título
+              do caso.
             </p>
             <Input
               aria-label="Pasta do caso na rede"

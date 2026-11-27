@@ -30,6 +30,7 @@ from app.modules.faturamento import routes_revisao
 from app.modules.faturamento import tarefas as faturamento_tarefas
 from app.modules.faturamento import timesheet as faturamento_timesheet
 from app.modules.financas import routes as financas_routes
+from app.modules.relatorios import routes as relatorios_routes
 from app.modules.rpa_nfse import routes as nfse_routes
 from app.modules.rpa_nfse import routes_dashboard, routes_faturas, routes_financeiro, tasks
 from app.modules.tribunais import routes as tribunais_routes
@@ -142,7 +143,7 @@ async def _validacao(_: Request, exc: RequestValidationError):
 
 for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
           nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
-          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, boletos_routes.router,
+          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, boletos_routes.router, relatorios_routes.router,
           tribunais_routes.router, tribunais_protocolo.router, tribunais_config.router, tribunais_config.publico,
           admin_mayacorp.router, cobranca_routes.admin, cobranca_routes.publico, cobranca_routes.meu, ia_admin_routes.router, ia_admin_routes.clientes,
           cadastro_routes.publico, cadastro_routes.admin):
