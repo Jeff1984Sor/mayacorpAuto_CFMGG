@@ -467,3 +467,21 @@ def test_exclusoes_do_admin_e_profissional(multi):
     assert r.status_code == 200, r.text
     eu = c.get("/api/auth/me", headers=ana).json()
     assert c.delete(f"/api/config/usuarios/{eu['id']}", headers=ana, params={"definitivo": True}).status_code == 400
+
+
+def test_inicio_sem_financeiro(cliente):  # noqa: F811
+    """A tela inicial mostra o dia de trabalho (tarefas, casos, o que está parado), sem nenhum valor em dinheiro."""
+    import json
+
+    h = _login(cliente)
+    r = cliente.get("/api/hub/inicio", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert set(d) == {"data", "tarefas", "numeros", "pendencias", "lotes"}
+    assert {"abertas", "hoje", "atrasadas", "semana", "proximas"} <= set(d["tarefas"])
+    assert all(isinstance(n["valor"], int) for n in d["numeros"]) and any(n["rotulo"] == "Casos em andamento" for n in d["numeros"])
+    texto = json.dumps(d).lower()
+    for proibido in ("valor_total", "faturado", "iss", "r$", "receita"):
+        assert proibido not in texto, proibido
+    v = _login(cliente, "visualizador@cfme.com.br")
+    assert cliente.get("/api/hub/inicio", headers=v).status_code == 200
