@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from app.modules.relatorios.fontes import FONTES, NUMERICOS, Coluna, Fonte
+from app.modules.relatorios.fontes import _BRT, FONTES, NUMERICOS, Coluna, Fonte
 
 VAZIO = "(vazio)"
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
@@ -63,7 +63,7 @@ def _fim_mes(d: date) -> date:
 
 
 def periodo_relativo(rel: str, hoje: date | None = None) -> tuple[date | None, date | None]:
-    h = hoje or date.today()
+    h = hoje or datetime.now(_BRT).date()  # o dia no Brasil (o servidor roda em UTC)
     seg = h - timedelta(days=h.weekday())
     mp = _inicio_mes(h) - timedelta(days=1)
     tabela = {

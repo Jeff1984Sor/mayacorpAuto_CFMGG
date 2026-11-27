@@ -85,6 +85,19 @@ def test_relatorios_graficos_excel_e_salvos(cliente):  # noqa: F811
     r = cliente.post("/api/relatorios/executar", headers=h, json={
         "fonte": "casos", "colunas": ["titulo", "horas", "tarefas_abertas"], "filtros": [so_cliente]}).json()
     assert r["linhas"][0] == ["Ação indenizatória Rel", 2.5, 1]
+    # campos novos: data de cadastro (hoje), status, UF e despesas do caso
+    r = cliente.post("/api/relatorios/executar", headers=h, json={
+        "fonte": "casos", "colunas": ["titulo", "cadastro", "cliente_uf", "despesas", "contrato_ativo", "cliente_doc"],
+        "filtros": [so_cliente, {"coluna": "cadastro", "relativo": "hoje"}, {"coluna": "status", "valores": ["Aberto"]},
+                    {"coluna": "cliente_uf", "valores": ["SP"]}]}).json()
+    assert r["total_linhas"] == 1 and r["linhas"][0][2:5] == ["SP", 150.0, True] and "/" in r["linhas"][0][5]
+    r = cliente.post("/api/relatorios/executar", headers=h, json={
+        "fonte": "casos", "filtros": [so_cliente, {"coluna": "cadastro", "relativo": "mes_passado"}]}).json()
+    assert r["total_linhas"] == 0
+    r = cliente.post("/api/relatorios/executar", headers=h, json={
+        "fonte": "horas", "filtros": [so_cliente, {"coluna": "caso_status", "valores": ["Aberto"]},
+                                      {"coluna": "cadastro", "relativo": "hoje"}]}).json()
+    assert r["total_linhas"] == 2
     r = cliente.post("/api/relatorios/executar", headers=h, json={
         "fonte": "tarefas", "filtros": [so_cliente, {"coluna": "tipo", "valores": ["Audiência"]},
                                         {"coluna": "prazo", "relativo": "hoje_em_diante"}]}).json()
