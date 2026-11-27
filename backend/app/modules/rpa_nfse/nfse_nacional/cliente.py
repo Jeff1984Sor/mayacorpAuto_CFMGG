@@ -171,7 +171,8 @@ class ClienteNacional:
         """Depois de uma falha de comunicação: a DPS virou nota? Devolve a chave de acesso, se virou."""
         if self.modo == "simulado":
             return None
-        resp = self._chamar("GET", self._url("sefin", f"/dps/{id_dps}"))
+        # o serviço quer só os 42 números, sem o prefixo "DPS" (confirmado na produção restrita em 27/11/2026)
+        resp = self._chamar("GET", self._url("sefin", f"/dps/{id_dps.removeprefix('DPS')}"))
         if resp.status_code != 200:
             return None
         chave = _campo(self._json(resp) or {}, "chaveAcesso")

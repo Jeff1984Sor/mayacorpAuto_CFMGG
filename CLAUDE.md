@@ -69,6 +69,16 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
 - O XML é validado contra os XSD oficiais em `prefeitura_sp/xsd/` antes de sair. Teste: `tests/test_parser_xml.py`.
 - Idempotência: `rps.chave_emissao` (`emissora:série:número`, UNIQUE) é preenchida ao entrar na fila. Em falha de comunicação, o robô consulta a nota antes de reenviar.
 
+## NFS-e Nacional (Emissor Nacional, qualquer cidade): validado na produção restrita em 27/11/2026
+
+- A empresa emissora escolhe `sistema_emissao`: `prefeitura_sp` (pacote `prefeitura_sp/`) ou `nacional` (pacote `nfse_nacional/`). Cada escritório usa o certificado da própria emissora.
+- API Sefin Nacional com TLS mútuo (certificado ICP-Brasil). `POST /nfse` com `{"dpsXmlGZipB64"}` (XML em GZip + Base64); sucesso devolve `chaveAcesso` (50 dígitos) e `nfseXmlGZipB64`; erro devolve `erros[{Codigo, Descricao, Complemento}]`.
+- `GET /dps/{id}` quer o Id **sem** o prefixo "DPS" (só os 42 números). Cancelamento: `POST /nfse/{chave}/eventos` com `{"pedidoRegistroEventoXmlGZipB64"}` (evento e101101).
+- Assinatura aceita: RSA-SHA256, C14N 1.0 inclusiva, `<Signature>` sem prefixo como último filho da raiz, Reference ao Id de `infDPS`/`infPedReg`.
+- Dois layouts: `xsd/` (produção, v1.01 de 09/02/2026) e `xsd_rtc/` (Reforma Tributária, já exigido na produção restrita: `finNFSe` e `indDest` obrigatórios, `xDescServ` depois do `cNBS`). Quando a produção mudar, troque `LAYOUT_DO_AMBIENTE["1"]` em `dps.py`.
+- O XSD oficial de `TSSerieDPS` (v1.01 de produção) traz `^...$`, que no XSD vira literal: a cópia em `xsd/` está corrigida (comentado no arquivo).
+- Modo Teste em Configurações › Prefeitura = produção restrita do governo (nota existe lá, sem valor fiscal; aqui fica como simulação). O PDF oficial (DANFSe) não respondeu na produção restrita: o sistema gera o próprio PDF com a chave de acesso.
+
 ## Configuração
 
 Configuração de **negócio** fica no banco e é editada em **Configurações**: usuários e senhas, identidade, certificado,

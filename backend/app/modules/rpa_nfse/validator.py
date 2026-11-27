@@ -132,9 +132,13 @@ def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | 
     if rps.deducoes > rps.valor:
         problemas.append(_p("deducoes", "erro", "As deduções são maiores que o valor do serviço."))
 
+    nacional = getattr(ctx.emissora, "nacional", False)
+
     # ---- Serviço e alíquota
     cod = so_digitos(rps.cod_servico)
-    if len(cod) != 5:
+    if nacional:
+        pass  # no Emissor Nacional o serviço é o código de tributação nacional da empresa emissora
+    elif len(cod) != 5:
         problemas.append(_p("cod_servico", "erro", "Código de serviço deve ter 5 dígitos."))
     elif ctx.servicos_permitidos and cod not in ctx.servicos_permitidos:
         problemas.append(
@@ -150,6 +154,10 @@ def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | 
     if rps.aliquota == 0 and aliq_regra is None and ctx.emissora.aliquota_iss:
         rps.aliquota = ctx.emissora.aliquota_iss
     iss_fixo = rps.aliquota == 0 and aliq_regra == 0
+    regime = getattr(getattr(ctx.emissora, "regime", None), "value", "")
+    if nacional and regime in ("mei", "simples"):
+        iss_fixo = True  # MEI e Simples recolhem o ISS na guia do Simples: a nota não informa alíquota
+        rps.aliquota = Decimal(0)
     if not iss_fixo and not (Decimal("0.02") <= rps.aliquota <= Decimal("0.05")):
         problemas.append(_p("aliquota", "erro", "Alíquota de ISS fora da faixa legal (2% a 5%)."))
     elif not iss_fixo and ctx.emissora.aliquota_iss and rps.aliquota != ctx.emissora.aliquota_iss:
@@ -187,8 +195,11 @@ def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | 
     if rps.tomador_novo:
         problemas.append(_p("tomador", "aviso", "Tomador novo: será cadastrado automaticamente."))
 
-    # ---- Layout 2 (IBS/CBS)
-    for campo, rotulo in CAMPOS_LAYOUT2.items():
+    # ---- Layout 2 (IBS/CBS) da Prefeitura de SP; no Emissor Nacional o que falta é o código do serviço
+    if nacional and len(so_digitos(getattr(ctx.emissora, "cod_trib_nacional", None))) != 6:
+        problemas.append(_p("cod_servico", "erro",
+                            "Falta o código de tributação nacional na empresa emissora (Cadastros › Empresas emissoras)."))
+    for campo, rotulo in ({} if nacional else CAMPOS_LAYOUT2).items():
         if not params.get(campo):
             problemas.append(
                 _p(campo, "erro", f"{rotulo} não definido. Configure em Configurações › Parâmetros Fiscais.")

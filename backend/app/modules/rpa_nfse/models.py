@@ -110,7 +110,7 @@ class Emissora(Base, Timestamped):
     razao_social: Mapped[str] = mapped_column(String(200))
     nome_fantasia: Mapped[str | None] = mapped_column(String(200))
     cnpj: Mapped[str] = mapped_column(String(14))
-    ccm: Mapped[str] = mapped_column(String(8))
+    ccm: Mapped[str] = mapped_column(String(15))  # inscrição municipal (CCM em São Paulo); opcional no Emissor Nacional
     cep: Mapped[str | None] = mapped_column(String(8))
     logradouro: Mapped[str | None] = mapped_column(String(150))
     numero: Mapped[str | None] = mapped_column(String(10))
@@ -133,8 +133,15 @@ class Emissora(Base, Timestamped):
     prox_rps: Mapped[int] = mapped_column(Integer, default=1)
     certificado_id: Mapped[int | None] = mapped_column(ForeignKey("certificado.id"))
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
+    # por onde a nota sai: "prefeitura_sp" (Nota do Milhão, layout 2) ou "nacional" (Sistema Nacional NFS-e, qualquer cidade)
+    sistema_emissao: Mapped[str] = mapped_column(String(15), default="prefeitura_sp", server_default="prefeitura_sp")
+    cod_trib_nacional: Mapped[str | None] = mapped_column(String(6))  # código de tributação nacional do serviço (Emissor Nacional)
 
     __table_args__ = (UniqueConstraint("tenant_id", "cnpj", "ccm", name="uq_emissora_tenant_cnpj_ccm"),)
+
+    @property
+    def nacional(self) -> bool:
+        return self.sistema_emissao == "nacional"
 
 
 class Tomador(Base, Timestamped):
@@ -293,6 +300,7 @@ class Nfse(Base, Timestamped):
     tomador_id: Mapped[int | None] = mapped_column(ForeignKey("tomador.id"))
     numero: Mapped[int] = mapped_column(Integer, index=True)
     cod_verificacao: Mapped[str] = mapped_column(String(20))
+    chave_acesso: Mapped[str | None] = mapped_column(String(50), index=True)  # só nas notas do Sistema Nacional
     data_emissao: Mapped[datetime] = mapped_column(UtcDateTime(), index=True)
     valor: Mapped[Decimal] = mapped_column(Dinheiro)
     iss: Mapped[Decimal] = mapped_column(Dinheiro)

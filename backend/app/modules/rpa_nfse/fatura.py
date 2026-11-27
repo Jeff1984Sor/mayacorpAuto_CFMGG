@@ -21,6 +21,7 @@ from app.core.models import Identidade
 from app.modules.rpa_nfse import service
 from app.modules.rpa_nfse.models import ConfigNfse, Fatura, Nfse, StatusFatura, StatusNfse, TipoFatura
 from app.modules.rpa_nfse.pix import br_code
+from app.modules.rpa_nfse.prefeitura_sp import link_da_nfse
 from app.modules.rpa_nfse.qr import QrFlowable
 
 
@@ -171,12 +172,11 @@ def casos_das_faturas(db: Session, ids: list[int]) -> dict[int, str]:
 
 def link_da_nota(fat: Fatura) -> str | None:
     """Link público da NFS-e desta fatura na Prefeitura (nota simulada não tem)."""
-    from app.modules.rpa_nfse.prefeitura_sp import link_nota
 
     n = fat.nfse
     if not n or n.simulada or not fat.emissora:
         return None
-    return link_nota(fat.emissora.ccm, n.numero, n.cod_verificacao)
+    return link_da_nfse(n)
 
 
 def situacao(fat: Fatura) -> str:

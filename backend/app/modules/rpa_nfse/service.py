@@ -29,7 +29,7 @@ from app.modules.rpa_nfse.models import (
     StatusRps,
     Tomador,
 )
-from app.modules.rpa_nfse.prefeitura_sp import link_nota
+from app.modules.rpa_nfse.prefeitura_sp import link_da_nfse
 from app.modules.rpa_nfse.prefeitura_sp.xml_layout2 import MUNICIPIO_SP
 
 
@@ -73,8 +73,10 @@ def modo_prefeitura(db: Session, tenant_id: int) -> str:
 def saude_emissora(db: Session, e: Emissora) -> tuple[bool, str]:
     if not e.ativa:
         return False, "Emissora inativa"
-    if not cnpj_valido(e.cnpj) or not e.ccm:
+    if not cnpj_valido(e.cnpj) or (not e.ccm and not e.nacional):
         return False, "CNPJ ou CCM inválido"
+    if e.nacional and (len(e.codigo_municipio or "") != 7 or len(e.cod_trib_nacional or "") != 6):
+        return False, "Falta o município (IBGE) ou o código de tributação nacional"
     if modo_prefeitura(db, e.tenant_id) == "simulado" and not e.certificado_id:
         return True, "Pronta para emitir (modo simulação)"
     cert = db.get(Certificado, e.certificado_id) if e.certificado_id else None
@@ -450,7 +452,7 @@ def variaveis_nota(db: Session, nota: Nfse) -> dict:
         "nome_tomador": tom.get("nome", ""),
         "numero_nota": nota.numero,
         "valor": brl(nota.valor),
-        "link_prefeitura": link_nota(nota.emissora.ccm, nota.numero, nota.cod_verificacao),
+        "link_prefeitura": link_da_nfse(nota),
         "nome_emissora": ident.nome_exibicao if ident else nota.emissora.razao_social,
         "vencimento": f"{fat.data_vencimento:%d/%m/%Y}" if fat else "",
         "codigo_fatura": fat.codigo if fat else "",

@@ -126,10 +126,12 @@ export default function NotaDetalhePage() {
                 )}
               </div>
               <div className="rounded-xl bg-muted/60 p-4">
-                <p className="text-xs text-muted-foreground">Código de verificação</p>
+                <p className="text-xs text-muted-foreground">{n.chave_acesso ? "Chave de acesso (Sistema Nacional)" : "Código de verificação"}</p>
                 <div className="mt-1 flex items-center gap-2">
-                  <Mono className="text-xl font-semibold tracking-widest">{n.cod_verificacao}</Mono>
-                  <Button variant="ghost" size="icon-xs" onClick={() => copiar(n.cod_verificacao)} aria-label="Copiar">
+                  <Mono className={n.chave_acesso ? "text-xs font-semibold break-all" : "text-xl font-semibold tracking-widest"}>
+                    {n.chave_acesso ?? n.cod_verificacao}
+                  </Mono>
+                  <Button variant="ghost" size="icon-xs" onClick={() => copiar(n.chave_acesso ?? n.cod_verificacao)} aria-label="Copiar">
                     <Copy />
                   </Button>
                 </div>

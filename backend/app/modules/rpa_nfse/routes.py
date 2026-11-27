@@ -31,7 +31,7 @@ from app.modules.rpa_nfse.models import (
     StatusRps,
     Tomador,
 )
-from app.modules.rpa_nfse.prefeitura_sp import ClientePrefeitura, FalhaComunicacao, link_nota
+from app.modules.rpa_nfse.prefeitura_sp import ClientePrefeitura, FalhaComunicacao, link_da_nfse
 from app.modules.rpa_nfse.schemas import (
     Alerta,
     AnexoEmail,
@@ -98,8 +98,23 @@ def listar_emissoras(ctx: Ctx):
 def _validar_emissora(ctx, dados: EmissoraIn) -> None:
     if not cnpj_valido(dados.cnpj):
         raise HTTPException(400, "CNPJ da emissora inválido.")
-    if not dados.ccm or len(dados.ccm) > 8:
-        raise HTTPException(400, "Informe a Inscrição Municipal (CCM) com até 8 dígitos.")
+    dados.ccm = so_digitos(dados.ccm)
+    if dados.sistema_emissao == "nacional":
+        # Emissor Nacional: vale para qualquer cidade; a inscrição municipal é opcional
+        if len(dados.ccm) > 15:
+            raise HTTPException(400, "A inscrição municipal tem até 15 dígitos.")
+        dados.codigo_municipio = so_digitos(dados.codigo_municipio)
+        if len(dados.codigo_municipio) != 7:
+            raise HTTPException(400, "Falta o código IBGE do município da empresa (7 dígitos). Ele vem sozinho ao buscar o CEP.")
+        dados.cod_trib_nacional = so_digitos(dados.cod_trib_nacional)
+        if len(dados.cod_trib_nacional) != 6:
+            raise HTTPException(400, "Informe o código de tributação nacional do serviço (6 dígitos, ex.: 010101).")
+        if not dados.serie_rps.isdigit() or not 1 <= int(dados.serie_rps) <= 99999:
+            raise HTTPException(400, "No Emissor Nacional a série da DPS é um número de 1 a 99999 (ex.: 1).")
+    else:
+        if not dados.ccm or len(dados.ccm) > 8:
+            raise HTTPException(400, "Informe a Inscrição Municipal (CCM) com até 8 dígitos.")
+        dados.codigo_municipio = so_digitos(dados.codigo_municipio) or "3550308"
     if dados.certificado_id:
         _do_tenant(ctx, Certificado, dados.certificado_id)
 
@@ -829,11 +844,11 @@ def _nfse_out(n: Nfse) -> NfseOut:
     retido = _retencoes_da_nota(n)
     return NfseOut(
         retencoes=retido, valor_liquido=n.valor - sum(retido.values(), Decimal(0)),
-        id=n.id, numero=n.numero, cod_verificacao=n.cod_verificacao, data_emissao=n.data_emissao,
+        id=n.id, numero=n.numero, cod_verificacao=n.cod_verificacao, chave_acesso=n.chave_acesso, data_emissao=n.data_emissao,
         rps_serie=n.rps.serie, rps_numero=n.rps.numero, lote_id=n.rps.lote_id, emissora_id=n.emissora_id,
         tomador_id=n.tomador_id, tomador_nome=tom.get("nome") or (n.tomador.nome if n.tomador else ""),
         tomador_doc=tom.get("cpf_cnpj"), valor=n.valor, iss=n.iss, status=n.status, cancelada_em=n.cancelada_em,
-        motivo_cancelamento=n.motivo_cancelamento, link_prefeitura=link_nota(n.emissora.ccm, n.numero, n.cod_verificacao),
+        motivo_cancelamento=n.motivo_cancelamento, link_prefeitura=link_da_nfse(n),
         simulada=n.simulada, pago_em=n.pago_em, valor_pago=n.valor_pago, baixa_origem=n.baixa_origem,
         fatura_id=fat.id if (fat := _fatura_da_nota(n)) else None, fatura_codigo=fat.codigo if fat else None,
     )
@@ -1034,6 +1049,25 @@ def exportar_notas(dados: ZipIn, ctx: Ctx):
     return _baixar(buf.getvalue(), f"notas_{date.today():%Y%m%d}.xlsx", XLSX)
 
 
+def _cancelar_nacional(ctx, n: Nfse, cert_reg, motivo: str) -> None:
+    from app.modules.rpa_nfse.nfse_nacional import dps as dps_nacional
+    from app.modules.rpa_nfse.nfse_nacional.cliente import ClienteNacional
+
+    try:
+        cert = certificados.abrir(cert_reg)
+        cliente = ClienteNacional(cert, "producao")  # só nota real chega aqui (simulação e teste saem só do sistema)
+        pedido = dps_nacional.gerar_cancelamento(cert, chave_acesso=n.chave_acesso, documento_autor=n.emissora.cnpj,
+                                                 motivo=motivo, codigo_motivo="9", ambiente=cliente.ambiente)
+        ret = cliente.cancelar(n.chave_acesso, pedido)
+    except dps_nacional.DpsInvalida as e:
+        raise HTTPException(400, str(e)) from e
+    except (FalhaComunicacao, RuntimeError) as e:
+        raise HTTPException(502, f"O Sistema Nacional NFS-e não respondeu. Tente de novo em instantes. ({e})") from e
+    if not ret.sucesso:
+        h = ret.erros[0].humano() if ret.erros else {"mensagem": "O Sistema Nacional recusou o cancelamento.", "acao": ""}
+        raise HTTPException(400, f"{h['mensagem']} {h.get('acao') or ''} {h.get('detalhe') or ''}".strip())
+
+
 @router.post("/notas/{nid}/cancelar", response_model=NfseOut)
 def cancelar(nid: int, dados: CancelarIn, ctx: Admin):
     n = _nota(ctx, nid)
@@ -1043,14 +1077,17 @@ def cancelar(nid: int, dados: CancelarIn, ctx: Admin):
         cert_reg = ctx.db.get(Certificado, n.emissora.certificado_id) if n.emissora.certificado_id else None
         if not cert_reg:
             raise HTTPException(400, "Sem certificado digital ativo: cancele pelo portal da Prefeitura.")
-        try:
-            modo = service.modo_prefeitura(ctx.db, ctx.tenant_id)
-            ret = ClientePrefeitura(certificados.abrir(cert_reg), modo).cancelar(cnpj=n.emissora.cnpj, ccm=n.emissora.ccm, numero_nfe=n.numero)
-        except (FalhaComunicacao, RuntimeError) as e:
-            raise HTTPException(502, f"A Prefeitura não respondeu. Tente de novo em instantes. ({e})") from e
-        if not ret.sucesso:
-            h = ret.erros[0].humano() if ret.erros else {"mensagem": "A Prefeitura recusou o cancelamento.", "acao": ""}
-            raise HTTPException(400, f"{h['mensagem']} {h.get('acao', '')}".strip())
+        if n.chave_acesso:  # nota do Sistema Nacional: o cancelamento é um evento assinado
+            _cancelar_nacional(ctx, n, cert_reg, dados.motivo)
+        else:
+            try:
+                modo = service.modo_prefeitura(ctx.db, ctx.tenant_id)
+                ret = ClientePrefeitura(certificados.abrir(cert_reg), modo).cancelar(cnpj=n.emissora.cnpj, ccm=n.emissora.ccm, numero_nfe=n.numero)
+            except (FalhaComunicacao, RuntimeError) as e:
+                raise HTTPException(502, f"A Prefeitura não respondeu. Tente de novo em instantes. ({e})") from e
+            if not ret.sucesso:
+                h = ret.erros[0].humano() if ret.erros else {"mensagem": "A Prefeitura recusou o cancelamento.", "acao": ""}
+                raise HTTPException(400, f"{h['mensagem']} {h.get('acao', '')}".strip())
     n.status = StatusNfse.cancelada
     n.cancelada_em = agora()
     n.motivo_cancelamento = dados.motivo

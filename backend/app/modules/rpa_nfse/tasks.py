@@ -254,6 +254,9 @@ def processar_lote(lote_id: int) -> None:
             lote.evento("erro", lote.mensagem, "erro")
             db.commit()
             return
+        if emissora.nacional:
+            _processar_nacional(db, lote, cert, modo)
+            return
         cliente = ClientePrefeitura(cert, modo)
 
         lote.status = StatusLote.transmitindo
@@ -326,6 +329,81 @@ def processar_lote(lote_id: int) -> None:
         )
         db.commit()
         _pos_lote(db, lote)
+
+
+def _salvar_nota_nacional(db, lote: Lote, r: Rps, ret, simulada: bool) -> Nfse:
+    """Nota do Sistema Nacional: guarda a chave de acesso, o XML devolvido pelo governo e o PDF."""
+    from app.modules.rpa_nfse.nfse_nacional.emissao import link as link_nacional
+
+    emissora = lote.emissora
+    nota = Nfse(tenant_id=lote.tenant_id, rps_id=r.id, emissora_id=emissora.id, tomador_id=r.tomador_id,
+                numero=ret.numero or int(r.numero), cod_verificacao=(ret.chave_acesso or "")[-9:],
+                chave_acesso=ret.chave_acesso, data_emissao=agora(), valor=r.valor, iss=r.iss, simulada=simulada)
+    db.add(nota)
+    db.flush()
+    nota.rps, nota.emissora = r, emissora
+    destino = service.pasta(emissora.id)
+    if ret.xml:
+        xml_path = destino / f"NFSe_{nota.chave_acesso or nota.numero}.xml"
+        xml_path.write_bytes(ret.xml)
+        nota.xml_path = str(xml_path)
+    pdf_path = destino / f"NFSe_{nota.chave_acesso or nota.numero}.pdf"
+    pdf_path.write_bytes(pdf.gerar(nota, db.get(Identidade, lote.tenant_id), link_nacional(nota.chave_acesso)))
+    nota.pdf_path = str(pdf_path)
+    r.status = StatusRps.emitido
+    r.erros_json = []
+    fatura.criar(db, nota, service.config_nfse(db, lote.tenant_id))
+    return nota
+
+
+def _processar_nacional(db, lote: Lote, cert, modo: str) -> None:
+    """Uma DPS por recibo, de forma síncrona. Em modo "teste" a nota sai no ambiente de testes do governo
+    (produção restrita): ela existe lá, mas não tem valor fiscal, e fica marcada aqui como simulação."""
+    from app.modules.rpa_nfse.nfse_nacional.cliente import ClienteNacional
+    from app.modules.rpa_nfse.nfse_nacional.emissao import emitir_um
+
+    cliente = ClienteNacional(cert, modo)
+    lote.status = StatusLote.transmitindo
+    lote.iniciado_em = lote.iniciado_em or agora()
+    lote.evento("envio", "Robô iniciou a emissão pelo Sistema Nacional NFS-e"
+                + (" (ambiente de testes do governo: sem valor fiscal)." if modo == "teste" else "."))
+    db.commit()
+    fila = [r for r in lote.rps if r.status == StatusRps.na_fila]
+    for r in fila:
+        service.sincronizar_tomador(db, lote.tenant_id, r)
+    db.commit()
+    for r in fila:
+        r.status = StatusRps.transmitindo
+        r.tentativas += 1
+        db.commit()
+        try:
+            emitir_um(cliente, r, lote.emissora,
+                      salvar=lambda rr, ret: _salvar_nota_nacional(db, lote, rr, ret, simulada=modo != "producao"),
+                      rejeitar=_rejeitar, gravar=db.commit)
+        except FalhaComunicacao as e:
+            for x in fila:
+                if x.status == StatusRps.transmitindo:
+                    x.status = StatusRps.na_fila
+            lote.status = StatusLote.falhou
+            lote.mensagem = "O Sistema Nacional NFS-e não respondeu. Os recibos continuam na fila; use “Reprocessar” mais tarde."
+            lote.evento("erro", f"{lote.mensagem} ({e})", "erro")
+            db.commit()
+            return
+        db.commit()
+        if modo == "simulado":
+            time.sleep(0.3)
+    lote.qtd_emitidas = sum(1 for r in lote.rps if r.status == StatusRps.emitido)
+    lote.qtd_rejeitadas = sum(1 for r in lote.rps if r.status == StatusRps.rejeitado)
+    lote.status = (StatusLote.concluido if not lote.qtd_rejeitadas else StatusLote.parcial if lote.qtd_emitidas
+                   else StatusLote.falhou)
+    lote.concluido_em = agora()
+    lote.mensagem = f"{lote.qtd_emitidas} nota(s) emitida(s), {lote.qtd_rejeitadas} rejeitada(s)" + (
+        " no ambiente de testes do governo (sem valor fiscal)." if modo == "teste" else ".")
+    lote.evento("retorno", lote.mensagem, "sucesso" if not lote.qtd_rejeitadas else "aviso")
+    audit.registrar(db, tenant_id=lote.tenant_id, usuario=None, acao="lote.concluido", entidade="lote", entidade_id=lote.id,
+                    descricao=f"Lote #{lote.numero} (Sistema Nacional): {lote.mensagem}")
+    db.commit()
+    _pos_lote(db, lote)
 
 
 def _pos_lote(db, lote: Lote) -> None:

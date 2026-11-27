@@ -20,7 +20,11 @@ NS = "http://www.sped.fazenda.gov.br/nfse"
 NS_DS = "http://www.w3.org/2000/09/xmldsig#"
 VERSAO = "1.01"
 VER_APLIC = "MayaJus-1.0"
-XSD_DIR = Path(__file__).parent / "xsd"
+# Dois layouts convivem: o "atual" (produção, esquemas v1.01 de 09/02/2026) e o "rtc" (Reforma Tributária, com
+# IBS/CBS, já exigido na produção restrita; esquemas de 24/11/2026). Quando o governo levar o novo layout à produção,
+# basta trocar LAYOUT_DO_AMBIENTE["1"] para "rtc" (e atualizar os esquemas).
+XSD = {"atual": Path(__file__).parent / "xsd", "rtc": Path(__file__).parent / "xsd_rtc"}
+LAYOUT_DO_AMBIENTE = {"1": "atual", "2": "rtc"}
 BRASILIA = timezone(timedelta(hours=-3))
 
 # opção pelo Simples Nacional do prestador (regTrib/opSimpNac)
@@ -86,6 +90,10 @@ class Dps:
     percentual_tributos_sn: Decimal | None = None  # Simples: carga aproximada (pTotTribSN)
     informacoes: str | None = None
     extras: dict = field(default_factory=dict)
+
+    @property
+    def layout(self) -> str:
+        return LAYOUT_DO_AMBIENTE[self.ambiente]
 
 
 def _dec(v: Decimal) -> str:
@@ -189,6 +197,8 @@ def montar(d: Dps) -> etree._Element:
     _el(inf, "nDPS", str(int(d.numero)))
     _el(inf, "dCompet", d.competencia.isoformat())
     _el(inf, "tpEmit", "1")  # quem emite é o prestador
+    if d.layout == "rtc":
+        _el(inf, "finNFSe", "0")  # NFS-e regular
     _el(inf, "cLocEmi", so_digitos(p.codigo_municipio))
 
     # prestador: só a identificação e o regime (nome e endereço vêm do cadastro nacional)
@@ -209,6 +219,8 @@ def montar(d: Dps) -> etree._Element:
 
     if d.tomador is not None:
         _pessoa(inf, "toma", d.tomador)
+    if d.layout == "rtc":
+        _el(inf, "indDest", "0")  # quem recebe o serviço é o próprio tomador
 
     serv = _el(inf, "serv")
     loc = _el(serv, "locPrest")
@@ -217,9 +229,13 @@ def montar(d: Dps) -> etree._Element:
     _el(cserv, "cTribNac", so_digitos(d.cod_tributacao_nacional))
     if so_digitos(d.cod_tributacao_municipal):
         _el(cserv, "cTribMun", so_digitos(d.cod_tributacao_municipal).zfill(3)[-3:])
-    _el(cserv, "xDescServ", d.descricao.strip()[:2000])
+    # a descrição vem antes do NBS no layout atual e depois dele no da Reforma Tributária
+    if d.layout == "atual":
+        _el(cserv, "xDescServ", d.descricao.strip()[:2000])
     if len(so_digitos(d.nbs)) == 9:
         _el(cserv, "cNBS", so_digitos(d.nbs))
+    if d.layout == "rtc":
+        _el(cserv, "xDescServ", d.descricao.strip()[:2000])
     if (d.informacoes or "").strip():
         compl = _el(serv, "infoCompl")
         _el(compl, "xInfComp", " ".join(d.informacoes.split())[:2000])
@@ -244,8 +260,14 @@ def montar(d: Dps) -> etree._Element:
     return raiz
 
 
-def validar_xsd(raiz: etree._Element, nome_xsd: str = "DPS_v1.01.xsd") -> list[str]:
-    schema = etree.XMLSchema(etree.parse(str(XSD_DIR / nome_xsd)))
+_ESQUEMAS: dict[tuple[str, str], etree.XMLSchema] = {}
+
+
+def validar_xsd(raiz: etree._Element, nome_xsd: str = "DPS_v1.01.xsd", layout: str = "atual") -> list[str]:
+    chave = (layout, nome_xsd)
+    if chave not in _ESQUEMAS:
+        _ESQUEMAS[chave] = etree.XMLSchema(etree.parse(str(XSD[layout] / nome_xsd)))
+    schema = _ESQUEMAS[chave]
     if schema.validate(raiz):
         return []
     return [f"linha {e.line}: {e.message}" for e in schema.error_log]
@@ -310,7 +332,7 @@ def para_bytes(raiz: etree._Element) -> bytes:
 def gerar(d: Dps, cert: CertificadoCarregado | None) -> bytes:
     """DPS pronta para envio: montada, conferida contra o XSD oficial e assinada."""
     raiz = montar(d)
-    problemas = validar_xsd(raiz)
+    problemas = validar_xsd(raiz, layout=d.layout)
     if problemas:
         raise DpsInvalida("A nota não passou na conferência do layout oficial: " + problemas[0], problemas)
     if cert is not None:
@@ -353,7 +375,7 @@ def montar_cancelamento(*, chave_acesso: str, documento_autor: str, motivo: str,
 
 def gerar_cancelamento(cert: CertificadoCarregado | None, **k) -> bytes:
     raiz = montar_cancelamento(**k)
-    problemas = validar_xsd(raiz, "pedRegEvento_v1.01.xsd")
+    problemas = validar_xsd(raiz, "pedRegEvento_v1.01.xsd", LAYOUT_DO_AMBIENTE[k.get("ambiente", "2")])
     if problemas:
         raise DpsInvalida("O pedido de cancelamento não passou no layout oficial: " + problemas[0], problemas)
     if cert is not None:

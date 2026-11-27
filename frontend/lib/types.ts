@@ -193,6 +193,12 @@ export interface EmissoraOut {
   prox_rps: number;
   certificado_id: number | null;
   ativa: boolean;
+  /** por onde a nota sai: Prefeitura de SP ou Sistema Nacional NFS-e */
+  sistema_emissao: "prefeitura_sp" | "nacional";
+  /** código de tributação nacional do serviço (Emissor Nacional) */
+  cod_trib_nacional: string | null;
+  /** IBGE do município da empresa (7 dígitos) */
+  codigo_municipio: string | null;
   telefone: string | null;
   banco: string | null;
   agencia: string | null;
@@ -426,6 +432,8 @@ export interface NfseOut {
   id: number;
   numero: number;
   cod_verificacao: string;
+  /** chave de acesso (50 dígitos) das notas do Sistema Nacional */
+  chave_acesso?: string | null;
   data_emissao: string;
   rps_serie: string;
   rps_numero: number;

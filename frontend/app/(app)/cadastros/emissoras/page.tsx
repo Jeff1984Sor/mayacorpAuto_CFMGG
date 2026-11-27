@@ -2,7 +2,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, KeyRound, Loader2, MapPin, Pencil, Plus, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Building2,
+  KeyRound,
+  Loader2,
+  MapPin,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -15,7 +25,11 @@ import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field, FormSection, NativeSelect } from "@/components/mayacorp/form";
 import { PreencherIA } from "@/components/ia/preencher-ia";
-import { LerNotaFiscal, type NotaLida, type Secao } from "@/components/nfse/ler-nota";
+import {
+  LerNotaFiscal,
+  type NotaLida,
+  type Secao,
+} from "@/components/nfse/ler-nota";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
@@ -35,41 +49,81 @@ import type { CertificadoOut, EmissoraOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { cnpjValido, soDigitos } from "@/lib/validacao";
 
-const REGIMES = { simples: "Simples Nacional", presumido: "Lucro Presumido", real: "Lucro Real", mei: "MEI" } as const;
+const REGIMES = {
+  simples: "Simples Nacional",
+  presumido: "Lucro Presumido",
+  real: "Lucro Real",
+  mei: "MEI",
+} as const;
 
-const schema = z.object({
-  razao_social: z.string().min(2, "Obrigatório"),
-  nome_fantasia: z.string().optional(),
-  cnpj: z.string().refine(cnpjValido, "CNPJ inválido"),
-  ccm: z.string().refine((v) => soDigitos(v).length >= 7 && soDigitos(v).length <= 8, "CCM tem 8 dígitos"),
-  cep: z.string().optional(),
-  logradouro: z.string().optional(),
-  numero: z.string().optional(),
-  complemento: z.string().optional(),
-  bairro: z.string().optional(),
-  cidade: z.string().optional(),
-  uf: z.string().optional(),
-  email: z.union([z.email("E-mail inválido"), z.literal("")]).optional(),
-  regime: z.enum(["simples", "presumido", "real", "mei"]),
-  cod_servico_padrao: z.string().optional(),
-  aliquota_pct: z.string().refine((v) => toNum(v.replace(",", ".")) > 0 && toNum(v.replace(",", ".")) <= 5, "Entre 0 e 5%"),
-  serie_rps: z.string().min(1, "Obrigatório").max(5),
-  prox_rps: z.coerce.number().int().min(1),
-  certificado_id: z.string().optional(),
-  ativa: z.boolean(),
-  telefone: z.string().optional(),
-  banco: z.string().optional(),
-  agencia: z.string().optional(),
-  conta: z.string().optional(),
-  chave_pix: z.string().optional(),
-});
+const SISTEMAS = {
+  prefeitura_sp: "Prefeitura de São Paulo (Nota do Milhão)",
+  nacional: "NFS-e Nacional (Emissor Nacional, qualquer cidade)",
+} as const;
+
+const schema = z
+  .object({
+    razao_social: z.string().min(2, "Obrigatório"),
+    nome_fantasia: z.string().optional(),
+    cnpj: z.string().refine(cnpjValido, "CNPJ inválido"),
+    sistema_emissao: z.enum(["prefeitura_sp", "nacional"]),
+    ccm: z.string(),
+    codigo_municipio: z.string().optional(),
+    cod_trib_nacional: z.string().optional(),
+    cep: z.string().optional(),
+    logradouro: z.string().optional(),
+    numero: z.string().optional(),
+    complemento: z.string().optional(),
+    bairro: z.string().optional(),
+    cidade: z.string().optional(),
+    uf: z.string().optional(),
+    email: z.union([z.email("E-mail inválido"), z.literal("")]).optional(),
+    regime: z.enum(["simples", "presumido", "real", "mei"]),
+    cod_servico_padrao: z.string().optional(),
+    aliquota_pct: z
+      .string()
+      .refine(
+        (v) =>
+          toNum(v.replace(",", ".")) >= 0 && toNum(v.replace(",", ".")) <= 5,
+        "Entre 0 e 5%",
+      ),
+    serie_rps: z.string().min(1, "Obrigatório").max(5),
+    prox_rps: z.coerce.number().int().min(1),
+    certificado_id: z.string().optional(),
+    ativa: z.boolean(),
+    telefone: z.string().optional(),
+    banco: z.string().optional(),
+    agencia: z.string().optional(),
+    conta: z.string().optional(),
+    chave_pix: z.string().optional(),
+  })
+  .superRefine((v, ctx) => {
+    const erro = (path: string, message: string) =>
+      ctx.addIssue({ code: "custom", path: [path], message });
+    const ccm = soDigitos(v.ccm);
+    if (v.sistema_emissao === "prefeitura_sp") {
+      if (ccm.length < 7 || ccm.length > 8) erro("ccm", "CCM tem 8 dígitos");
+      return;
+    }
+    // Emissor Nacional: inscrição municipal opcional; precisa do município (IBGE) e do código do serviço
+    if (ccm.length > 15) erro("ccm", "Até 15 dígitos");
+    if (soDigitos(v.codigo_municipio).length !== 7)
+      erro("cep", "Busque o CEP para identificarmos o município (código IBGE)");
+    if (soDigitos(v.cod_trib_nacional).length !== 6)
+      erro("cod_trib_nacional", "6 dígitos (ex.: 01.01.01)");
+    if (!/^\d{1,5}$/.test(v.serie_rps) || Number(v.serie_rps) < 1)
+      erro("serie_rps", "Número de 1 a 99999 (ex.: 1)");
+  });
 type Form = z.input<typeof schema>;
 
 const vazio: Form = {
   razao_social: "",
   nome_fantasia: "",
   cnpj: "",
+  sistema_emissao: "prefeitura_sp",
   ccm: "",
+  codigo_municipio: "",
+  cod_trib_nacional: "",
   cep: "",
   logradouro: "",
   numero: "",
@@ -101,12 +155,22 @@ function paraForm(e: EmissoraOut): Form {
     aliquota_pct: (toNum(e.aliquota_iss) * 100).toFixed(2).replace(".", ","),
     certificado_id: e.certificado_id ? String(e.certificado_id) : "",
     regime: e.regime,
+    sistema_emissao:
+      e.sistema_emissao === "nacional" ? "nacional" : "prefeitura_sp",
     prox_rps: e.prox_rps,
     ativa: e.ativa,
   } as Form;
 }
 
-function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | null; open: boolean; onClose: () => void }) {
+function EmissoraForm({
+  emissora,
+  open,
+  onClose,
+}: {
+  emissora: EmissoraOut | null;
+  open: boolean;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const cep = useCep();
   const certs = useQuery({
@@ -115,37 +179,57 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
     enabled: open,
     meta: { silencioso: true },
   });
-  const f = useForm<Form>({ resolver: zodResolver(schema), defaultValues: vazio });
+  const f = useForm<Form>({
+    resolver: zodResolver(schema),
+    defaultValues: vazio,
+  });
   const cnpj = useCnpj();
   // Parâmetros IBS/CBS lidos de uma nota fiscal: gravados como padrão da emissora quando ela for salva
-  const [paramsPendentes, setParamsPendentes] = useState<Record<string, string> | null>(null);
+  const [paramsPendentes, setParamsPendentes] = useState<Record<
+    string,
+    string
+  > | null>(null);
 
   const aplicarNota = (nota: NotaLida, secoes: Set<Secao>) => {
     const mudou: string[] = [];
     const definir = (campo: keyof Form, valor: unknown) => {
       if (valor === undefined || valor === null || valor === "") return;
-      f.setValue(campo, valor as never, { shouldDirty: true, shouldValidate: true });
+      f.setValue(campo, valor as never, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
       mudou.push(campo);
     };
     if (secoes.has("empresa")) {
       for (const [k, v] of Object.entries(nota.empresa)) {
         if (!(k in vazio)) continue;
-        definir(k as keyof Form, k === "cnpj" ? documento(v) : k === "cep" ? fmtCep(v) : v);
+        definir(
+          k as keyof Form,
+          k === "cnpj" ? documento(v) : k === "cep" ? fmtCep(v) : v,
+        );
       }
     }
     if (secoes.has("fiscal")) {
       const fi = nota.fiscal;
       definir("cod_servico_padrao", fi.cod_servico_padrao);
-      if (fi.aliquota_iss) definir("aliquota_pct", (Number(fi.aliquota_iss) * 100).toFixed(2).replace(".", ","));
+      if (fi.aliquota_iss)
+        definir(
+          "aliquota_pct",
+          (Number(fi.aliquota_iss) * 100).toFixed(2).replace(".", ","),
+        );
       definir("serie_rps", fi.serie_rps);
       definir("prox_rps", fi.prox_rps);
       definir("regime", fi.regime);
     }
-    const temParametros = secoes.has("parametros") && Object.keys(nota.parametros).length > 0;
+    const temParametros =
+      secoes.has("parametros") && Object.keys(nota.parametros).length > 0;
     setParamsPendentes(temParametros ? nota.parametros : null);
-    requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+    requestAnimationFrame(() =>
+      destacarCampos(document.getElementById("form-emissora"), mudou),
+    );
     toast.success(
-      `${mudou.length} campo(s) preenchido(s) a partir da nota` + (temParametros ? " · parâmetros IBS/CBS prontos para salvar" : ""),
+      `${mudou.length} campo(s) preenchido(s) a partir da nota` +
+        (temParametros ? " · parâmetros IBS/CBS prontos para salvar" : ""),
     );
   };
 
@@ -156,11 +240,23 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
     const mudou = preencherVazios(
       f.getValues() as Record<string, unknown>,
       {
-        razao_social: d.razao_social, nome_fantasia: d.nome_fantasia, logradouro: d.logradouro, numero: d.numero,
-        complemento: d.complemento, bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep ? fmtCep(d.cep) : null,
-        telefone: d.telefone, email: d.email,
+        razao_social: d.razao_social,
+        nome_fantasia: d.nome_fantasia,
+        logradouro: d.logradouro,
+        numero: d.numero,
+        complemento: d.complemento,
+        bairro: d.bairro,
+        cidade: d.cidade,
+        uf: d.uf,
+        cep: d.cep ? fmtCep(d.cep) : null,
+        telefone: d.telefone,
+        email: d.email,
       },
-      (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
+      (campo, v) =>
+        f.setValue(campo as keyof Form, v as never, {
+          shouldDirty: true,
+          shouldValidate: true,
+        }),
     );
     // A Receita às vezes não informa a rua (comum em MEI): completa pelo CEP, só no que estiver vazio
     if (d.cep && !f.getValues("logradouro")) {
@@ -169,21 +265,47 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
         mudou.push(
           ...preencherVazios(
             f.getValues() as Record<string, unknown>,
-            { logradouro: end.logradouro, bairro: end.bairro, cidade: end.localidade, uf: end.uf },
-            (campo, v) => f.setValue(campo as keyof Form, v as never, { shouldDirty: true, shouldValidate: true }),
+            {
+              logradouro: end.logradouro,
+              bairro: end.bairro,
+              cidade: end.localidade,
+              uf: end.uf,
+              codigo_municipio: end.ibge,
+            },
+            (campo, v) =>
+              f.setValue(campo as keyof Form, v as never, {
+                shouldDirty: true,
+                shouldValidate: true,
+              }),
           ),
         );
       }
     }
     if (mudou.length) {
-      requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+      requestAnimationFrame(() =>
+        destacarCampos(document.getElementById("form-emissora"), mudou),
+      );
       toast.success(`Dados da Receita preenchidos: ${d.razao_social}`);
     }
   };
 
   // ✨ Preencher com IA (ex.: cartão CNPJ): aplica sem salvar e destaca os campos
   const aplicarIA = (c: Record<string, unknown>) => {
-    const campos = ["razao_social", "nome_fantasia", "cnpj", "ccm", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf", "email", "telefone"] as const;
+    const campos = [
+      "razao_social",
+      "nome_fantasia",
+      "cnpj",
+      "ccm",
+      "cep",
+      "logradouro",
+      "numero",
+      "complemento",
+      "bairro",
+      "cidade",
+      "uf",
+      "email",
+      "telefone",
+    ] as const;
     const mudou: string[] = [];
     campos.forEach((k) => {
       const v = c[k];
@@ -194,7 +316,9 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       f.setValue(k, valor, { shouldDirty: true, shouldValidate: true });
       mudou.push(k);
     });
-    requestAnimationFrame(() => destacarCampos(document.getElementById("form-emissora"), mudou));
+    requestAnimationFrame(() =>
+      destacarCampos(document.getElementById("form-emissora"), mudou),
+    );
     return mudou.length;
   };
   useEffect(() => {
@@ -209,9 +333,13 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
         ccm: soDigitos(v.ccm),
         cep: soDigitos(v.cep) || null,
         email: v.email || null,
-        aliquota_iss: (toNum(v.aliquota_pct.replace(",", ".")) / 100).toFixed(4),
+        aliquota_iss: (toNum(v.aliquota_pct.replace(",", ".")) / 100).toFixed(
+          4,
+        ),
         certificado_id: v.certificado_id ? Number(v.certificado_id) : null,
         cod_servico_padrao: v.cod_servico_padrao || null,
+        codigo_municipio: soDigitos(v.codigo_municipio) || null,
+        cod_trib_nacional: soDigitos(v.cod_trib_nacional) || null,
         telefone: v.telefone || null,
         banco: v.banco || null,
         agencia: v.agencia || null,
@@ -227,10 +355,17 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       toast.success(emissora ? "Emissora atualizada" : "Emissora cadastrada");
       if (paramsPendentes) {
         try {
-          await api.post(`/nfse/emissoras/${salva.id}/parametros-padrao`, paramsPendentes);
-          toast.success("Parâmetros IBS/CBS da nota configurados como padrão da emissora");
+          await api.post(
+            `/nfse/emissoras/${salva.id}/parametros-padrao`,
+            paramsPendentes,
+          );
+          toast.success(
+            "Parâmetros IBS/CBS da nota configurados como padrão da emissora",
+          );
         } catch {
-          toast.warning("A emissora foi salva, mas os parâmetros IBS/CBS não. Configure em Parâmetros fiscais.");
+          toast.warning(
+            "A emissora foi salva, mas os parâmetros IBS/CBS não. Configure em Parâmetros fiscais.",
+          );
         }
         setParamsPendentes(null);
       }
@@ -247,8 +382,12 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       f.setValue("bairro", r.bairro);
       f.setValue("cidade", r.localidade);
       f.setValue("uf", r.uf);
+      f.setValue("codigo_municipio", r.ibge ?? "", {
+        shouldValidate: f.formState.isSubmitted,
+      });
     }
   };
+  const nacional = f.watch("sistema_emissao") === "nacional";
 
   return (
     <FormDialog
@@ -259,7 +398,9 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
           onClose();
         }
       }}
-      titulo={emissora ? `Editar ${nomeEmissora(emissora)}` : "Nova empresa emissora"}
+      titulo={
+        emissora ? `Editar ${nomeEmissora(emissora)}` : "Nova empresa emissora"
+      }
       formId="form-emissora"
       acaoCabecalho={
         <div className="flex flex-wrap items-center gap-2">
@@ -275,10 +416,16 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
       descricao="Quem presta o serviço e emite a nota."
       largura="xl"
       salvando={salvar.isPending}
-      onSubmit={f.handleSubmit((v) => salvar.mutate(v as z.output<typeof schema>))}
+      onSubmit={f.handleSubmit((v) =>
+        salvar.mutate(v as z.output<typeof schema>),
+      )}
       rodapeExtra={
         <label className="flex items-center gap-2 text-sm">
-          <Switch checked={f.watch("ativa")} onCheckedChange={(v) => f.setValue("ativa", v)} /> Ativa
+          <Switch
+            checked={f.watch("ativa")}
+            onCheckedChange={(v) => f.setValue("ativa", v)}
+          />{" "}
+          Ativa
         </label>
       }
     >
@@ -290,16 +437,60 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
               Ao salvar, viram o padrão desta emissora:{" "}
               <span className="num">
                 {Object.entries(paramsPendentes)
-                  .filter(([k]) => ["nbs", "class_trib", "ind_operacao", "cst_ibscbs"].includes(k))
-                  .map(([k, v]) => `${{ nbs: "NBS", class_trib: "cClassTrib", ind_operacao: "cIndOp", cst_ibscbs: "CST" }[k]} ${v}`)
+                  .filter(([k]) =>
+                    [
+                      "nbs",
+                      "class_trib",
+                      "ind_operacao",
+                      "cst_ibscbs",
+                    ].includes(k),
+                  )
+                  .map(
+                    ([k, v]) =>
+                      `${{ nbs: "NBS", class_trib: "cClassTrib", ind_operacao: "cIndOp", cst_ibscbs: "CST" }[k]} ${v}`,
+                  )
                   .join(" · ")}
               </span>
               . Confira com o contador.
             </p>
           </div>
         )}
-        <FormSection titulo="Identificação" descricao="CNPJ e inscrição municipal (CCM) são obrigatórios em SP.">
-          <Field label="Razão social" obrigatorio erro={er.razao_social?.message} className="sm:col-span-2">
+        <FormSection
+          titulo="Por onde as notas saem"
+          descricao="A Prefeitura de São Paulo tem sistema próprio; nas demais cidades (e para MEI) a nota sai pelo Emissor Nacional."
+        >
+          <Field label="Sistema de emissão" className="sm:col-span-2">
+            <NativeSelect {...f.register("sistema_emissao")}>
+              {Object.entries(SISTEMAS).map(([k, l]) => (
+                <option key={k} value={k}>
+                  {l}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          {nacional && (
+            <p className="rounded-xl bg-info/8 p-3 text-xs text-info-ink sm:col-span-2">
+              A nota é emitida no Sistema Nacional NFS-e com o certificado desta
+              empresa. Em <strong>Configurações › Prefeitura</strong>, o modo
+              Teste usa o ambiente de testes do governo (as notas não têm valor
+              fiscal) e Produção emite de verdade.
+            </p>
+          )}
+        </FormSection>
+        <FormSection
+          titulo="Identificação"
+          descricao={
+            nacional
+              ? "CNPJ obrigatório; a inscrição municipal só se a empresa tiver."
+              : "CNPJ e inscrição municipal (CCM) são obrigatórios em SP."
+          }
+        >
+          <Field
+            label="Razão social"
+            obrigatorio
+            erro={er.razao_social?.message}
+            className="sm:col-span-2"
+          >
             <Input {...f.register("razao_social")} />
           </Field>
           <Field label="Nome fantasia">
@@ -309,12 +500,18 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
             <Input type="email" {...f.register("email")} />
           </Field>
           <Field label="Telefone">
-            <Input {...f.register("telefone")} inputMode="tel" placeholder="(11) 3000-0000" />
+            <Input
+              {...f.register("telefone")}
+              inputMode="tel"
+              placeholder="(11) 3000-0000"
+            />
           </Field>
           <Field label="CNPJ" obrigatorio erro={er.cnpj?.message}>
             <div className="relative">
               <Input
-                {...f.register("cnpj", { onChange: (e) => void preencherPorCnpj(e.target.value) })}
+                {...f.register("cnpj", {
+                  onChange: (e) => void preencherPorCnpj(e.target.value),
+                })}
                 className="num pr-8"
                 placeholder="Digite e buscamos na Receita"
                 onBlur={(e) => {
@@ -327,14 +524,38 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
               )}
             </div>
           </Field>
-          <Field label="Inscrição municipal (CCM)" obrigatorio erro={er.ccm?.message}>
+          <Field
+            label={
+              nacional
+                ? "Inscrição municipal (se tiver)"
+                : "Inscrição municipal (CCM)"
+            }
+            obrigatorio={!nacional}
+            erro={er.ccm?.message}
+          >
             <Input {...f.register("ccm")} className="num" />
           </Field>
         </FormSection>
-        <FormSection titulo="Endereço" descricao="Digite o CEP e preenchemos o resto.">
-          <Field label="CEP">
+        <FormSection
+          titulo="Endereço"
+          descricao="Digite o CEP e preenchemos o resto."
+        >
+          <Field
+            label="CEP"
+            obrigatorio={nacional}
+            erro={er.cep?.message}
+            dica={
+              nacional && f.watch("codigo_municipio")
+                ? `Município (IBGE): ${f.watch("codigo_municipio")}`
+                : undefined
+            }
+          >
             <div className="relative">
-              <Input {...f.register("cep")} className="num pr-8" onBlur={buscarCep} />
+              <Input
+                {...f.register("cep")}
+                className="num pr-8"
+                onBlur={buscarCep}
+              />
               {cep.carregando ? (
                 <Loader2 className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
               ) : (
@@ -359,11 +580,18 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
               <CidadeInput uf={f.watch("uf")} {...f.register("cidade")} />
             </Field>
             <Field label="UF">
-              <Input {...f.register("uf")} maxLength={2} className="uppercase" />
+              <Input
+                {...f.register("uf")}
+                maxLength={2}
+                className="uppercase"
+              />
             </Field>
           </div>
         </FormSection>
-        <FormSection titulo="Dados para pagamento (saem na fatura)" descricao="Impressos na Nota de Honorários; a chave PIX gera o “copia e cola”.">
+        <FormSection
+          titulo="Dados para pagamento (saem na fatura)"
+          descricao="Impressos na Nota de Honorários; a chave PIX gera o “copia e cola”."
+        >
           <Field label="Banco">
             <Input {...f.register("banco")} placeholder="ex.: 341 — Itaú" />
           </Field>
@@ -375,12 +603,22 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
               <Input {...f.register("conta")} className="num" />
             </Field>
           </div>
-          <Field label="Chave PIX" className="sm:col-span-2" dica="CNPJ, e-mail, telefone ou chave aleatória.">
+          <Field
+            label="Chave PIX"
+            className="sm:col-span-2"
+            dica="CNPJ, e-mail, telefone ou chave aleatória."
+          >
             <Input {...f.register("chave_pix")} className="font-mono" />
           </Field>
         </FormSection>
-        <FormSection titulo="Fiscal e RPS" descricao="Padrões usados quando o arquivo não traz a informação.">
-          <Field label="Regime tributário" dica="Também define o cálculo da Projeção de Impostos.">
+        <FormSection
+          titulo={nacional ? "Fiscal e DPS" : "Fiscal e RPS"}
+          descricao="Padrões usados quando o arquivo não traz a informação."
+        >
+          <Field
+            label="Regime tributário"
+            dica="Também define o cálculo da Projeção de Impostos."
+          >
             <NativeSelect {...f.register("regime")}>
               {Object.entries(REGIMES).map(([k, l]) => (
                 <option key={k} value={k}>
@@ -389,18 +627,63 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
               ))}
             </NativeSelect>
           </Field>
-          <Field label="Código de serviço padrão" dica="Item da lista de serviços municipal">
-            <Input {...f.register("cod_servico_padrao")} className="num" placeholder="ex.: 03220" />
-          </Field>
-          <Field label="Alíquota ISS padrão (%)" erro={er.aliquota_pct?.message}>
-            <Input {...f.register("aliquota_pct")} className="num" inputMode="decimal" />
+          {nacional ? (
+            <Field
+              label="Código de tributação nacional"
+              obrigatorio
+              erro={er.cod_trib_nacional?.message}
+              dica="O mesmo da nota emitida no Emissor Nacional (ex.: 01.01.01 = análise e desenvolvimento de sistemas)."
+            >
+              <Input
+                {...f.register("cod_trib_nacional")}
+                className="num"
+                placeholder="ex.: 01.01.01"
+              />
+            </Field>
+          ) : (
+            <Field
+              label="Código de serviço padrão"
+              dica="Item da lista de serviços municipal"
+            >
+              <Input
+                {...f.register("cod_servico_padrao")}
+                className="num"
+                placeholder="ex.: 03220"
+              />
+            </Field>
+          )}
+          <Field
+            label="Alíquota ISS padrão (%)"
+            erro={er.aliquota_pct?.message}
+            dica={
+              nacional && ["mei", "simples"].includes(f.watch("regime"))
+                ? "MEI e Simples: a nota não informa alíquota (o ISS vai na guia do Simples)."
+                : undefined
+            }
+          >
+            <Input
+              {...f.register("aliquota_pct")}
+              className="num"
+              inputMode="decimal"
+            />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Série do RPS" erro={er.serie_rps?.message}>
-              <Input {...f.register("serie_rps")} className="num uppercase" maxLength={5} />
+            <Field
+              label={nacional ? "Série da DPS" : "Série do RPS"}
+              erro={er.serie_rps?.message}
+            >
+              <Input
+                {...f.register("serie_rps")}
+                className="num uppercase"
+                maxLength={5}
+              />
             </Field>
-            <Field label="Próximo nº RPS">
-              <Input type="number" {...f.register("prox_rps")} className="num" />
+            <Field label={nacional ? "Próximo nº da DPS" : "Próximo nº RPS"}>
+              <Input
+                type="number"
+                {...f.register("prox_rps")}
+                className="num"
+              />
             </Field>
           </div>
           <Field
@@ -409,7 +692,10 @@ function EmissoraForm({ emissora, open, onClose }: { emissora: EmissoraOut | nul
             dica={
               <>
                 Gerencie em{" "}
-                <Link href="/configuracoes/certificado" className="text-info-ink hover:underline">
+                <Link
+                  href="/configuracoes/certificado"
+                  className="text-info-ink hover:underline"
+                >
                   Configurações › Certificado
                 </Link>
               </>
@@ -462,7 +748,10 @@ export default function EmissorasPage() {
         titulo="Empresa emissora"
         descricao="Prestadores que emitem as notas. Preparado para mais de uma empresa."
         icone={Building2}
-        migalhas={[{ label: "Configurações", href: "/configuracoes" }, { label: "Empresas emissoras" }]}
+        migalhas={[
+          { label: "Configurações", href: "/configuracoes" },
+          { label: "Empresas emissoras" },
+        ]}
         acoes={
           podeEditar && (
             <Button onClick={() => setNovo(true)}>
@@ -499,34 +788,80 @@ export default function EmissorasPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
-              className={cn("card-surface overflow-hidden", !e.ativa && "opacity-70")}
+              className={cn(
+                "card-surface overflow-hidden",
+                !e.ativa && "opacity-70",
+              )}
             >
               <div
                 className={cn(
                   "flex items-center gap-2 px-5 py-2.5 text-sm font-medium",
-                  e.saude_ok ? "bg-success/8 text-success-ink" : "bg-danger/8 text-danger-ink",
+                  e.saude_ok
+                    ? "bg-success/8 text-success-ink"
+                    : "bg-danger/8 text-danger-ink",
                 )}
               >
-                {e.saude_ok ? <ShieldCheck className="size-4" /> : <ShieldAlert className="size-4" />}
-                {e.saude_ok ? "Pronta para emitir" : e.saude_msg || "Falta certificado válido"}
-                {e.saude_ok && e.saude_msg && <span className="font-normal opacity-80">· {e.saude_msg}</span>}
+                {e.saude_ok ? (
+                  <ShieldCheck className="size-4" />
+                ) : (
+                  <ShieldAlert className="size-4" />
+                )}
+                {e.saude_ok
+                  ? "Pronta para emitir"
+                  : e.saude_msg || "Falta certificado válido"}
+                {e.saude_ok && e.saude_msg && (
+                  <span className="font-normal opacity-80">
+                    · {e.saude_msg}
+                  </span>
+                )}
               </div>
               <div className="p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="truncate text-lg font-semibold">{nomeEmissora(e)}</h3>
-                    {e.nome_fantasia && <p className="truncate text-sm text-muted-foreground">{e.razao_social}</p>}
+                    <h3 className="truncate text-lg font-semibold">
+                      {nomeEmissora(e)}
+                    </h3>
+                    {e.nome_fantasia && (
+                      <p className="truncate text-sm text-muted-foreground">
+                        {e.razao_social}
+                      </p>
+                    )}
                   </div>
-                  <StatusBadge status={e.ativa ? "ativo" : "descartado"} label={e.ativa ? "Ativa" : "Inativa"} />
+                  <StatusBadge
+                    status={e.ativa ? "ativo" : "descartado"}
+                    label={e.ativa ? "Ativa" : "Inativa"}
+                  />
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
                   {[
                     ["CNPJ", <Mono key="c">{documento(e.cnpj)}</Mono>],
-                    ["CCM", <Mono key="m">{e.ccm}</Mono>],
+                    e.sistema_emissao === "nacional"
+                      ? [
+                          "Emissão",
+                          <span key="m">
+                            NFS-e Nacional · serviço{" "}
+                            <Mono>{e.cod_trib_nacional}</Mono>
+                          </span>,
+                        ]
+                      : ["CCM", <Mono key="m">{e.ccm}</Mono>],
                     ["Regime", REGIMES[e.regime]],
-                    ["Serviço padrão", <Mono key="s">{e.cod_servico_padrao ?? "—"}</Mono>],
-                    ["ISS padrão", <Mono key="a">{aliquota(e.aliquota_iss)}</Mono>],
-                    ["Chave PIX", <span key="p" className="block truncate font-mono text-xs">{e.chave_pix ?? "—"}</span>],
+                    [
+                      "Serviço padrão",
+                      <Mono key="s">{e.cod_servico_padrao ?? "—"}</Mono>,
+                    ],
+                    [
+                      "ISS padrão",
+                      <Mono key="a">{aliquota(e.aliquota_iss)}</Mono>,
+                    ],
+                    [
+                      "Chave PIX",
+                      <span
+                        key="p"
+                        className="block truncate font-mono text-xs"
+                      >
+                        {e.chave_pix ?? "—"}
+                      </span>,
+                    ],
                     [
                       "Próximo RPS",
                       <Mono key="r">
@@ -542,18 +877,38 @@ export default function EmissorasPage() {
                 </dl>
                 <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <MapPin className="size-3.5" />
-                  {[e.logradouro, e.numero, e.bairro, e.cidade && `${e.cidade}/${e.uf}`].filter(Boolean).join(", ") || "Endereço não informado"}
+                  {[
+                    e.logradouro,
+                    e.numero,
+                    e.bairro,
+                    e.cidade && `${e.cidade}/${e.uf}`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "Endereço não informado"}
                 </p>
                 <div className="mt-4 flex items-center justify-between border-t pt-4">
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <KeyRound className="size-3.5" /> {e.certificado_id ? "Certificado vinculado" : "Sem certificado"}
+                    <KeyRound className="size-3.5" />{" "}
+                    {e.certificado_id
+                      ? "Certificado vinculado"
+                      : "Sem certificado"}
                   </span>
                   {podeEditar && (
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setEditar(e)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditar(e)}
+                      >
                         <Pencil /> Editar
                       </Button>
-                      <Button variant="ghost" size="icon-sm" className="text-danger-ink" onClick={() => setExcluir(e)} aria-label="Excluir">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-danger-ink"
+                        onClick={() => setExcluir(e)}
+                        aria-label="Excluir"
+                      >
                         <Trash2 />
                       </Button>
                     </div>

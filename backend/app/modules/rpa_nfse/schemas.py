@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -39,6 +39,9 @@ class EmissoraIn(BaseModel):
     prox_rps: int = 1
     certificado_id: int | None = None
     ativa: bool = True
+    sistema_emissao: Literal["prefeitura_sp", "nacional"] = "prefeitura_sp"
+    cod_trib_nacional: str | None = None
+    codigo_municipio: str | None = None  # IBGE (7 dígitos); vem do CEP na tela
 
     _d = field_validator("cnpj", "ccm", "cep", "cod_servico_padrao")(_digitos)
 
@@ -68,6 +71,9 @@ class EmissoraOut(Schema):
     serie_rps: str
     prox_rps: int
     certificado_id: int | None
+    sistema_emissao: str = "prefeitura_sp"
+    cod_trib_nacional: str | None = None
+    codigo_municipio: str | None = None
     ativa: bool
     saude_ok: bool = False
     saude_msg: str = ""
@@ -312,6 +318,7 @@ class NfseOut(Schema):
     id: int
     numero: int
     cod_verificacao: str
+    chave_acesso: str | None = None
     data_emissao: datetime
     rps_serie: str
     rps_numero: int

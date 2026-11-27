@@ -212,7 +212,7 @@ export default function NotasPage() {
                       </p>
                     </td>
                     <td className="hidden px-3 py-3 text-muted-foreground lg:table-cell">
-                      <Mono>{n.cod_verificacao}</Mono>
+                      <Mono>{n.chave_acesso ? `…${n.chave_acesso.slice(-9)}` : n.cod_verificacao}</Mono>
                     </td>
                     <td className="px-3 py-3 text-muted-foreground">
                       <Mono>{data(n.data_emissao)}</Mono>

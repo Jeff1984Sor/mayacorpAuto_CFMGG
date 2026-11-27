@@ -83,11 +83,17 @@ def gerar(nota: Nfse, identidade: Identidade | None, link: str) -> bytes:
     c.setFont("Helvetica-Bold", 15)
     c.drawString(x_txt, h - 15 * mm, (identidade.nome_exibicao if identidade else em.razao_social)[:48])
     c.setFont("Helvetica", 9)
-    c.drawString(x_txt, h - 21 * mm, "NOTA FISCAL DE SERVIÇOS ELETRÔNICA — NFS-e · Prefeitura de São Paulo")
+    nacional = bool(getattr(nota, "chave_acesso", None))
+    origem = "Sistema Nacional NFS-e" if nacional else "Prefeitura de São Paulo"
+    c.drawString(x_txt, h - 21 * mm, f"NOTA FISCAL DE SERVIÇOS ELETRÔNICA — NFS-e · {origem}")
     c.setFont("Helvetica-Bold", 22)
     c.drawRightString(w - m, h - 16 * mm, f"Nº {nota.numero:08d}")
-    c.setFont("Courier-Bold", 10)
-    c.drawRightString(w - m, h - 23 * mm, f"Verificação: {nota.cod_verificacao}")
+    if nacional:
+        c.setFont("Courier-Bold", 7)
+        c.drawRightString(w - m, h - 23 * mm, f"Chave de acesso: {nota.chave_acesso}")
+    else:
+        c.setFont("Courier-Bold", 10)
+        c.drawRightString(w - m, h - 23 * mm, f"Verificação: {nota.cod_verificacao}")
     c.setFont("Helvetica", 8)
     c.drawRightString(w - m, h - 28 * mm, f"Emitida em {nota.data_emissao:%d/%m/%Y %H:%M}")
 
@@ -121,7 +127,7 @@ def gerar(nota: Nfse, identidade: Identidade | None, link: str) -> bytes:
         [
             ("Razão social", em.razao_social),
             ("CNPJ", formatar_documento(em.cnpj)),
-            ("Inscrição municipal (CCM)", em.ccm),
+            ("Inscrição municipal", em.ccm or "—") if nacional else ("Inscrição municipal (CCM)", em.ccm),
             ("Endereço", ", ".join(filter(None, [em.logradouro, em.numero, em.bairro, em.cidade, em.uf]))),
         ],
         30 * mm,
@@ -194,7 +200,8 @@ def gerar(nota: Nfse, identidade: Identidade | None, link: str) -> bytes:
     # ---- Rodapé
     c.setFillColor(CINZA)
     c.setFont("Helvetica", 7)
-    c.drawString(m, 16 * mm, "Consulte a autenticidade em nfe.prefeitura.sp.gov.br ou pelo QR Code.")
+    c.drawString(m, 16 * mm, "Consulte a autenticidade em www.nfse.gov.br/ConsultaPublica com a chave de acesso acima."
+                 if nacional else "Consulte a autenticidade em nfe.prefeitura.sp.gov.br ou pelo QR Code.")
     c.drawString(m, 12 * mm, link[:120])
     c.setFillColor(INDIGO)
     c.drawRightString(w - m, 12 * mm, "Uma solução MayaCorp")
