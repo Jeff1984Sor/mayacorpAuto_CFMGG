@@ -46,6 +46,7 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
 - `app/controle/` (banco `mayajus_controle`): escritórios, planos, contratos e **cobrança pelo Mercado Pago**
   (`cobranca.py` + `mercadopago.py` + `routes_cobranca.py`: mensalidade no dia 1, avulsa, cartão recorrente, régua de e-mails,
   webhook em `/api/public/mercadopago`, "Meu plano" do cliente). Token do MP fica cifrado no controle (tela Cobranças do admin).
+  NFS-e da mensalidade (`nota_fiscal.py`): com a opção ligada, cobrança paga vira nota no banco do admin (emissora da MayaCorp, Emissor Nacional) para o CNPJ do escritório; o resumo (número, chave, erro) fica na cobrança. A baixa registra a cobrança em `session.info` e quem dá o commit chama `nota_fiscal.apos_pagamento(cobranca.pagas(db))`.
 - Menu **Cadastros** (`/cadastros/clientes`, `/cadastros/emissoras`): cadastros do escritório, compartilhados por todos os robôs.
 - `frontend/` é Next.js (App Router) + Tailwind + shadcn/ui. Os tipos em `lib/types.ts` espelham os schemas Pydantic.
 - `deploy/` tem `deploy.sh hml|prod`, `rollback.sh`, `backup.sh`, systemd templated (`@hml`/`@prod`) e nginx.

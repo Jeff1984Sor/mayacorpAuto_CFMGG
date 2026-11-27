@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import object_session
 
 from app.controle import indicacao
 from app.controle.mercadopago import FORMAS, ErroMercadoPago, MercadoPago
@@ -255,7 +256,16 @@ def dar_baixa(cob: Cobranca, forma: str, pagamento_id: str | None = None, quando
     cob.forma_paga = forma
     cob.mp_pagamento_id = pagamento_id or cob.mp_pagamento_id
     cob.pago_em = quando or agora()
+    # quem der o commit chama nota_fiscal.apos_pagamento(pagas(db)): a NFS-e só sai com a baixa gravada
+    sessao = object_session(cob)
+    if sessao is not None and cob.id:
+        sessao.info.setdefault("cobrancas_pagas", []).append(cob.id)
     return True
+
+
+def pagas(db) -> list[int]:
+    """Cobranças que viraram "paga" nesta sessão (para emitir as notas depois do commit)."""
+    return list(db.info.pop("cobrancas_pagas", []))
 
 
 # ---------------------------------------------------------------- notificações do Mercado Pago

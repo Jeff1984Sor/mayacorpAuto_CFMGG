@@ -20,6 +20,7 @@ from app.core.escritorio_http import EscritorioMiddleware
 from app.core.routes import auditoria, auth, config, hub, ia, public
 from app.core.tenancy import EscritorioNaoIdentificado
 from app.modules.assistente import routes as assistente_routes
+from app.modules.boletos import routes as boletos_routes
 from app.modules.faturamento import importar_casos as faturamento_importar_casos
 from app.modules.faturamento import judiciario as faturamento_judiciario
 from app.modules.faturamento import planilhas as faturamento_planilhas
@@ -27,7 +28,6 @@ from app.modules.faturamento import routes as faturamento_routes
 from app.modules.faturamento import routes_revisao
 from app.modules.faturamento import tarefas as faturamento_tarefas
 from app.modules.faturamento import timesheet as faturamento_timesheet
-from app.modules.boletos import routes as boletos_routes
 from app.modules.financas import routes as financas_routes
 from app.modules.rpa_nfse import routes as nfse_routes
 from app.modules.rpa_nfse import routes_dashboard, routes_faturas, routes_financeiro, tasks

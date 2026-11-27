@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.controle import cobranca, planos
+from app.controle import cobranca, nota_fiscal, planos
 from app.controle.mercadopago import ErroMercadoPago, MercadoPago, assinatura_valida
 from app.controle.models import Cliente, Cobranca, Plano, SessaoControle
 from app.controle.routes_admin import Painel, _cliente, _d, _plano_out
@@ -37,6 +37,9 @@ class ConfigIn(BaseModel):
     dia_vencimento: int = Field(ge=1, le=28)
     gerar_automatico: bool
     regua: list[int] = Field(max_length=8)
+    nfse_automatica: bool = False
+    nfse_emissora_id: int | None = None
+    nfse_descricao: str | None = Field(default=None, max_length=300)
 
 
 class AvulsaIn(BaseModel):
@@ -71,13 +74,17 @@ def _cob_out(k: Cobranca) -> dict:
             "competencia": k.competencia, "descricao": k.descricao, "itens": k.itens or [], "valor": _d(k.valor),
             "vencimento": k.vencimento, "status": "vencida" if vencida else k.status,
             "status_rotulo": "Vencida" if vencida else ROTULO.get(k.status, k.status), "link": k.link,
-            "pago_em": k.pago_em, "forma_paga": k.forma_paga, "avisos": k.avisos or [], "criado_em": k.criado_em}
+            "pago_em": k.pago_em, "forma_paga": k.forma_paga, "avisos": k.avisos or [], "criado_em": k.criado_em,
+            "nfse_status": k.nfse_status, "nfse_id": k.nfse_id, "nfse_numero": k.nfse_numero, "nfse_chave": k.nfse_chave,
+            "nfse_erro": k.nfse_erro, "nfse_em": k.nfse_em}
 
 
 def _cfg_out(cfg) -> dict:
     return {"conectado": bool(cfg.mp_token_cifrado), "segredo_definido": bool(cfg.mp_segredo_cifrado),
             "conta": cfg.mp_conta, "dia_vencimento": cfg.dia_vencimento, "gerar_automatico": cfg.gerar_automatico,
-            "regua": cfg.regua or [], "url_notificacao": cobranca.url_notificacao()}
+            "regua": cfg.regua or [], "url_notificacao": cobranca.url_notificacao(),
+            "nfse_automatica": bool(cfg.nfse_automatica), "nfse_emissora_id": cfg.nfse_emissora_id,
+            "nfse_descricao": cfg.nfse_descricao or nota_fiscal.DESCRICAO_PADRAO}
 
 
 # ================================================================ admin: configuração
@@ -106,6 +113,14 @@ def salvar_config(dados: ConfigIn, ctx: Painel):
         cfg.dia_vencimento = dados.dia_vencimento
         cfg.gerar_automatico = dados.gerar_automatico
         cfg.regua = sorted({max(-30, min(60, d)) for d in dados.regua})
+        if dados.nfse_emissora_id:
+            from app.modules.rpa_nfse.models import Emissora
+
+            if ctx.db.get(Emissora, dados.nfse_emissora_id) is None:  # ctx.db = banco do admin
+                raise HTTPException(400, "Empresa emissora não encontrada no admin.")
+        cfg.nfse_automatica = dados.nfse_automatica
+        cfg.nfse_emissora_id = dados.nfse_emissora_id
+        cfg.nfse_descricao = (dados.nfse_descricao or "").strip() or None
         db.commit()
         ctx.auditar("admin.cobranca.config", "controle_config", cfg.id,
                     descricao="Mercado Pago" + (" (token novo)" if dados.token else ""))
@@ -136,7 +151,17 @@ def listar(ctx: Painel, status: str | None = None, cliente_id: int | None = None
             q = q.where(Cobranca.status == "pendente", Cobranca.vencimento >= date.today())
         elif status:
             q = q.where(Cobranca.status == status)
-        return [_cob_out(k) for k in db.scalars(q.limit(500))]
+        saida = [_cob_out(k) for k in db.scalars(q.limit(500))]
+    # nota cancelada na tela de Notas do admin: a cobrança mostra a situação atual (ctx.db = banco do admin)
+    ids = [x["nfse_id"] for x in saida if x["nfse_id"]]
+    if ids:
+        from app.modules.rpa_nfse.models import Nfse, StatusNfse
+
+        canceladas = set(ctx.db.scalars(select(Nfse.id).where(Nfse.id.in_(ids), Nfse.status == StatusNfse.cancelada)))
+        for x in saida:
+            if x["nfse_id"] in canceladas:
+                x["nfse_status"] = "cancelada"
+    return saida
 
 
 @admin.get("/cobrancas/resumo")
@@ -222,9 +247,49 @@ def baixa_manual(kid: int, dados: BaixaIn, ctx: Painel):
             raise HTTPException(400, "Cobrança cancelada.")
         cobranca.dar_baixa(k, dados.forma or "manual")
         db.commit()
+        nota_fiscal.apos_pagamento(cobranca.pagas(db))
         ctx.auditar("admin.cobranca.baixa", "controle_cobranca", k.id, descricao=f"{k.cliente.nome}: {k.valor}")
         ctx.db.commit()
         return _cob_out(k)
+
+
+@admin.post("/cobrancas/{kid}/nfse")
+def emitir_nfse(kid: int, ctx: Painel):
+    """Emite (ou tenta de novo, depois de um erro) a NFS-e da cobrança paga. Leva alguns segundos: fala com o governo."""
+    with SessaoControle() as db:
+        k = _cob(db, kid)
+        cancelada = False
+        if k.nfse_id:
+            from app.modules.rpa_nfse.models import Nfse, StatusNfse
+
+            n = ctx.db.get(Nfse, k.nfse_id)
+            cancelada = n is not None and n.status == StatusNfse.cancelada
+    try:
+        k = nota_fiscal.emitir(kid, de_novo=cancelada)
+    except nota_fiscal.ErroNotaMensalidade as e:
+        _erro(e)
+    ctx.auditar("admin.cobranca.nfse", "controle_cobranca", kid, descricao=f"NFS-e {k.nfse_numero} ({k.nfse_chave or ''})")
+    ctx.db.commit()
+    with SessaoControle() as db:
+        return _cob_out(_cob(db, kid))
+
+
+@admin.get("/cobrancas/{kid}/nfse/pdf")
+def pdf_nfse(kid: int, ctx: Painel):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    from app.modules.rpa_nfse.models import Nfse
+
+    with SessaoControle() as db:
+        k = _cob(db, kid)
+        nid, cliente = k.nfse_id, k.cliente.nome
+    n = ctx.db.get(Nfse, nid) if nid else None
+    if n is None or not n.pdf_path or not Path(n.pdf_path).exists():
+        raise HTTPException(404, "Esta cobrança ainda não tem nota fiscal.")
+    return FileResponse(n.pdf_path, media_type="application/pdf", filename=f"NF {n.numero} - {cliente}.pdf",
+                        content_disposition_type="inline")
 
 
 @admin.post("/cobrancas/{kid}/cancelar")
@@ -328,6 +393,7 @@ async def notificacao(request: Request):
             # nada é aceito às cegas: o pagamento é sempre relido na API do Mercado Pago com o nosso token
             resultado = cobranca.processar_notificacao(db, tipo, recurso)
             db.commit()
+            nota_fiscal.apos_pagamento(cobranca.pagas(db))
         except (ErroMercadoPago, cobranca.RegraCobranca) as e:
             db.rollback()
             log.warning("Notificação %s %s: %s", tipo, recurso, e)

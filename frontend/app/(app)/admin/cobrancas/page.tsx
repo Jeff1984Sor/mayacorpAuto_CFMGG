@@ -14,6 +14,8 @@ import {
   Send,
   Settings2,
   Wallet,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +29,7 @@ import {
   Toolbar,
 } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
-import { Field, SwitchRow } from "@/components/mayacorp/form";
+import { Field, NativeSelect, SwitchRow } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { KpiCard } from "@/components/mayacorp/kpi-card";
 import { PageHeader } from "@/components/mayacorp/page-header";
@@ -44,7 +46,8 @@ import {
   type StatusCobranca,
   TOM_COBRANCA,
 } from "@/lib/admin";
-import { api } from "@/lib/api";
+import { abrirArquivo, api } from "@/lib/api";
+import { useEmissoras } from "@/hooks/use-nfse";
 import { data, moeda } from "@/lib/format";
 
 const TIPO: Record<Cobranca["tipo"], string> = {
@@ -101,6 +104,14 @@ export default function CobrancasPage() {
       setAcao(null);
       atualizar();
     },
+  });
+  const nota = useMutation({
+    mutationFn: (k: Cobranca) => api.post<Cobranca>(`/admin/cobrancas/${k.id}/nfse`),
+    onSuccess: (k) => {
+      toast.success(`NFS-e nº ${k.nfse_numero} emitida e enviada ao escritório`);
+      atualizar();
+    },
+    onError: () => atualizar(),
   });
   const r = resumo.data;
   const conectado = cfg.data?.conectado;
@@ -205,6 +216,7 @@ export default function CobrancasPage() {
                   <th className="px-3 py-2.5 text-right font-medium">Valor</th>
                   <th className="px-3 py-2.5 font-medium">Vencimento</th>
                   <th className="px-3 py-2.5 font-medium">Situação</th>
+                  <th className="px-3 py-2.5 font-medium">Nota fiscal</th>
                   <th className="px-3 py-2.5 text-right font-medium">Ações</th>
                 </tr>
               </thead>
@@ -232,6 +244,42 @@ export default function CobrancasPage() {
                         <div className="mt-0.5 text-xs text-muted-foreground">
                           {data(k.pago_em)} · {k.forma_paga}
                         </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {k.nfse_status === "emitida" && k.nfse_numero ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium text-info-ink hover:underline"
+                          title={k.nfse_chave ? `Chave de acesso ${k.nfse_chave}` : undefined}
+                          onClick={() => abrirArquivo(`/admin/cobrancas/${k.id}/nfse/pdf`).catch((e: Error) => toast.error(e.message))}
+                        >
+                          <FileText className="size-3.5" /> NFS-e nº {k.nfse_numero}
+                        </button>
+                      ) : k.nfse_status === "emitindo" ? (
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> Emitindo…
+                        </span>
+                      ) : k.nfse_status === "erro" ? (
+                        <span className="block max-w-56 text-danger-ink" title={k.nfse_erro ?? undefined}>
+                          Não emitida: {k.nfse_erro}
+                        </span>
+                      ) : k.nfse_status === "cancelada" ? (
+                        <span className="text-muted-foreground">NFS-e nº {k.nfse_numero} cancelada</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {k.status === "paga" && (!k.nfse_status || k.nfse_status === "erro" || k.nfse_status === "cancelada") && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          className="mt-1"
+                          disabled={nota.isPending}
+                          onClick={() => nota.mutate(k)}
+                        >
+                          {nota.isPending && nota.variables?.id === k.id ? <Loader2 className="animate-spin" /> : <FileText />}
+                          {k.nfse_status ? "Emitir de novo" : "Emitir NFS-e"}
+                        </Button>
                       )}
                     </td>
                     <td className="px-3 py-3">
@@ -405,7 +453,11 @@ function MercadoPagoDialog({
     dia_vencimento: 10,
     gerar_automatico: true,
     regua: "-3, 0, 3, 10",
+    nfse_automatica: false,
+    nfse_emissora_id: "" as string,
+    nfse_descricao: "",
   });
+  const emissoras = useEmissoras();
   /* eslint-disable react-hooks/set-state-in-effect -- carrega ao abrir */
   useEffect(() => {
     if (open && cfg)
@@ -415,6 +467,9 @@ function MercadoPagoDialog({
         dia_vencimento: cfg.dia_vencimento,
         gerar_automatico: cfg.gerar_automatico,
         regua: cfg.regua.join(", "),
+        nfse_automatica: cfg.nfse_automatica,
+        nfse_emissora_id: cfg.nfse_emissora_id ? String(cfg.nfse_emissora_id) : "",
+        nfse_descricao: cfg.nfse_descricao ?? "",
       });
   }, [open, cfg]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -430,6 +485,8 @@ function MercadoPagoDialog({
         token: f.token || null,
         segredo: f.segredo || null,
         regua,
+        nfse_emissora_id: f.nfse_emissora_id ? Number(f.nfse_emissora_id) : null,
+        nfse_descricao: f.nfse_descricao.trim() || null,
       }),
     onSuccess: (r) => {
       toast.success(
@@ -560,6 +617,45 @@ function MercadoPagoDialog({
             onCheckedChange={(v) => setF({ ...f, gerar_automatico: v })}
           />
         </SwitchRow>
+        <SwitchRow
+          titulo="Emitir a NFS-e quando a cobrança for paga"
+          descricao="A nota sai pela empresa emissora da MayaCorp (com o certificado dela), para o CNPJ do escritório, e vai por e-mail ao financeiro dele."
+        >
+          <Switch
+            checked={f.nfse_automatica}
+            onCheckedChange={(v) => setF({ ...f, nfse_automatica: v })}
+          />
+        </SwitchRow>
+        {f.nfse_automatica && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Empresa emissora" htmlFor="mp-emissora" dica="Cadastre em Configurações › Empresas emissoras.">
+              <NativeSelect
+                id="mp-emissora"
+                value={f.nfse_emissora_id}
+                onChange={(e) => setF({ ...f, nfse_emissora_id: e.target.value })}
+              >
+                <option value="">A primeira ativa</option>
+                {(emissoras.data ?? []).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.razao_social}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field
+              label="Texto da nota"
+              htmlFor="mp-texto"
+              dica="{descricao} = a descrição da cobrança (ex.: MayaJus 11/2026)."
+            >
+              <Input
+                id="mp-texto"
+                value={f.nfse_descricao}
+                onChange={(e) => setF({ ...f, nfse_descricao: e.target.value })}
+                maxLength={300}
+              />
+            </Field>
+          </div>
+        )}
       </div>
     </FormDialog>
   );

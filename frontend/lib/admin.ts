@@ -185,6 +185,13 @@ export interface Cobranca {
   forma_paga: string | null;
   avisos: number[];
   criado_em: string;
+  /** NFS-e da MayaCorp para o escritório (emitida no admin quando a cobrança é paga) */
+  nfse_status: "emitindo" | "emitida" | "erro" | "cancelada" | null;
+  nfse_id: number | null;
+  nfse_numero: number | null;
+  nfse_chave: string | null;
+  nfse_erro: string | null;
+  nfse_em: string | null;
 }
 
 export interface ResumoCobranca {
@@ -202,6 +209,10 @@ export interface ConfigCobranca {
   gerar_automatico: boolean;
   regua: number[];
   url_notificacao: string | null;
+  /** emitir a NFS-e da mensalidade quando a cobrança for paga */
+  nfse_automatica: boolean;
+  nfse_emissora_id: number | null;
+  nfse_descricao: string | null;
 }
 
 export interface PagamentoCliente {

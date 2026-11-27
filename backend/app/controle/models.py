@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -135,6 +136,10 @@ class ConfigCobranca(BaseControle):
     dia_vencimento: Mapped[int] = mapped_column(Integer, default=10)
     gerar_automatico: Mapped[bool] = mapped_column(Boolean, default=True)  # mensalidades geradas e enviadas sozinhas
     regua: Mapped[list[int]] = mapped_column(JSON, default=lambda: [-3, 0, 3, 10])  # dias em relação ao vencimento
+    # NFS-e da mensalidade: emitida no admin (empresa emissora da MayaCorp) quando a cobrança é paga
+    nfse_automatica: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    nfse_emissora_id: Mapped[int | None] = mapped_column(Integer)  # emissora no banco do admin (vazio = a primeira ativa)
+    nfse_descricao: Mapped[str | None] = mapped_column(String(300))  # texto da nota; {descricao} = descrição da cobrança
 
 
 class Cobranca(BaseControle):
@@ -158,6 +163,13 @@ class Cobranca(BaseControle):
     pago_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
     forma_paga: Mapped[str | None] = mapped_column(String(30))  # pix | cartão | boleto | manual
     avisos: Mapped[list[int]] = mapped_column(JSON, default=list)  # passos da régua já enviados
+    # NFS-e emitida para esta cobrança (a nota mora no banco do admin; aqui fica o resumo para a tela)
+    nfse_status: Mapped[str | None] = mapped_column(String(12))  # emitindo | emitida | erro | cancelada
+    nfse_id: Mapped[int | None] = mapped_column(Integer)
+    nfse_numero: Mapped[int | None] = mapped_column(Integer)
+    nfse_chave: Mapped[str | None] = mapped_column(String(50))
+    nfse_erro: Mapped[str | None] = mapped_column(String(500))
+    nfse_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
     criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
 
     cliente: Mapped[Cliente] = relationship()

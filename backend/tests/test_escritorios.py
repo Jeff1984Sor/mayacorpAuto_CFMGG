@@ -2,9 +2,11 @@
 
 import tempfile
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 from app.core import tenancy
 from app.core.config import settings
@@ -343,6 +345,89 @@ def test_cobranca_mercado_pago(multi, monkeypatch):
     assert cobranca.rotina_diaria(date(2026, 11, 6))["avisos"] >= 1
     with SessaoControle() as db:
         assert db.get(Cobranca, kid).avisos == [-3, 0, 3]
+
+
+def test_nfse_da_mensalidade_paga(multi, monkeypatch):
+    """Cobrança paga: o admin emite a NFS-e da MayaCorp para o CNPJ do escritório (banco do admin, Emissor Nacional)."""
+    from datetime import datetime
+
+    from app.controle import nota_fiscal
+    from app.controle.models import Cliente, Cobranca, SessaoControle
+
+    monkeypatch.setattr(nota_fiscal, "EM_SEGUNDO_PLANO", False)
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    # empresa emissora da MayaCorp: MEI de Sorocaba, pelo Emissor Nacional (modo simulação no teste)
+    r = c.post("/api/nfse/emissoras", headers=adm, json={
+        "razao_social": "MayaCorp MEI", "cnpj": "37552605000103", "ccm": "", "sistema_emissao": "nacional", "regime": "mei",
+        "cep": "18035000", "cidade": "Sorocaba", "uf": "SP", "codigo_municipio": "3552205", "cod_trib_nacional": "010101",
+        "serie_rps": "2", "prox_rps": 1, "aliquota_iss": "0.02"})
+    assert r.status_code == 200, r.text
+    emissora = r.json()
+    cfg = c.get("/api/admin/cobranca/config", headers=adm).json()
+    assert cfg["nfse_automatica"] is False and "{descricao}" in cfg["nfse_descricao"]
+    r = c.put("/api/admin/cobranca/config", headers=adm, json={
+        "dia_vencimento": cfg["dia_vencimento"], "gerar_automatico": cfg["gerar_automatico"], "regua": cfg["regua"],
+        "nfse_automatica": True, "nfse_emissora_id": emissora["id"], "nfse_descricao": "Licença MayaJus - {descricao}"})
+    assert r.status_code == 200 and r.json()["nfse_automatica"] is True, r.text
+    assert c.put("/api/admin/cobranca/config", headers=adm, json={**r.json(), "nfse_emissora_id": 99999}).status_code == 400
+
+    with SessaoControle() as db:
+        silva = db.scalar(select(Cliente).where(Cliente.slug == "silva"))
+        silva.documento, silva.email_financeiro = "11444777000161", "fin@silva.adv.br"
+        sem_doc = db.scalar(select(Cliente).where(Cliente.slug == "cfme"))
+        sem_doc.documento = None
+        k1 = Cobranca(cliente_id=silva.id, tipo="avulsa", descricao="Implantação de dezembro", itens=[], valor=Decimal("450.00"),
+                      vencimento=date.today(), status="pendente", avisos=[])
+        k2 = Cobranca(cliente_id=sem_doc.id, tipo="avulsa", descricao="Treinamento", itens=[], valor=Decimal("90.00"),
+                      vencimento=date.today(), status="pendente", avisos=[])
+        db.add_all([k1, k2])
+        db.commit()
+        k1_id, k2_id = k1.id, k2.id
+
+    # baixa manual: a nota sai sozinha
+    assert c.post(f"/api/admin/cobrancas/{k1_id}/baixa", headers=adm, json={"forma": "pix"}).status_code == 200
+    k = next(x for x in c.get("/api/admin/cobrancas", headers=adm).json() if x["id"] == k1_id)
+    assert k["nfse_status"] == "emitida", k
+    assert k["nfse_numero"] and len(k["nfse_chave"]) == 50 and k["nfse_chave"].startswith("3552205"), k
+    pdf = c.get(f"/api/admin/cobrancas/{k1_id}/nfse/pdf", headers=adm)
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    nota = c.get(f"/api/nfse/notas/{k['nfse_id']}", headers=adm).json()
+    assert nota["tomador_doc"] == "11444777000161" and nota["valor"] == "450.00" and "Licença MayaJus - Implantação" in nota["discriminacao"]
+    # uma nota por cobrança
+    r = c.post(f"/api/admin/cobrancas/{k1_id}/nfse", headers=adm)
+    assert r.status_code == 400 and "já tem NFS-e" in r.json()["detail"]
+    # o escritório que pagou não vê o cadastro do admin (a nota é da MayaCorp, no banco dela)
+    nota1 = k["nfse_id"]
+    ana = _entrar(c, "ana@silva.adv.br", "Silva@2026x")
+    assert c.get("/api/nfse/tomadores", headers=ana, params={"q": "11444777000161"}).json()["total"] == 0
+    assert c.get("/api/nfse/tomadores", headers=adm, params={"q": "11444777000161"}).json()["total"] == 1
+
+    # escritório sem CNPJ: a baixa vale, a nota fica com o erro na cobrança e pode ser refeita depois
+    assert c.post(f"/api/admin/cobrancas/{k2_id}/baixa", headers=adm, json={}).status_code == 200
+    k = next(x for x in c.get("/api/admin/cobrancas", headers=adm).json() if x["id"] == k2_id)
+    assert k["status"] == "paga" and k["nfse_status"] == "erro" and "CNPJ" in k["nfse_erro"], k
+    with SessaoControle() as db:
+        db.get(Cliente, db.get(Cobranca, k2_id).cliente_id).documento = "33000167000101"
+        db.commit()
+    r = c.post(f"/api/admin/cobrancas/{k2_id}/nfse", headers=adm)
+    assert r.status_code == 200 and r.json()["nfse_status"] == "emitida", r.text
+    # cobrança em aberto não tem nota
+    with SessaoControle() as db:
+        k3 = Cobranca(cliente_id=silva.id, tipo="avulsa", descricao="Em aberto", itens=[], valor=Decimal("10"),
+                      vencimento=date.today(), status="pendente", avisos=[], criado_em=datetime.now())
+        db.add(k3)
+        db.commit()
+        k3_id = k3.id
+    r = c.post(f"/api/admin/cobrancas/{k3_id}/nfse", headers=adm)
+    assert r.status_code == 400 and "depois que a cobrança é paga" in r.json()["detail"]
+    assert c.get(f"/api/admin/cobrancas/{k3_id}/nfse/pdf", headers=adm).status_code == 404
+    # nota cancelada no admin: a cobrança mostra e deixa emitir de novo
+    assert c.post(f"/api/nfse/notas/{nota1}/cancelar", headers=adm, json={"motivo": "Emitida com valor errado"}).status_code == 200
+    k = next(x for x in c.get("/api/admin/cobrancas", headers=adm).json() if x["id"] == k1_id)
+    assert k["nfse_status"] == "cancelada"
+    r = c.post(f"/api/admin/cobrancas/{k1_id}/nfse", headers=adm)
+    assert r.status_code == 200 and r.json()["nfse_status"] == "emitida" and r.json()["nfse_id"] != nota1, r.text
 
 
 def test_cadastro_pelo_site(multi):
