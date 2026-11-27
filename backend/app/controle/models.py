@@ -142,6 +142,17 @@ class ConfigCobranca(BaseControle):
     nfse_descricao: Mapped[str | None] = mapped_column(String(300))  # texto da nota; {descricao} = descrição da cobrança
 
 
+class ChaveIA(BaseControle):
+    """Chave de IA da MayaCorp (uma por provedor), cifrada com a MASTER_KEY. O admin libera a IA de cada escritório
+    com ela: a chave é aplicada na base do escritório; trocar aqui atualiza as bases que usam a mesma chave."""
+
+    __tablename__ = "ia_chave"
+
+    provedor: Mapped[str] = mapped_column(String(10), primary_key=True)  # openai | gemini
+    chave_cifrada: Mapped[bytes] = mapped_column(LargeBinary)
+    atualizado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora, onupdate=agora)
+
+
 class Cobranca(BaseControle):
     """Uma cobrança ao cliente: mensalidade (do plano), avulsa (sem produto) ou paga pela assinatura no cartão."""
 

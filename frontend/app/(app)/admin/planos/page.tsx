@@ -1,5 +1,6 @@
 "use client";
 
+import { ChavesIA } from "@/components/admin/ia-liberacao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeDollarSign, Gift, LifeBuoy, Plus, Save } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -125,6 +126,7 @@ export default function PlanosPage() {
 
       <Indicacao />
       <SenhaSuporte />
+      <ChavesIA />
       <PlanoDialog
         edit={edit}
         onClose={() => setEdit(null)}

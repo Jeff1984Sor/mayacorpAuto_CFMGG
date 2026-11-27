@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { AbaCobrancas } from "@/components/admin/cobranca";
+import { AbaIA } from "@/components/admin/ia-liberacao";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -177,6 +178,7 @@ export default function FichaClientePage() {
           <TabsTrigger value="dominios">Domínios</TabsTrigger>
           <TabsTrigger value="contratos">Contratos</TabsTrigger>
           <TabsTrigger value="cobrancas">Cobranças</TabsTrigger>
+          <TabsTrigger value="ia">IA</TabsTrigger>
         </TabsList>
         <TabsContent value="uso">
           <AbaUso cli={cli} />
@@ -192,6 +194,9 @@ export default function FichaClientePage() {
         </TabsContent>
         <TabsContent value="cobrancas">
           <AbaCobrancas cli={cli} />
+        </TabsContent>
+        <TabsContent value="ia">
+          <AbaIA cid={cli.id} />
         </TabsContent>
       </Tabs>
 

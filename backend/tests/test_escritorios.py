@@ -430,6 +430,56 @@ def test_nfse_da_mensalidade_paga(multi, monkeypatch):
     assert r.status_code == 200 and r.json()["nfse_status"] == "emitida" and r.json()["nfse_id"] != nota1, r.text
 
 
+def test_admin_libera_a_ia_do_escritorio(multi, monkeypatch):
+    """Chave de IA da MayaCorp guardada no admin e aplicada na base do escritório; trocar a chave atualiza as bases."""
+    from app.controle.models import Cliente, SessaoControle
+    from app.core import ia
+
+    testadas = []
+
+    def modelos_falsos(provedor, chave):
+        testadas.append((provedor, chave))
+        if chave.startswith("ruim"):
+            raise ia.IAIndisponivel("A chave da OpenAI foi recusada.")
+        return ["gpt-mini", "gpt-grande"]
+
+    monkeypatch.setattr(ia, "listar_modelos", modelos_falsos)
+    c = multi
+    adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
+    assert {x["provedor"]: x["definida"] for x in c.get("/api/admin/ia/chaves", headers=adm).json()} == {"openai": False, "gemini": False}
+    with SessaoControle() as db:
+        silva_id = db.scalar(select(Cliente.id).where(Cliente.slug == "silva"))
+    # sem chave central não libera
+    r = c.put(f"/api/admin/clientes/{silva_id}/ia", headers=adm, json={"ativo": True, "provedor": "openai", "modelo": "gpt-mini"})
+    assert r.status_code == 400 and "ainda não tem chave" in r.json()["detail"]
+    assert c.put("/api/admin/ia/chaves/openai", headers=adm, json={"chave": "ruim-1234567890"}).status_code == 400
+    r = c.put("/api/admin/ia/chaves/openai", headers=adm, json={"chave": "sk-primeira-1234567890"})
+    assert r.status_code == 200 and r.json()["modelos"] == ["gpt-mini", "gpt-grande"], r.text
+    assert c.get("/api/admin/ia/modelos/openai", headers=adm).json() == ["gpt-mini", "gpt-grande"]
+    assert c.get("/api/admin/ia/modelos/xpto", headers=adm).status_code == 404
+    # libera para a Silva: o escritório passa a ter IA, com a chave da MayaCorp
+    r = c.put(f"/api/admin/clientes/{silva_id}/ia", headers=adm, json={"ativo": True, "provedor": "openai", "modelo": "gpt-mini"})
+    assert r.status_code == 200 and r.json() == {"ativo": True, "provedor": "openai", "modelo": "gpt-mini", "tem_chave": True,
+                                                 "chave_mayacorp": True}, r.text
+    ana = _entrar(c, "ana@silva.adv.br", "Silva@2026x")
+    cfg = c.get("/api/config/ia", headers=ana).json()
+    assert (cfg["ativo"], cfg["provedor"], cfg["modelo"]) == (True, "openai", "gpt-mini")
+    # trocar a chave central atualiza a base da Silva
+    r = c.put("/api/admin/ia/chaves/openai", headers=adm, json={"chave": "sk-segunda-1234567890"})
+    assert "silva" in r.json()["bases_atualizadas"], r.json()
+    assert c.get(f"/api/admin/clientes/{silva_id}/ia", headers=adm).json()["chave_mayacorp"] is True
+    # desligar
+    r = c.put(f"/api/admin/clientes/{silva_id}/ia", headers=adm, json={"ativo": False})
+    assert r.status_code == 200 and r.json()["ativo"] is False
+    assert c.get("/api/config/ia", headers=ana).json()["ativo"] is False
+    # importar do que já está em uso: nenhum escritório usa Gemini
+    assert c.post("/api/admin/ia/chaves/gemini/importar", headers=adm).status_code == 404
+    assert c.post("/api/admin/ia/chaves/openai/importar", headers=adm).status_code == 400  # já tem
+    # só o admin da MayaCorp mexe nisso
+    assert c.get("/api/admin/ia/chaves", headers=ana).status_code == 404
+    assert c.put(f"/api/admin/clientes/{silva_id}/ia", headers=ana, json={"ativo": True}).status_code == 404
+
+
 def test_cadastro_pelo_site(multi):
     c = multi
     adm = _entrar(c, "jeff@mayacorp.com.br", "Maya@2026xx")
