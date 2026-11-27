@@ -77,19 +77,46 @@ def emitir_um(cliente: ClienteNacional, r: Rps, e: Emissora, salvar, rejeitar, g
     if ja_tentou:  # tentativa anterior caiu no meio: a nota pode já existir
         recuperada = _recuperar(cliente, id_dps)
         if recuperada:
-            salvar(r, recuperada)
-            return True
+            return _aceitar_recuperada(r, d, recuperada, salvar, rejeitar)
     ret = cliente.emitir(xml)  # FalhaComunicacao sobe: o recibo volta para a fila e o lote para
     if not ret.sucesso and any((x.codigo or "").upper() in JA_EMITIDA for x in ret.erros):
         recuperada = _recuperar(cliente, id_dps)
         if recuperada:
-            salvar(r, recuperada)
-            return True
+            return _aceitar_recuperada(r, d, recuperada, salvar, rejeitar)
     if ret.sucesso:
         salvar(r, ret)
         return True
     rejeitar(r, problemas_humanos(ret))
     return False
+
+
+def valor_da_nfse(xml: bytes | None) -> Decimal | None:
+    """vServ da nota devolvida pelo governo."""
+    if not xml:
+        return None
+    from lxml import etree
+
+    try:
+        raiz = etree.fromstring(xml)
+    except etree.XMLSyntaxError:
+        return None
+    for el in raiz.iter():
+        if isinstance(el.tag, str) and etree.QName(el).localname == "vServ" and (el.text or "").strip():
+            return Decimal(el.text.strip())
+    return None
+
+
+def _aceitar_recuperada(r: Rps, d: D.Dps, ret: RetornoNacional, salvar, rejeitar) -> bool:
+    """A DPS já tinha virado nota. Só é a MESMA cobrança se o valor bater: a numeração pode ter sido usada antes
+    em outra nota (por exemplo, emitida direto no portal do governo), e aí não se liga nota alheia a esta fatura."""
+    valor = valor_da_nfse(ret.xml)
+    if valor is not None and valor != Decimal(d.valor).quantize(Decimal("0.01")):
+        rejeitar(r, [{"campo": "numero", "nivel": "erro",
+                      "mensagem": f"A DPS série {d.serie} nº {d.numero} já foi usada em outra nota (de R$ {valor:.2f}).",
+                      "acao": "Aumente o “Próximo nº da DPS” na empresa emissora para além dos números já usados e reprocesse."}])
+        return False
+    salvar(r, ret)
+    return True
 
 
 def _recuperar(cliente: ClienteNacional, id_dps: str) -> RetornoNacional | None:

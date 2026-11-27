@@ -237,3 +237,44 @@ def test_emissora_no_emissor_nacional_de_ponta_a_ponta(cliente):  # noqa: F811
     # cancelamento: nota de simulação sai só do sistema (não vai ao governo)
     r = cliente.post(f"/api/nfse/notas/{fat['nfse_id']}/cancelar", headers=h, json={"motivo": "Teste de cancelamento da nota"})
     assert r.status_code == 200 and r.json()["status"] == "cancelada", r.text
+
+
+def test_nota_recuperada_so_vale_se_o_valor_bater():
+    """Numeração já usada por outra nota (ex.: emitida no portal): não liga a nota alheia à fatura."""
+    from app.modules.rpa_nfse.nfse_nacional import emissao
+
+    nfse = lambda v: cli.compactar(  # noqa: E731
+        f"<NFSe xmlns=\"{dps.NS}\"><infNFSe><nNFSe>9</nNFSe><valores><vServ>{v}</vServ></valores></infNFSe></NFSe>".encode())
+    assert emissao.valor_da_nfse(cli.descompactar(nfse("279.00"))) == Decimal("279.00")
+    assert emissao.valor_da_nfse(None) is None and emissao.valor_da_nfse(b"<x") is None
+
+    class Falso:
+        ambiente, cert = "2", None
+
+        def __init__(self, valor):
+            self.valor = valor
+
+        def emitir(self, xml):
+            return cli.RetornoNacional(sucesso=False, erros=[cli.ErroNacional("E0014", "DPS já utilizada")])
+
+        def chave_da_dps(self, id_dps):
+            return "9" * 50
+
+        def consultar(self, chave):
+            return cli.interpretar(200, {"chaveAcesso": chave, "nfseXmlGZipB64": nfse(self.valor)})
+
+    from types import SimpleNamespace
+
+    from app.modules.rpa_nfse.models import Regime
+
+    e = SimpleNamespace(cnpj="37552605000103", codigo_municipio=SOROCABA, regime=Regime.mei, ccm="", telefone=None, email=None,
+                        cod_trib_nacional="010101")
+    r = SimpleNamespace(dados_json={"tomador": {"nome": "Cliente", "cpf_cnpj": "11444777000161"}}, serie="1", numero=5,
+                        data_emissao=date(2026, 11, 27), discriminacao="Licença", valor=Decimal("279.00"), iss_retido=False, aliquota=Decimal(0))
+    salvos, recusados = [], []
+    ok = emissao.emitir_um(Falso("279.00"), r, e, lambda rr, ret: salvos.append(ret), lambda rr, p: recusados.append(p), lambda: None)
+    assert ok and salvos and salvos[0].chave_acesso == "9" * 50 and not recusados
+    salvos.clear()
+    r.dados_json = {"tomador": {"nome": "Cliente"}}
+    ok = emissao.emitir_um(Falso("999.00"), r, e, lambda rr, ret: salvos.append(ret), lambda rr, p: recusados.append(p), lambda: None)
+    assert not ok and not salvos and "já foi usada em outra nota" in recusados[0][0]["mensagem"]
