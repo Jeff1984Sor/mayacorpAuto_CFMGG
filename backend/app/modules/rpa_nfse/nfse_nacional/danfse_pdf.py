@@ -277,8 +277,12 @@ def gerar(nota: Nfse) -> bytes:
         c.setFillColor(colors.black)
         c.setFont(ROTULO, tam)
         c.drawString((X[col] + 0.08) * cm, y(sup + 0.25), rotulo)
-        c.setFont(CONTEUDO, 7)
-        c.drawString((X[col] + 0.08) * cm, y(sup + 0.53), _caber(valor or VAZIO, CONTEUDO, 7, largura(col, cols)))
+        # texto que não cabe na célula: primeiro a letra diminui um pouco (até 5); só depois é cortado
+        texto, corpo = " ".join((valor or VAZIO).split()), 7.0
+        while corpo > 5.0 and stringWidth(texto, CONTEUDO, corpo) > largura(col, cols):
+            corpo -= 0.25
+        c.setFont(CONTEUDO, corpo)
+        c.drawString((X[col] + 0.08) * cm, y(sup + 0.53), _caber(texto, CONTEUDO, corpo, largura(col, cols)))
 
     def bloco(titulo: str, sup: float, linhas: list[list[tuple]], alt: float = LIN, tam: float = 6) -> float:
         """Título sombreado na primeira coluna da primeira linha e os campos; devolve onde o bloco termina."""
