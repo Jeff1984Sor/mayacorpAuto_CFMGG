@@ -13,6 +13,7 @@ import {
   Download,
   FilePlus2,
   FolderTree,
+  GitCompareArrows,
   ListOrdered,
   PiggyBank,
   Plus,
@@ -130,6 +131,7 @@ export const NAV: NavGrupo[] = [
     itens: [
       { label: "Contas", href: "/financeiro/contas", icone: Wallet, permissao: "contas_bancarias.ver" },
       { label: "Nova conta", href: "/financeiro/nova-conta", icone: Plus, permissao: "contas_bancarias.editar" },
+      { label: "Conciliação", href: "/financeiro/conciliacao", icone: GitCompareArrows, permissao: "conciliacao.ver" },
       { label: "Previsão de Caixa", href: "/financeiro/previsao-caixa", icone: ChartLine, permissao: "relatorios_fin.ver" },
       { label: "Fluxo de Caixa", href: "/financeiro/fluxo-caixa", icone: ArrowLeftRight, permissao: "relatorios_fin.ver" },
       { label: "DRE", href: "/financeiro/dre", icone: ListOrdered, permissao: "relatorios_fin.ver" },
