@@ -257,6 +257,9 @@ def excluir_conta(db: Session, conta: ContaPagar, escopo: str) -> int:
         alvo = list(db.scalars(select(ContaPagar).where(ContaPagar.grupo_recorrencia == conta.grupo_recorrencia,
                                                         ContaPagar.data_pagamento.is_(None),
                                                         ContaPagar.data_vencimento >= conta.data_vencimento)))
+    from app.modules.comissoes.service import soltar_contas
+
+    soltar_contas(db, [c.id for c in alvo])  # comissões desta conta voltam a ficar "a pagar"
     for c in alvo:
         db.delete(c)
     return len(alvo)

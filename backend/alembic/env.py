@@ -5,6 +5,7 @@ from alembic import context
 import app.core.models  # noqa: F401  (registra os modelos)
 import app.comunicador.models  # noqa: F401
 import app.modules.boletos.models  # noqa: F401
+import app.modules.comissoes.models  # noqa: F401
 import app.modules.faturamento.models  # noqa: F401
 import app.modules.financas.models  # noqa: F401
 import app.modules.mcp.models  # noqa: F401
