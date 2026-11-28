@@ -178,7 +178,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("*", r"/faturamento/fluxo$", "faturas.ver"),
     ("POST", r"/faturamento/revisoes/\d+/aprovar$", "revisoes.aprovar"),
     ("*", r"/faturamento/revisoes", "revisoes.*e"),
-    ("*", r"/faturamento/(areas|campos|tabelas|config|listas|envolvimento/)", "cfg_faturamento.editar"),
+    ("*", r"/faturamento/(areas|campos|tabelas|config|listas|envolvimento/|migracao-partes)", "cfg_faturamento.editar"),  # migração: + administrador na rota
     ("*", r"/nfse/faturas/\d+/baixa$", "faturas.baixar"),
     ("POST", r"/nfse/faturas/zip$", "faturas.ver"),
     ("*", r"/nfse/faturas", "faturas.*e"),
