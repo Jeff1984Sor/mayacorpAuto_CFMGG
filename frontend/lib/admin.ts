@@ -1,4 +1,6 @@
 // Admin MayaCorp (/api/admin): espelha app/controle/routes_admin.py
+import type { CorpoCadastro } from "@/components/clientes/cadastro-form";
+
 import type { Decimal } from "./types";
 
 export type StatusCliente = "teste" | "ativo" | "suspenso" | "inativo";
@@ -47,12 +49,8 @@ export interface PlanoOut {
 
 export type PlanoIn = Omit<PlanoOut, "id">;
 
-export interface FichaIn {
-  nome: string;
-  documento: string | null;
-  responsavel: string | null;
-  email_financeiro: string | null;
-  telefone: string | null;
+/** O que é só do admin (comercial): plano, contrato, teste, indicação, robôs e a observação interna. */
+export interface ComercialIn {
   plano_id: number | null;
   ciclo: "mensal" | "anual";
   inicio_contrato: string | null;
@@ -62,7 +60,22 @@ export interface FichaIn {
   robos?: string[];
 }
 
-export interface ClienteNovoIn extends FichaIn {
+/**
+ * A ficha como o admin devolve. Nome, documento, responsável, e-mail do financeiro e telefone são a cópia do
+ * cadastro completo do cliente (o de Cadastros › Clientes, em `tomador_id`): o e-mail do financeiro é o 1º e-mail,
+ * o telefone é o 1º telefone e o responsável é o contato principal. Mudam só pelo cadastro.
+ */
+export interface FichaIn extends ComercialIn {
+  nome: string;
+  documento: string | null;
+  responsavel: string | null;
+  email_financeiro: string | null;
+  telefone: string | null;
+}
+
+/** Cliente novo que usa o MayaJus: o cadastro completo mais o plano e o acesso. */
+export interface ClienteNovoIn extends ComercialIn {
+  cadastro: CorpoCadastro;
   slug: string | null;
   admin_nome: string;
   admin_email: string;
@@ -70,15 +83,24 @@ export interface ClienteNovoIn extends FichaIn {
   dominios: string[];
 }
 
-/** Ficha de quem não tem acesso ao sistema: o necessário para cobrar e emitir a nota. */
+/** Cliente novo sem acesso ao sistema: o cadastro completo (para cobrar e emitir a nota) e a observação interna. */
 export interface ExternoIn {
-  nome: string;
-  documento: string | null;
-  responsavel: string | null;
-  email_financeiro: string | null;
-  telefone: string | null;
+  cadastro: CorpoCadastro;
   observacao: string | null;
 }
+
+/** Situação do cadastro completo: pronto para a nota fiscal ou o que falta (a mesma regra do emissor). */
+export interface SituacaoCadastro {
+  tomador_id: number | null;
+  completo: boolean;
+  /** o CNPJ/CPF é o cadastro de outro cliente: este fica sem cadastro até corrigir */
+  conflito: string | null;
+  pendencias: string[];
+}
+
+/** "CEP, logradouro e e-mail" */
+export const listarPendencias = (p: string[]) =>
+  p.length <= 1 ? (p[0] ?? "") : `${p.slice(0, -1).join(", ")} e ${p[p.length - 1]}`;
 
 export interface DarAcessoIn {
   admin_nome: string;
@@ -92,6 +114,9 @@ export interface DarAcessoIn {
 
 export interface ClienteSaaS extends FichaIn {
   id: number;
+  /** o cadastro completo deste cliente em Cadastros › Clientes do admin */
+  tomador_id: number | null;
+  cadastro: SituacaoCadastro;
   slug: string;
   tipo: TipoCliente;
   /** sem acesso hoje, mas o ambiente de quando tinha continua guardado */
@@ -183,12 +208,7 @@ export interface PoliticaIndicacao {
   teto: Decimal;
 }
 
-export const fichaDe = (c: ClienteSaaS): FichaIn => ({
-  nome: c.nome,
-  documento: c.documento,
-  responsavel: c.responsavel,
-  email_financeiro: c.email_financeiro,
-  telefone: c.telefone,
+export const comercialDe = (c: ClienteSaaS): ComercialIn => ({
   plano_id: c.plano_id,
   ciclo: c.ciclo,
   inicio_contrato: c.inicio_contrato,

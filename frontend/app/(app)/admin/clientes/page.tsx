@@ -5,6 +5,7 @@ import { BadgeDollarSign, Building2, CheckCircle2, Hourglass, PauseCircle, Plus 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { SeloCadastro } from "@/components/admin/cadastro";
 import { ClienteDialog } from "@/components/admin/cliente-dialog";
 import { linhaClicavel, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar } from "@/components/mayacorp/data-table";
 import { EmptyState } from "@/components/mayacorp/empty-state";
@@ -119,6 +120,7 @@ export default function ClientesMayaJusPage() {
                         {c.slug}
                         {c.documento && ` · ${documento(c.documento)}`}
                       </p>
+                      <SeloCadastro cli={c} />
                     </td>
                     <td className="px-3 py-3">
                       {c.plano ? (

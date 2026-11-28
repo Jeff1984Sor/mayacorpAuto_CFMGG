@@ -20,6 +20,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { BotaoAcesso } from "@/components/admin/acesso";
+import { AbaDados, AvisoCadastro } from "@/components/admin/cadastro";
 import { ClienteDialog } from "@/components/admin/cliente-dialog";
 import { BotaoIAAdmin } from "@/components/admin/ia";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
@@ -83,7 +84,7 @@ export default function FichaClientePage() {
     : ROTULO_STATUS;
   const abas = externo
     ? ["dados", "contratos", "cobrancas"]
-    : ["uso", "usuarios", "dominios", "contratos", "cobrancas", "ia"];
+    : ["uso", "dados", "usuarios", "dominios", "contratos", "cobrancas", "ia"];
   const abaInicial = abaPedida && abas.includes(abaPedida) ? abaPedida : abas[0];
 
   return (
@@ -159,7 +160,7 @@ export default function FichaClientePage() {
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setEditar(true)}>
-              <Pencil /> Ficha
+              <Pencil /> Dados comerciais
             </Button>
             <NativeSelect
               aria-label="Situação do cliente"
@@ -197,13 +198,17 @@ export default function FichaClientePage() {
         </div>
       </div>
 
+      <AvisoCadastro cli={cli} className="mb-5" />
+
       <Tabs key={cli.tipo} defaultValue={abaInicial}>
+        <div className="-mx-1 overflow-x-auto px-1">
         <TabsList>
           {externo ? (
             <TabsTrigger value="dados">Dados</TabsTrigger>
           ) : (
             <>
-              <TabsTrigger value="uso">Uso e dados</TabsTrigger>
+              <TabsTrigger value="uso">Uso</TabsTrigger>
+              <TabsTrigger value="dados">Dados</TabsTrigger>
               <TabsTrigger value="usuarios">Usuários</TabsTrigger>
               <TabsTrigger value="dominios">Domínios</TabsTrigger>
             </>
@@ -212,11 +217,11 @@ export default function FichaClientePage() {
           <TabsTrigger value="cobrancas">Cobranças</TabsTrigger>
           {!externo && <TabsTrigger value="ia">IA</TabsTrigger>}
         </TabsList>
-        {externo ? (
-          <TabsContent value="dados">
-            <DadosDoCliente cli={cli} />
-          </TabsContent>
-        ) : (
+        </div>
+        <TabsContent value="dados">
+          <AbaDados cli={cli} onEditarComercial={() => setEditar(true)} />
+        </TabsContent>
+        {!externo && (
           <>
             <TabsContent value="uso">
               <AbaUso cli={cli} />
@@ -353,43 +358,6 @@ function AbaUso({ cli }: { cli: ClienteSaaS }) {
         <div className="col-span-2">
           <Info rotulo="Observação" valor={cli.observacao} />
         </div>
-      </div>
-    </div>
-  );
-}
-
-/** Aba "Dados" de quem não tem acesso ao sistema: a ficha usada para cobrar e emitir a nota. */
-function DadosDoCliente({ cli }: { cli: ClienteSaaS }) {
-  return (
-    <div className="card-surface grid max-w-3xl grid-cols-1 gap-4 p-5 sm:grid-cols-2">
-      <Info rotulo="Nome ou razão social" valor={cli.nome} />
-      <Info
-        rotulo="CNPJ / CPF"
-        valor={
-          cli.documento ? (
-            <span className="font-mono">{documento(cli.documento)}</span>
-          ) : (
-            <span className="text-warning-ink">
-              Não informado: sem ele a nota fiscal não sai.
-            </span>
-          )
-        }
-      />
-      <Info rotulo="Responsável" valor={cli.responsavel} />
-      <Info
-        rotulo="E-mail do financeiro"
-        valor={
-          cli.email_financeiro ?? (
-            <span className="text-warning-ink">
-              Não informado: as cobranças são geradas, mas não enviadas.
-            </span>
-          )
-        }
-      />
-      <Info rotulo="Telefone" valor={cli.telefone} />
-      <Info rotulo="Cliente desde" valor={data(cli.criado_em)} />
-      <div className="sm:col-span-2">
-        <Info rotulo="Observação" valor={cli.observacao} />
       </div>
     </div>
   );
