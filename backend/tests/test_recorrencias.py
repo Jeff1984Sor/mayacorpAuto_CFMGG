@@ -207,8 +207,6 @@ def test_cliente_sem_acesso_nao_cria_banco_nem_login(painel, mp):
     # nome repetido ganha outro identificador; excluir não mexe em banco nenhum
     outro = _externo(c, adm, "Padaria Pão Quente Ltda")
     assert outro["slug"] == "padaria-pao-quente-ltda-2"
-    assert c.delete(f"/api/admin/clientes/{outro['id']}", headers=adm, params={"confirmar": outro["slug"]}).status_code == 400
-    c.post(f"/api/admin/clientes/{outro['id']}/status", headers=adm, json={"status": "inativo"})
     r = c.delete(f"/api/admin/clientes/{outro['id']}", headers=adm, params={"confirmar": outro["slug"]})
     assert r.status_code == 200 and "banco" not in r.json()["mensagem"], r.text
     assert _login(c)  # a CFME (banco principal) continua entrando

@@ -978,8 +978,17 @@ def excluir_cliente_saas(cid: int, ctx: Painel, confirmar: str = ""):
     with SessaoControle() as db:
         c = _cliente(db, cid)
         slug, nome, tinha_banco = c.slug, c.nome, c.banco is not None
-    if confirmar.strip().lower() != slug:
-        raise HTTPException(400, f"Para confirmar, digite o identificador do cliente: {slug}")
+        if confirmar.strip().lower() != slug:
+            raise HTTPException(400, f"Para confirmar, digite o identificador do cliente: {slug}")
+        if c.tipo == "mayacorp" or (c.banco is None and c.tipo != "externo"):
+            raise HTTPException(400, "O escritório principal e o admin da MayaCorp não podem ser excluídos.")
+        if c.mp_assinatura_id and c.mp_assinatura_status in ("authorized", "pending"):
+            raise HTTPException(400, "Este cliente tem cartão recorrente no Mercado Pago. Troque a forma de pagamento "
+                                     "para link (isso cancela a assinatura) e exclua depois.")
+        if c.status != "inativo":  # excluir já corta o acesso: não precisa inativar antes em outro passo
+            c.status = "inativo"
+            db.commit()
+            service.limpar_cache()
     try:
         service.excluir_escritorio(slug)
     except service.RegraControle as e:

@@ -573,8 +573,6 @@ def test_exclusoes_do_admin_e_profissional(multi):
                                                          "dominios": [], "dias_teste": 5})
     assert r.status_code == 201, r.text
     cid = r.json()["id"]
-    assert c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "escritorio-para-apagar"}).status_code == 400  # ativo
-    c.post(f"/api/admin/clientes/{cid}/status", headers=adm, json={"status": "inativo"})
     assert c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "errado"}).status_code == 400
     r = c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": "escritorio-para-apagar"})
     assert r.status_code == 200, r.text

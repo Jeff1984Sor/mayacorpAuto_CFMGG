@@ -179,14 +179,14 @@ export default function FichaClientePage() {
                 ))}
             </NativeSelect>
             <BotaoAcesso cli={cli} />
-            {cli.status === "inativo" && !cli.banco_principal && (
+            {!cli.banco_principal && (
               <BotaoExcluir
                 url={`/admin/clientes/${cli.id}`}
                 titulo={`Excluir ${cli.nome} de vez?`}
                 descricao={
                   externo && !cli.ambiente_guardado
                     ? "Apaga a ficha, os contratos, as recorrências e as cobranças deste cliente. Não tem volta."
-                    : "Apaga o banco do escritório com tudo dentro (usuários, clientes, notas, faturas), os domínios, contratos e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
+                    : "O acesso é cortado na hora e o banco do escritório é apagado com tudo dentro (usuários, clientes, notas, faturas), junto com os domínios, contratos, recorrências e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
                 }
                 digitar={cli.slug}
                 rotulo={externo ? "Excluir cliente" : "Excluir escritório"}
