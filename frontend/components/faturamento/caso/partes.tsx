@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowRightLeft,
   ArrowUp,
+  ExternalLink,
   GripVertical,
   Loader2,
   MoreHorizontal,
@@ -627,6 +628,13 @@ function CartaoParte({
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onClick={onEditar}>
                   <Pencil /> Editar parte e advogados
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    window.open(`/cadastros/pessoas?id=${e.pessoa_id}`, "_blank")
+                  }
+                >
+                  <ExternalLink /> Abrir cadastro da pessoa
                 </DropdownMenuItem>
                 {outras.length > 0 && (
                   <>

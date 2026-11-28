@@ -44,6 +44,7 @@ import {
   Truck,
   Users,
   UsersRound,
+  Contact,
   ShieldCheck,
   Workflow,
   Scale,
@@ -104,6 +105,7 @@ export const NAV: NavGrupo[] = [
     titulo: "Cadastros",
     itens: [
       { label: "Clientes", href: "/cadastros/clientes", icone: UsersRound, permissao: "clientes.ver", atalho: "G C", foraDoPainel: true },
+      { label: "Pessoas", href: "/cadastros/pessoas", icone: Contact, permissao: "pessoas.ver", foraDoPainel: true },
       { label: "Contratos", href: "/faturamento/contratos", icone: FileSignature, permissao: "contratos.ver", foraDoPainel: true },
       { label: "Casos", href: "/faturamento/casos", icone: Briefcase, permissao: "casos.ver", foraDoPainel: true },
       { label: "Tarefas", href: "/faturamento/tarefas", icone: ListTodo, permissao: "tarefas.ver", badge: "tarefas", foraDoPainel: true },
