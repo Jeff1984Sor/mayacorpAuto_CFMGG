@@ -1013,6 +1013,10 @@ def ler_nota(nid: int, ctx: Ctx):
 @router.get("/notas/{nid}/pdf")
 def pdf_nota(nid: int, ctx: Ctx):
     n = _nota(ctx, nid)
+    if n.chave_acesso:  # Sistema Nacional: tenta o DANFSe oficial (de tempos em tempos) e refaz o PDF de desenho antigo
+        from app.modules.rpa_nfse.nfse_nacional import danfse
+
+        danfse.atualizar(ctx.db, n)
     if not n.pdf_path or not Path(n.pdf_path).exists():
         raise HTTPException(404, "PDF não encontrado.")
     return FileResponse(n.pdf_path, media_type="application/pdf", filename=_nome_pdf_da_nota(n),

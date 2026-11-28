@@ -28,6 +28,7 @@ ENDERECOS = {
 AMBIENTE = {"producao": "1", "teste": "2", "simulado": "2"}
 TENTATIVAS = 3
 TIMEOUT = 45.0
+TIMEOUT_DANFSE = httpx.Timeout(8.0, connect=4.0)  # o PDF oficial é um extra: não segura quem está baixando a nota
 
 
 @dataclass
@@ -119,6 +120,8 @@ def interpretar(status: int, corpo: dict | None) -> RetornoNacional:
 class ClienteNacional:
     """`modo`: producao | teste (produção restrita) | simulado (não chama ninguém)."""
 
+    transporte: httpx.BaseTransport | None = None  # os testes trocam por um httpx.MockTransport
+
     def __init__(self, cert: CertificadoCarregado | None, modo: str):
         if modo not in ("producao", "teste", "simulado"):
             raise ValueError(f"Modo '{modo}' desconhecido.")
@@ -200,13 +203,26 @@ class ClienteNacional:
 
     # ------------------------------------------------------------------ DANFSe (o PDF oficial)
     def danfse(self, chave_acesso: str) -> bytes | None:
-        if self.modo == "simulado":
+        """PDF oficial pela chave de acesso: `GET {adn}/danfse/{chave}`, só em produção (na produção restrita não
+        responde). Uma tentativa só, com tempo curto: quem chama tem o PDF do próprio sistema como plano B, então
+        qualquer falha (tempo, 4xx/5xx, resposta que não é PDF) vira None e um aviso no log.
+
+        A Nota Técnica SE/CGNFS-e nº 008/2026 anunciou a suspensão desta API (os sistemas emissores passam a
+        gerar o DANFSe): se ela estiver mesmo fora do ar, a resposta é sempre None e vale o PDF do sistema.
+        """
+        if self.modo != "producao":
             return None
         try:
-            resp = self._chamar("GET", self._url("adn", f"/danfse/{chave_acesso}"))
-        except FalhaComunicacao:
+            with httpx.Client(verify=_ssl_context(self.cert), timeout=TIMEOUT_DANFSE, transport=self.transporte) as c:
+                resp = c.get(self._url("adn", f"/danfse/{chave_acesso}"), headers={"Accept": "application/pdf"})
+        except (httpx.HTTPError, OSError) as e:
+            log.warning("DANFSe oficial da nota %s não veio (%s: %s); fica o PDF do sistema.", chave_acesso, type(e).__name__, e)
             return None
-        return resp.content if resp.status_code == 200 and resp.content[:4] == b"%PDF" else None
+        if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
+            log.warning("DANFSe oficial da nota %s não veio (HTTP %s, %s); fica o PDF do sistema.", chave_acesso,
+                        resp.status_code, resp.headers.get("content-type") or "sem tipo")
+            return None
+        return resp.content
 
     def link_danfse(self, chave_acesso: str) -> str:
         return ENDERECOS["producao" if self.modo == "producao" else "teste"]["adn"] + f"/danfse/{chave_acesso}"

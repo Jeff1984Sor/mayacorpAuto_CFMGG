@@ -296,6 +296,10 @@ def pdf_nfse(kid: int, ctx: Painel):
         k = _cob(db, kid)
         nid, cliente = k.nfse_id, k.cliente.nome
     n = ctx.db.get(Nfse, nid) if nid else None
+    if n is not None and n.chave_acesso:
+        from app.modules.rpa_nfse.nfse_nacional import danfse
+
+        danfse.atualizar(ctx.db, n)  # DANFSe oficial quando houver; senão o PDF do sistema no desenho atual
     if n is None or not n.pdf_path or not Path(n.pdf_path).exists():
         raise HTTPException(404, "Esta cobrança ainda não tem nota fiscal.")
     return FileResponse(n.pdf_path, media_type="application/pdf", filename=f"NF {n.numero} - {cliente}.pdf",

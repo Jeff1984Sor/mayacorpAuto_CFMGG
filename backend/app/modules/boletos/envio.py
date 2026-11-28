@@ -34,6 +34,10 @@ def anexos(db: Session, b: Boleto) -> list[dict]:
         lista.append({"tipo": "fatura", "nome": f"{sigla} - {f.numero:05d}.pdf", "mime": "application/pdf",
                       "rotulo": f"Fatura {f.codigo}", "bytes": lambda p=f.pdf_path: Path(p).read_bytes()})
     n = f.nfse if f else None
+    if n and n.chave_acesso:  # nota do Sistema Nacional com PDF de desenho antigo é refeita antes de ir ao cliente
+        from app.modules.rpa_nfse.nfse_nacional import danfse
+
+        danfse.atualizar(db, n, oficial=False)
     if n and n.status != StatusNfse.cancelada and n.pdf_path and Path(n.pdf_path).exists():
         lista.append({"tipo": "nfse", "nome": f"NF - {n.numero}.pdf", "mime": "application/pdf",
                       "rotulo": f"NFS-e {n.numero}", "bytes": lambda p=n.pdf_path: Path(p).read_bytes()})

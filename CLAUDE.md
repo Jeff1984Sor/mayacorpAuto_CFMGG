@@ -122,7 +122,9 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
 - Assinatura aceita: RSA-SHA256, C14N 1.0 inclusiva, `<Signature>` sem prefixo como último filho da raiz, Reference ao Id de `infDPS`/`infPedReg`.
 - Dois layouts: `xsd/` (produção, v1.01 de 09/02/2026) e `xsd_rtc/` (Reforma Tributária, já exigido na produção restrita: `finNFSe` e `indDest` obrigatórios, `xDescServ` depois do `cNBS`). Quando a produção mudar, troque `LAYOUT_DO_AMBIENTE["1"]` em `dps.py`.
 - O XSD oficial de `TSSerieDPS` (v1.01 de produção) traz `^...$`, que no XSD vira literal: a cópia em `xsd/` está corrigida (comentado no arquivo).
-- Modo Teste em Configurações › Prefeitura = produção restrita do governo (nota existe lá, sem valor fiscal; aqui fica como simulação). O PDF oficial (DANFSe) não respondeu na produção restrita: o sistema gera o próprio PDF com a chave de acesso.
+- Modo Teste em Configurações › Prefeitura = produção restrita do governo (nota existe lá, sem valor fiscal; aqui fica como simulação).
+- PDF da nota: o sistema desenha o próprio (`pdf.py` › `_gerar_nacional`) **a partir do XML autorizado** em `xml_path` (`nfse_nacional/leitura.py`), nunca do cadastro (cidade errada no cadastro já saiu no PDF); campo sem valor não aparece. Mudou o desenho? Suba `LAYOUT_NACIONAL`: o PDF guardado é refeito no próximo download ou e-mail.
+- DANFSe oficial (`nfse_nacional/danfse.py`): `GET https://adn.nfse.gov.br/danfse/{chave}` com o certificado, só em nota de produção (na produção restrita não respondeu), uma tentativa de 8 s ao emitir e ao baixar o PDF, no máximo uma a cada 24 h; falhou, fica o PDF do sistema e um aviso no log. O que está guardado fica anotado em `<pdf>.json` ao lado do arquivo. **Nunca foi visto funcionando**: a Nota Técnica SE/CGNFS-e 008/2026 anunciou a suspensão dessa API (o sistema emissor passa a gerar o DANFSe no leiaute do Anexo I, "DANFSe v2.0"); se confirmar, desligue `BUSCAR_OFICIAL` e adapte o desenho ao leiaute oficial.
 
 ## Configuração
 

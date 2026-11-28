@@ -456,6 +456,10 @@ def _anexos_disponiveis(db: Session, nota: Nfse) -> list[dict]:
 
     cfg = db.get(ConfigNotificacao, nota.tenant_id)
     lista = []
+    if nota.chave_acesso:  # nota do Sistema Nacional com PDF de desenho antigo é refeita antes de ir ao cliente
+        from app.modules.rpa_nfse.nfse_nacional import danfse
+
+        danfse.atualizar(db, nota, oficial=False)
     if nota.pdf_path and Path(nota.pdf_path).exists():
         lista.append({"tipo": "pdf", "nome": f"NFSe_{nota.numero}.pdf", "caminho": nota.pdf_path, "mime": "application/pdf",
                       "padrao": not cfg or cfg.anexar_pdf})

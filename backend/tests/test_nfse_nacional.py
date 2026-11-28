@@ -278,3 +278,172 @@ def test_nota_recuperada_so_vale_se_o_valor_bater():
     r.dados_json = {"tomador": {"nome": "Cliente"}}
     ok = emissao.emitir_um(Falso("999.00"), r, e, lambda rr, ret: salvos.append(ret), lambda rr, p: recusados.append(p), lambda: None)
     assert not ok and not salvos and "já foi usada em outra nota" in recusados[0][0]["mensagem"]
+
+
+# ---------------------------------------------------------------- PDF: vale o XML autorizado; DANFSe oficial quando vier
+CHAVE = "3552205" + "2" + "2" + "00000000000191" + "000000000066" + "261179475277490"  # fictícia, 50 dígitos
+NFSE_AUTORIZADA = f"""<NFSe versao="1.01" xmlns="{dps.NS}"><infNFSe Id="NFS{CHAVE}">
+<xLocEmi>Sorocaba</xLocEmi><xLocPrestacao>Sorocaba</xLocPrestacao><nNFSe>66</nNFSe><cLocIncid>3552205</cLocIncid><xLocIncid>Sorocaba</xLocIncid>
+<xTribNac>Datilografia, digitação, estenografia e congêneres.</xTribNac><verAplic>SefinNacional_1.6.0</verAplic><ambGer>2</ambGer><tpEmis>1</tpEmis><procEmi>1</procEmi><cStat>107</cStat><dhProc>2026-11-28T14:20:04-03:00</dhProc><nDFSe>1456587</nDFSe>
+<emit><CNPJ>00000000000191</CNPJ><xNome>EMPRESA EXEMPLO MEI</xNome><enderNac><xLgr>AVENIDA EXEMPLO</xLgr><nro>802</nro><xBairro>VILA EXEMPLO</xBairro><cMun>3552205</cMun><UF>SP</UF><CEP>18081000</CEP></enderNac><fone>1100000000</fone><email>EXEMPLO@EXEMPLO.COM</email></emit>
+<valores><vLiq>200.00</vLiq></valores>
+<DPS versao="1.01"><infDPS Id="DPS355220520000000000019100001000000000000002"><tpAmb>1</tpAmb><dhEmi>2026-11-28T14:20:03-03:00</dhEmi><verAplic>MayaJus-1.0</verAplic><serie>1</serie><nDPS>2</nDPS><dCompet>2026-11-28</dCompet><tpEmit>1</tpEmit><cLocEmi>3552205</cLocEmi>
+<prest><CNPJ>00000000000191</CNPJ><regTrib><opSimpNac>2</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>
+<toma><CNPJ>00000000000272</CNPJ><xNome>TOMADOR EXEMPLO LTDA</xNome><end><endNac><cMun>3550308</cMun><CEP>05422030</CEP></endNac><xLgr>Rua Exemplo</xLgr><nro>72</nro><xCpl>Andar 12</xCpl><xBairro>Pinheiros</xBairro></end><email>financeiro@exemplo.com.br</email></toma>
+<serv><locPrest><cLocPrestacao>3552205</cLocPrestacao></locPrest><cServ><cTribNac>170201</cTribNac><xDescServ>Serviços prestados
+- Geração de Documentos — parcela 1</xDescServ></cServ></serv>
+<valores><vServPrest><vServ>200.00</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><totTrib><indTotTrib>0</indTotTrib></totTrib></trib></valores>
+</infDPS></DPS></infNFSe></NFSe>""".encode()
+
+
+def _nota_autorizada(pasta, xml: bytes | None = NFSE_AUTORIZADA, simulada=False):
+    """Nota com o cadastro da emissora digitado errado (São Paulo): o PDF tem de seguir o XML (Sorocaba)."""
+    from types import SimpleNamespace
+
+    from app.modules.rpa_nfse.models import Regime
+
+    if xml:
+        (pasta / "nota.xml").write_bytes(xml)
+    em = SimpleNamespace(razao_social="Empresa Exemplo MEI", cnpj="00000000000191", ccm="", logradouro="Av. do Cadastro", numero="1",
+                         complemento=None, bairro="Centro", cidade="São Paulo", uf="SP", cep="01310100", codigo_municipio=SOROCABA,
+                         email=None, telefone=None, regime=Regime.mei, cod_trib_nacional="170201", certificado_id=None)
+    rps = SimpleNamespace(dados_json={"tomador": {"nome": "Tomador Exemplo Ltda", "cpf_cnpj": "00000000000272", "cidade": "São Paulo"}},
+                          discriminacao="Serviços prestados", valor=Decimal("200.00"), deducoes=Decimal(0), aliquota=Decimal(0),
+                          iss=Decimal(0), iss_retido=False, cod_servico=None, serie="1", numero=2, data_emissao=date(2026, 11, 28))
+    return SimpleNamespace(tenant_id=1, numero=66, chave_acesso=CHAVE, cod_verificacao=CHAVE[-9:], valor=Decimal("200.00"),
+                           data_emissao=datetime(2026, 11, 28, 17, 20), simulada=simulada, rps=rps, emissora=em,
+                           xml_path=str(pasta / "nota.xml") if xml else None, pdf_path=str(pasta / "nota.pdf"))
+
+
+def _texto_do_pdf(conteudo: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader
+
+    paginas = PdfReader(io.BytesIO(conteudo)).pages
+    assert len(paginas) == 1
+    return paginas[0].extract_text()
+
+
+def test_pdf_da_nota_nacional_segue_o_xml_autorizado(tmp_path):
+    import re
+
+    from app.modules.rpa_nfse import pdf
+    from app.modules.rpa_nfse.nfse_nacional import leitura
+
+    x = leitura.ler(NFSE_AUTORIZADA)
+    assert x["autorizada"] and x["municipio_emissao"] == "Sorocaba" and x["municipios"] == {SOROCABA: "Sorocaba"}
+    assert (x["emitente"]["uf"], x["emitente"]["cep"], x["tomador"]["codigo_municipio"], x["tomador"]["cep"]) == (
+        "SP", "18081000", "3550308", "05422030")
+    assert (x["simples"], x["tributacao_issqn"], x["retencao_issqn"], x["competencia"], x["valor_liquido"]) == (
+        "2", "1", "1", "2026-11-28", "200.00")
+    assert leitura.ler(None) == {} and leitura.ler(b"<x") == {} and leitura.ler(b"<a/>") == {}
+    assert leitura.formatar_tributacao("170201") == "17.02.01" and leitura.uf_do_municipio("3550308") == "SP"
+
+    nota = _nota_autorizada(tmp_path)
+    texto = _texto_do_pdf(pdf.gerar(nota, None, "https://www.nfse.gov.br/ConsultaPublica"))
+    linhas = [ln.strip() for ln in texto.splitlines()]
+    # 1) cidade, UF e CEP do XML autorizado (o cadastro diz São Paulo)
+    prestador = texto[texto.index("PRESTADOR DE SERVIÇOS"):texto.index("TOMADOR DE SERVIÇOS")]
+    assert "Sorocaba / SP" in prestador and "18081-000" in prestador and "AVENIDA EXEMPLO, 802" in prestador
+    assert "São Paulo" not in prestador and "Cadastro" not in prestador
+    assert "05422-030" in texto and "Rua Exemplo, 72, Andar 12, Pinheiros" in texto and "00.000.000/0002-72" in texto
+    # 2) código de tributação nacional com a descrição
+    assert "17.02.01 — Datilografia, digitação, estenografia e congêneres." in texto and "Código do serviço" not in texto
+    # 3) a chave de acesso numa linha só dela
+    assert CHAVE in linhas and "Sistema Nacional NFS-e" in texto and "ConsultaPublica" in texto
+    # 4) campo sem valor não aparece: nada de barra ou travessão soltos
+    assert not [ln for ln in linhas if ln in ("/", "—", "-") or ln.startswith("/") or ln.endswith("/")], linhas
+    for ausente in ("NBS", "IBS/CBS", "Inscrição municipal", "Alíquota", "R$ 0,00", "0,00%"):
+        assert ausente not in texto, ausente
+    # 5) regime e situação do ISS como estão no XML, sem valor inventado
+    for presente in ("Optante do Simples Nacional — MEI", "Operação tributável", "Não retido", "Prestador MEI"):
+        assert presente in texto, presente
+    # 6) competência, DPS e valor líquido
+    assert re.search(r"Competência\s+28/11/2026", texto) and re.search(r"Número da DPS\s+2\s+Série da DPS\s+1\s", texto)
+    assert "28/11/2026 14:20:04" in texto and "VALOR LÍQUIDO" in texto and texto.count("R$ 200,00") == 2
+
+    # nota de simulação: o arquivo guardado é a DPS (sem o que o governo acrescenta) e o cadastro completa
+    sim = _nota_autorizada(tmp_path, etree.tostring(etree.fromstring(NFSE_AUTORIZADA).find(f".//{{{dps.NS}}}DPS")), simulada=True)
+    texto = _texto_do_pdf(pdf.gerar(sim, None, "https://www.nfse.gov.br/ConsultaPublica"))
+    assert "SIMULAÇÃO" in texto and "17.02.01" in texto and "Optante do Simples Nacional — MEI" in texto
+    assert "VALOR LÍQUIDO" not in texto and "Av. do Cadastro" in texto
+    # nota sem XML guardado: tudo do cadastro, ainda sem campo vazio aparecendo
+    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path, None), None, "https://www.nfse.gov.br/ConsultaPublica"))
+    assert "17.02.01" in texto and "Tomador Exemplo Ltda" in texto and "Não retido" in texto
+    assert not [ln for ln in texto.splitlines() if ln.strip() in ("/", "—")]
+
+
+def test_danfse_oficial_com_plano_b(tmp_path, monkeypatch):
+    """PDF oficial só em produção; qualquer falha deixa o PDF do sistema, e a nova tentativa respeita o intervalo."""
+    from datetime import UTC, timedelta
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app.modules.rpa_nfse import pdf
+    from app.modules.rpa_nfse.nfse_nacional import danfse
+
+    oficial = b"%PDF-1.7 DANFSe oficial"
+    pedidos, resposta = [], {}
+
+    def governo(req: httpx.Request) -> httpx.Response:
+        pedidos.append(str(req.url))
+        if isinstance(resposta["r"], Exception):
+            raise resposta["r"]
+        return resposta["r"]
+
+    def cliente_em(modo):
+        c = cli.ClienteNacional(certificado_de_simulacao(), modo)
+        c.transporte = httpx.MockTransport(governo)
+        return c
+
+    # o cliente: endereço, e o que conta como falha
+    prod = cliente_em("producao")
+    resposta["r"] = httpx.Response(200, content=oficial, headers={"content-type": "application/pdf"})
+    assert prod.danfse(CHAVE) == oficial and pedidos == [f"https://adn.nfse.gov.br/danfse/{CHAVE}"]
+    for ruim in (httpx.Response(404, json={"erro": "não encontrado"}), httpx.Response(503, text="fora do ar"),
+                 httpx.Response(200, text="<html>manutenção</html>"), httpx.ConnectTimeout("demorou"), httpx.ConnectError("caiu")):
+        resposta["r"] = ruim
+        assert prod.danfse(CHAVE) is None
+    pedidos.clear()
+    assert cliente_em("teste").danfse(CHAVE) is None and not pedidos  # produção restrita: nem tenta
+
+    db = SimpleNamespace(get=lambda *a: None)
+    agora = datetime(2026, 11, 28, 18, 0, tzinfo=UTC)
+    nota = _nota_autorizada(tmp_path)
+    arquivo = tmp_path / "nota.pdf"
+    arquivo.write_bytes(b"%PDF-1.4 desenho antigo")  # PDF guardado antes desta mudança (sem ficha ao lado)
+
+    # falha → plano B: PDF do sistema refeito no desenho atual, sem erro, tentativa anotada
+    resposta["r"] = httpx.Response(500, text="erro")
+    danfse.atualizar(db, nota, cliente=prod, agora=agora)
+    assert len(pedidos) == 1 and "Sorocaba / SP" in _texto_do_pdf(arquivo.read_bytes())
+    assert danfse.estado(arquivo) == {"oficial": False, "tentado_em": agora.isoformat(), "layout": pdf.LAYOUT_NACIONAL}
+    # dentro do intervalo não bate de novo no governo, mesmo que agora ele respondesse
+    resposta["r"] = httpx.Response(200, content=oficial)
+    danfse.atualizar(db, nota, cliente=prod, agora=agora + timedelta(hours=1))
+    assert len(pedidos) == 1 and arquivo.read_bytes() != oficial
+    # passado o intervalo, tenta de novo e guarda o oficial no mesmo arquivo; daí em diante não busca mais
+    danfse.atualizar(db, nota, cliente=prod, agora=agora + danfse.INTERVALO)
+    assert len(pedidos) == 2 and arquivo.read_bytes() == oficial and danfse.estado(arquivo)["oficial"] is True
+    danfse.atualizar(db, nota, cliente=prod, agora=agora + timedelta(days=30))
+    assert len(pedidos) == 2 and arquivo.read_bytes() == oficial
+
+    # nota de Teste/simulação nunca busca o oficial; anexo de e-mail (oficial=False) também não
+    pedidos.clear()
+    for pasta, simulada, extra in (("teste", True, {}), ("email", False, {"oficial": False})):
+        (tmp_path / pasta).mkdir()
+        outra = _nota_autorizada(tmp_path / pasta, simulada=simulada)
+        danfse.atualizar(db, outra, cliente=prod, agora=agora, **extra)
+        assert not pedidos and "Sorocaba / SP" in _texto_do_pdf((tmp_path / pasta / "nota.pdf").read_bytes())
+        assert danfse.estado(outra.pdf_path) == {"oficial": False, "layout": pdf.LAYOUT_NACIONAL}
+    # fora do servidor de produção não se monta cliente nenhum: fica o PDF do sistema
+    (tmp_path / "hml").mkdir()
+    monkeypatch.setattr("app.modules.rpa_nfse.service.modos_permitidos", lambda: ["simulado", "teste"])
+    danfse.atualizar(db, _nota_autorizada(tmp_path / "hml"), agora=agora)
+    assert not pedidos and (tmp_path / "hml" / "nota.pdf").exists()
+    # erro inesperado nunca sobe para quem pediu o PDF
+    quebrado = SimpleNamespace(danfse=lambda chave: (_ for _ in ()).throw(RuntimeError("certificado ilegível")))
+    (tmp_path / "erro").mkdir()
+    danfse.atualizar(db, _nota_autorizada(tmp_path / "erro"), cliente=quebrado, agora=agora)

@@ -331,9 +331,9 @@ def processar_lote(lote_id: int) -> None:
         _pos_lote(db, lote)
 
 
-def _salvar_nota_nacional(db, lote: Lote, r: Rps, ret, simulada: bool) -> Nfse:
+def _salvar_nota_nacional(db, lote: Lote, r: Rps, ret, simulada: bool, cliente=None) -> Nfse:
     """Nota do Sistema Nacional: guarda a chave de acesso, o XML devolvido pelo governo e o PDF."""
-    from app.modules.rpa_nfse.nfse_nacional.emissao import link as link_nacional
+    from app.modules.rpa_nfse.nfse_nacional import danfse
 
     emissora = lote.emissora
     nota = Nfse(tenant_id=lote.tenant_id, rps_id=r.id, emissora_id=emissora.id, tomador_id=r.tomador_id,
@@ -347,9 +347,14 @@ def _salvar_nota_nacional(db, lote: Lote, r: Rps, ret, simulada: bool) -> Nfse:
         xml_path = destino / f"NFSe_{nota.chave_acesso or nota.numero}.xml"
         xml_path.write_bytes(ret.xml)
         nota.xml_path = str(xml_path)
-    pdf_path = destino / f"NFSe_{nota.chave_acesso or nota.numero}.pdf"
-    pdf_path.write_bytes(pdf.gerar(nota, db.get(Identidade, lote.tenant_id), link_nacional(nota.chave_acesso)))
-    nota.pdf_path = str(pdf_path)
+    # PDF do sistema na hora (desenhado a partir do XML autorizado); em produção, tenta trocar pelo DANFSe oficial
+    nota.pdf_path = str(destino / f"NFSe_{nota.chave_acesso or nota.numero}.pdf")
+    danfse.gravar_do_sistema(db, nota)
+    if cliente is not None and not simulada:
+        try:
+            danfse.buscar_oficial(nota, cliente)
+        except Exception:  # noqa: BLE001 — a nota já foi autorizada: o PDF oficial nunca pode derrubar a gravação
+            log.warning("Falha ao buscar o DANFSe oficial da nota %s", nota.chave_acesso, exc_info=True)
     r.status = StatusRps.emitido
     r.erros_json = []
     fatura.criar(db, nota, service.config_nfse(db, lote.tenant_id))
@@ -378,7 +383,8 @@ def _processar_nacional(db, lote: Lote, cert, modo: str) -> None:
         db.commit()
         try:
             emitir_um(cliente, r, lote.emissora,
-                      salvar=lambda rr, ret: _salvar_nota_nacional(db, lote, rr, ret, simulada=modo != "producao"),
+                      salvar=lambda rr, ret: _salvar_nota_nacional(db, lote, rr, ret, simulada=modo != "producao",
+                                                                   cliente=cliente),
                       rejeitar=_rejeitar, gravar=db.commit)
         except FalhaComunicacao as e:
             for x in fila:
