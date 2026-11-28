@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { useAreas } from "@/components/faturamento/campos-adicionais";
-import { CasoDialog } from "@/components/faturamento/caso/caso-dialog";
+import { CasoDialog, TIPOS_CASO_INFO } from "@/components/faturamento/caso/caso-dialog";
 import { AreaBadge } from "@/components/faturamento/ficha-caso";
 import { PlanilhaAcoes } from "@/components/faturamento/importar-planilha";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
@@ -24,7 +24,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { api } from "@/lib/api";
 import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
-import { type CasoOut, ROTULO_TIPO_CASO, type TipoCaso } from "@/lib/faturamento";
+import { ROTULO_TIPO_DE_CASO, type TipoDeCaso, TIPOS_DE_CASO, TOM_STATUS_CASO } from "@/lib/casos";
+import type { CasoOut, StatusCaso } from "@/lib/faturamento";
 import { data, moeda } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -37,9 +38,9 @@ export default function CasosPage() {
   const podeExcluir = pode("casos.excluir");
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 300);
-  const [status, setStatus] = useState<"aberto" | "encerrado" | "todos">("aberto");
+  const [status, setStatus] = useState<StatusCaso | "todos">("aberto");
   const [cliente, setCliente] = useState<ClienteEscolhido[]>([]);
-  const [tipo, setTipo] = useState<TipoCaso | "">("");
+  const [tipo, setTipo] = useState<TipoDeCaso | "">("");
   const [areaId, setAreaId] = useState("");
   const areas = useAreas();
   const [novo, setNovo] = useState(false);
@@ -52,7 +53,7 @@ export default function CasosPage() {
         q: busca || undefined,
         status: status === "todos" ? undefined : status,
         tomador_id: cliente[0]?.id,
-        tipo: tipo || undefined,
+        tipo_caso: tipo || undefined,
         area_id: areaId || undefined,
       }),
   });
@@ -89,20 +90,33 @@ export default function CasosPage() {
         }
       />
       <TableCard>
+        <div className="flex flex-wrap items-center gap-1.5 border-b px-3 pt-3 pb-2.5" role="radiogroup" aria-label="Tipo de caso">
+          {(["", ...TIPOS_DE_CASO] as const).map((t) => {
+            const I = t ? TIPOS_CASO_INFO[t].icone : Briefcase;
+            return (
+              <button
+                key={t || "todos"}
+                type="button"
+                role="radio"
+                aria-checked={tipo === t}
+                onClick={() => setTipo(t)}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition",
+                  tipo === t ? "border-brand bg-brand/10 font-medium text-info-ink" : "text-muted-foreground hover:border-brand/40",
+                )}
+              >
+                <I className="size-3.5" />
+                {t ? ROTULO_TIPO_DE_CASO[t] : "Todos os tipos"}
+              </button>
+            );
+          })}
+        </div>
         <Toolbar>
           <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <SearchInput value={q} onChange={setQ} placeholder="Título, nº do caso, processo ou parte contrária" className="sm:w-80" />
+            <SearchInput value={q} onChange={setQ} placeholder="Título, nº do caso ou processo" className="sm:w-80" />
             <div className="sm:w-64">
               <ClientesMulti unico id="casos-cliente" valor={cliente} onChange={setCliente} />
             </div>
-            <NativeSelect aria-label="Tipo do caso" value={tipo} onChange={(e) => setTipo(e.target.value as TipoCaso | "")} className="h-9 sm:w-44">
-              <option value="">Todos os tipos</option>
-              {Object.entries(ROTULO_TIPO_CASO).map(([k, l]) => (
-                <option key={k} value={k}>
-                  {l}
-                </option>
-              ))}
-            </NativeSelect>
             {(areas.data?.length ?? 0) > 0 && (
               <NativeSelect aria-label="Área de atuação" value={areaId} onChange={(e) => setAreaId(e.target.value)} className="h-9 sm:w-44">
                 <option value="">Todas as áreas</option>
@@ -117,7 +131,9 @@ export default function CasosPage() {
               value={status}
               onChange={setStatus}
               opcoes={[
-                { value: "aberto", label: "Abertos" },
+                { value: "aberto", label: "Ativos" },
+                { value: "suspenso", label: "Suspensos" },
+                { value: "arquivado", label: "Arquivados" },
                 { value: "encerrado", label: "Encerrados" },
                 { value: "todos", label: "Todos" },
               ]}
@@ -125,12 +141,12 @@ export default function CasosPage() {
           </div>
         </Toolbar>
         {lista.isPending ? (
-          <TableSkeleton colunas={8} />
+          <TableSkeleton colunas={9} />
         ) : itens.length === 0 ? (
           <EmptyState
             icone={Briefcase}
             titulo={filtrando ? "Nenhum caso encontrado" : "Nenhum caso ainda"}
-            descricao={filtrando ? "Troque a busca, o cliente ou a situação." : usaContrato ? "Cada caso pertence a um contrato e recebe horas e despesas." : "Cada caso pertence a um cliente e recebe horas e despesas."}
+            descricao={filtrando ? "Troque a busca, o tipo, o cliente ou a situação." : usaContrato ? "Cada caso pertence a um contrato e recebe horas e despesas." : "Cada caso pertence a um cliente e recebe horas e despesas."}
             acao={
               podeEditar &&
               !filtrando && (
@@ -142,11 +158,12 @@ export default function CasosPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className="w-full min-w-[1040px] text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Nº</th>
                   <th className="px-3 py-2.5 font-medium">Caso</th>
+                  <th className="px-3 py-2.5 font-medium">Partes</th>
                   <th className="px-3 py-2.5 font-medium">Área · Tipo · Instância</th>
                   <th className="px-3 py-2.5 font-medium">{usaContrato ? "Cliente · Contrato" : "Cliente"}</th>
                   <th className="px-3 py-2.5 font-medium">Responsável</th>
@@ -163,7 +180,7 @@ export default function CasosPage() {
                   <tr
                     key={c.id}
                     tabIndex={0}
-                    className={cn(linhaClicavel, "focus-visible:bg-accent/40 focus-visible:outline-none", c.status === "encerrado" && "opacity-60")}
+                    className={cn(linhaClicavel, "focus-visible:bg-accent/40 focus-visible:outline-none", (c.status === "encerrado" || c.status === "arquivado") && "opacity-60")}
                     onClick={() => abrir(c)}
                     onKeyDown={(e) => e.key === "Enter" && abrir(c)}
                   >
@@ -172,15 +189,23 @@ export default function CasosPage() {
                       <p className="truncate font-medium">{c.titulo}</p>
                       <p className="truncate text-xs text-muted-foreground">
                         {c.numero_processo ? <span className="font-mono">{c.numero_processo}</span> : null}
-                        {c.numero_processo && c.parte_contraria ? " · " : ""}
-                        {c.parte_contraria}
-                        {!c.numero_processo && !c.parte_contraria && c.data_abertura ? `aberto em ${data(c.data_abertura)}` : ""}
+                        {!c.numero_processo && c.data_abertura ? `aberto em ${data(c.data_abertura)}` : ""}
                       </p>
+                    </td>
+                    <td className="max-w-64 px-3 py-3">
+                      {c.partes_resumo || c.parte_contraria ? (
+                        <p className="line-clamp-2 text-[13px]" title={c.partes_resumo ?? c.parte_contraria ?? undefined}>
+                          {c.partes_resumo ?? c.parte_contraria}
+                        </p>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      {c.pendentes_reclassificacao > 0 && <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-warning-ink">{c.pendentes_reclassificacao} para revisar</span>}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-col items-start gap-1">
                         {c.area_nome ? <AreaBadge nome={c.area_nome} cor={c.area_cor} /> : <span className="text-xs text-muted-foreground">—</span>}
-                        {c.tipo_nome && <span className="text-[11px] text-muted-foreground">{c.tipo_nome}</span>}
+                        <span className="text-[11px] text-muted-foreground">{c.tipo_nome && c.tipo_nome !== c.tipo_caso_nome ? `${c.tipo_caso_nome} · ${c.tipo_nome}` : c.tipo_caso_nome}</span>
                         {c.instancia_nome && <span className="text-[11px] text-muted-foreground">{c.instancia_nome}{c.tribunal ? ` · ${c.tribunal}` : ""}</span>}
                       </div>
                     </td>
@@ -196,7 +221,7 @@ export default function CasosPage() {
                     <td className="px-3 py-3 text-right tabular-nums">{Number(c.horas_pendentes) ? `${String(c.horas_pendentes).replace(".", ",")} h` : "—"}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{Number(c.despesas_pendentes) ? moeda(c.despesas_pendentes) : "—"}</td>
                     <td className="px-3 py-3">
-                      <StatusBadge status={c.status === "aberto" ? "ativo" : "descartado"} label={c.status === "aberto" ? "Aberto" : "Encerrado"} />
+                      <StatusBadge tom={TOM_STATUS_CASO[c.status] ?? "neutral"} label={c.status_nome} />
                     </td>
                     <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       {(podeEditar || podeExcluir) && (

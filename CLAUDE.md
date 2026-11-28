@@ -75,6 +75,8 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
   NFS-e da mensalidade (`nota_fiscal.py`): com a opção ligada, cobrança paga vira nota no banco do admin (emissora da MayaCorp, Emissor Nacional) para o CNPJ do escritório; o resumo (número, chave, erro) fica na cobrança. A baixa registra a cobrança em `session.info` e quem dá o commit chama `nota_fiscal.apos_pagamento(cobranca.pagas(db))`.
 - Menu **Cadastros** (`/cadastros/clientes`, `/cadastros/emissoras`): cadastros do escritório, compartilhados por todos os robôs.
 - `frontend/` é Next.js (App Router) + Tailwind + shadcn/ui. Os tipos em `lib/types.ts` espelham os schemas Pydantic.
+  - Tipos de caso e partes: o caso é criado e editado em `components/faturamento/caso/caso-dialog.tsx` (passo 1 = tipo; passo 2 = abas Geral, dados do tipo em `dados-tipo.tsx`, Partes e Campos adicionais); a aba Partes da ficha e do formulário é `caso/partes.tsx` (blocos por categoria, arrastar ou setas, 409 de conflito de interesses com confirmação). Tipos em `lib/casos.ts` e `lib/pessoas.ts`.
+  - Cadastros › Pessoas: `app/(app)/cadastros/pessoas/page.tsx` + `components/pessoas/` (`comum.tsx` tem o `SeloCliente` "Cliente #código", usado em toda tela que mostra pessoa; `cadastro-rapido.tsx` mostra "Já cadastrada" quando o documento existe). As listas do caso são mantidas em Configurações › Faturamento › Listas (`components/faturamento/listas-config.tsx`).
 - `deploy/` tem `deploy.sh hml|prod`, `rollback.sh`, `backup.sh`, systemd templated (`@hml`/`@prod`) e nginx.
 
 ## Padrão MayaCorp

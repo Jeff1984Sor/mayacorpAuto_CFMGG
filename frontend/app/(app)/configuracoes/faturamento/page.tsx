@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AreasAtuacao, CamposAdicionaisConfig } from "@/components/faturamento/config-ficha";
+import { ListasConfig } from "@/components/faturamento/listas-config";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { EmptyState } from "@/components/mayacorp/empty-state";
 import { Field } from "@/components/mayacorp/form";
@@ -599,6 +600,7 @@ export default function ConfigFaturamentoPage() {
         <TabsTrigger value="precos">Cargos e tabelas de preço</TabsTrigger>
         <TabsTrigger value="areas">Áreas de atuação</TabsTrigger>
         <TabsTrigger value="campos">Campos adicionais</TabsTrigger>
+        <TabsTrigger value="listas">Listas</TabsTrigger>
         <TabsTrigger value="contratos">Contratos</TabsTrigger>
       </TabsList>
       <TabsContent value="precos">
@@ -619,6 +621,11 @@ export default function ConfigFaturamentoPage() {
       <TabsContent value="campos" className="max-w-4xl">
         <fieldset disabled={fat} className="min-w-0">
           <CamposAdicionaisConfig />
+        </fieldset>
+      </TabsContent>
+      <TabsContent value="listas" className="max-w-5xl">
+        <fieldset disabled={fat} className="min-w-0">
+          <ListasConfig />
         </fieldset>
       </TabsContent>
       <TabsContent value="contratos" className="max-w-3xl">

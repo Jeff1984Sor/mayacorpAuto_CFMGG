@@ -105,7 +105,7 @@ function Casos({ contrato }: { contrato: ContratoOut }) {
                   <td className="px-3 py-3 text-right font-mono tabular-nums">{toNum(c.horas_pendentes) ? horasDecimal(c.horas_pendentes) : "—"}</td>
                   <td className="px-3 py-3 text-right font-mono tabular-nums">{toNum(c.despesas_pendentes) ? moeda(c.despesas_pendentes) : "—"}</td>
                   <td className="px-3 py-3">
-                    <StatusBadge tom={c.status === "aberto" ? "success" : "neutral"} label={c.status === "aberto" ? "Aberto" : "Encerrado"} />
+                    <StatusBadge tom={c.status === "aberto" ? "success" : "neutral"} label={c.status_nome} />
                   </td>
                 </tr>
               ))}
