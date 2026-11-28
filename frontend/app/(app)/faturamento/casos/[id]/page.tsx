@@ -1,9 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Briefcase, Clock, Lock, Paperclip, Pencil, Plus, Receipt, Sparkles, Timer, Trash2, Upload, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Briefcase, Clock, EyeOff, Lock, Paperclip, Pencil, Plus, Receipt, Sparkles, Timer, Trash2, Upload, UsersRound, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +12,7 @@ import { AnexosCaso } from "@/components/faturamento/anexos";
 import { useAreas, useCampos } from "@/components/faturamento/campos-adicionais";
 import { CasoIAMenu, PreencherCasoDialog, ResumoCasoSheet } from "@/components/faturamento/caso-ia";
 import { CasoDialog } from "@/components/faturamento/caso/caso-dialog";
+import { PartesCaso } from "@/components/faturamento/caso/partes";
 import { casoParaIn, normalizarCampos, useProfissionais } from "@/components/faturamento/dialogos";
 import { AreaBadge, DetalhesCaso } from "@/components/faturamento/ficha-caso";
 import { DespesaDialog, LancarRecibosDialog } from "@/components/faturamento/despesas-ia";
@@ -33,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api } from "@/lib/api";
 import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
+import { TOM_STATUS_CASO } from "@/lib/casos";
 import { type CasoIn, type CasoOut, type DespesaOut, hhmm, ROTULO_DESPESA, type TimesheetOut } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -474,7 +476,9 @@ export default function CasoPage() {
   const qc = useQueryClient();
   const { pode } = useAuth();
   const podeEditar = pode("casos.editar");
-  const [aba, setAba] = useState("detalhes");
+  // ?aba=partes: o novo caso salva e cai direto na aba Partes
+  const abaDaUrl = useSearchParams().get("aba");
+  const [aba, setAba] = useState(abaDaUrl ?? "detalhes");
   const [editar, setEditar] = useState(false);
   const [preencher, setPreencher] = useState(false);
   const [resumo, setResumo] = useState(false);
@@ -514,8 +518,14 @@ export default function CasoPage() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm text-muted-foreground">Caso #{c.numero}</span>
               <h1 className="text-2xl font-semibold tracking-tight">{c.titulo}</h1>
-              <StatusBadge tom={c.status === "aberto" ? "success" : "neutral"} label={c.status === "aberto" ? "Aberto" : "Encerrado"} />
-              {c.tipo_nome && <Pill tom="neutral">{c.tipo_nome}</Pill>}
+              <StatusBadge tom={TOM_STATUS_CASO[c.status] ?? "neutral"} label={c.status_nome} />
+              <Pill tom="brand">{c.tipo_caso_nome}</Pill>
+              {c.tipo_nome && c.tipo_nome !== c.tipo_caso_nome && <Pill tom="neutral">{c.tipo_nome}</Pill>}
+              {c.sigiloso && (
+                <Pill tom="warning">
+                  <EyeOff className="size-3" /> Sigiloso
+                </Pill>
+              )}
               <AreaBadge nome={c.area_nome} cor={c.area_cor} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -526,7 +536,7 @@ export default function CasoPage() {
                   · <span className="font-mono">{c.numero_processo}</span>
                 </>
               )}
-              {c.parte_contraria && ` · contra ${c.parte_contraria}`}
+              {c.partes_resumo && c.partes_resumo !== c.tomador_nome ? ` · ${c.partes_resumo}` : c.parte_contraria && !c.partes_resumo ? ` · contra ${c.parte_contraria}` : ""}
               {c.responsavel_nome && ` · resp. ${c.responsavel_nome}`}
               {c.data_abertura && ` · aberto em ${data(c.data_abertura)}`}
             </p>
@@ -542,12 +552,43 @@ export default function CasoPage() {
         </div>
       </div>
 
+      {c.pendentes_reclassificacao > 0 && aba !== "partes" && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-warning-ink" />
+          <span className="min-w-0 flex-1">
+            <strong className="font-medium">
+              {c.pendentes_reclassificacao} parte{c.pendentes_reclassificacao > 1 ? "s" : ""} do caso para revisar.
+            </strong>{" "}
+            O papel veio da migração ou de uma troca de tipo: confira o bloco e a qualificação de cada uma.
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setAba("partes")}>
+            <UsersRound /> Revisar partes
+          </Button>
+        </div>
+      )}
+      {c.aviso_cnj_duplicado && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-warning-ink" />
+          <span>
+            O mesmo número de processo também está no caso{" "}
+            <Link href={`/faturamento/casos/${c.aviso_cnj_duplicado.caso_id}`} className="font-medium text-info-ink hover:underline">
+              #{c.aviso_cnj_duplicado.numero} {c.aviso_cnj_duplicado.titulo}
+            </Link>
+            .
+          </span>
+        </div>
+      )}
+
       <ProcessoDoCaso casoId={c.id} numeroProcesso={c.numero_processo} />
 
       <Tabs value={aba} onValueChange={(v) => setAba(String(v))}>
         <div className="-mx-1 overflow-x-auto px-1">
           <TabsList>
             <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
+            <TabsTrigger value="partes">
+              <UsersRound /> Partes
+              {c.pendentes_reclassificacao > 0 && <span className="size-1.5 rounded-full bg-warning" aria-label="há partes para revisar" />}
+            </TabsTrigger>
             <TabsTrigger value="andamentos">
               Andamentos{c.qtd_andamentos > 0 && <span className="text-xs text-muted-foreground tabular-nums">{c.qtd_andamentos}</span>}
             </TabsTrigger>
@@ -568,6 +609,9 @@ export default function CasoPage() {
         </div>
         <TabsContent value="detalhes" className="pt-4">
           <DetalhesCaso caso={c} irPara={setAba} podeEditar={podeEditar} onEditar={() => setEditar(true)} />
+        </TabsContent>
+        <TabsContent value="partes" className="pt-4">
+          <PartesCaso caso={c} podeEditar={podeEditar} />
         </TabsContent>
         <TabsContent value="andamentos" className="pt-4">
           <AndamentosCaso casoId={c.id} />
