@@ -9,7 +9,7 @@ import enum
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, Timestamped
@@ -160,6 +160,8 @@ class CasoContencioso(Base, Timestamped):
     tutela_liminar: Mapped[str | None] = mapped_column(String(15))
     resultado: Mapped[str | None] = mapped_column(String(25))
     monitorar_andamentos: Mapped[bool] = mapped_column(Boolean, default=True)  # busca capa e andamentos no tribunal
+    # campos que a capa do tribunal já preencheu uma vez (não preenche de novo: o que o usuário mudar depois fica)
+    preenchido_tribunal: Mapped[list[str] | None] = mapped_column(JSON)
 
 
 class CasoConsultivo(Base, Timestamped):
@@ -283,6 +285,8 @@ class Envolvimento(Base, Timestamped):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     pendente_reclassificacao: Mapped[bool] = mapped_column(Boolean, default=False)  # depois de troca de tipo ou migração
     observacoes: Mapped[str | None] = mapped_column(Text)
+    # advogados (pes_advogado.id) que o tribunal já trouxe para esta parte: retirado pelo usuário, não volta sozinho
+    advogados_do_tribunal: Mapped[list[int] | None] = mapped_column(JSON)
 
 
 class EnvolvimentoAdvogado(Base, Timestamped):

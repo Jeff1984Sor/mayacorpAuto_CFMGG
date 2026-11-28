@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from app.core.deps import Ctx
+from app.core.deps import Ctx, Operador
 from app.modules.faturamento import casos as regras_caso
 from app.modules.faturamento.tipos_caso import LISTAS, ROTULOS
 
@@ -27,6 +27,32 @@ def conferir_cnj(ctx: Ctx, numero: str = Query(min_length=1, max_length=40), cas
     """Confere o número CNJ (dígito verificador) e devolve o que ele diz: justiça, tribunal, UF, órgão e ano.
     `duplicado` aponta outro caso do escritório com o mesmo número (aviso, não bloqueia)."""
     return regras_caso.ler_cnj(ctx.db, ctx.tenant_id, numero, exceto_caso_id=caso_id)
+
+
+@router.post("/casos/{cid}/partes-do-tribunal")
+def partes_do_tribunal(cid: int, ctx: Operador):
+    """Botão "Trazer partes do tribunal" (aba Partes): as partes e os advogados do processo do caso viram partes do caso.
+    Só inclui quem ainda não está no caso; devolve o que incluiu (`incluidas`, `advogados_incluidos`), o que já existia
+    (`ja_existiam`, `advogados_ja_existiam`) e os advogados que o tribunal não disse de quem são (`advogados_sem_parte`)."""
+    from app.modules.faturamento import partes_tribunal
+    from app.modules.faturamento.models import Caso
+    from app.modules.tribunais import service as tribunais
+
+    c = ctx.db.get(Caso, cid)
+    if not c or c.tenant_id != ctx.tenant_id:
+        raise HTTPException(404, "Caso não encontrado.")
+    regras_caso.exigir_ver(ctx, c)
+    try:
+        res = partes_tribunal.trazer_do_tribunal(ctx.db, c, usuario_id=ctx.usuario.id)
+    except tribunais.ErroIntegracao as e:
+        ctx.db.rollback()
+        raise HTTPException(400, str(e)) from e
+    if res["incluidas"] or res["advogados_incluidos"] or res["campos_preenchidos"]:
+        ctx.auditar("faturamento.caso.partes_do_tribunal", "fat_caso", c.id,
+                    descricao=f"#{c.numero}: {len(res['incluidas'])} parte(s) e {len(res['advogados_incluidos'])} advogado(s) do "
+                              f"processo {res['numero_processo']}")
+    ctx.db.commit()
+    return res
 
 
 # ------------------------------------------------------------------------------------------- relatórios da migração

@@ -417,6 +417,8 @@ class Parte(Base):
     intimacao_pendente: Mapped[bool | None] = mapped_column(Boolean)
     relacionamento: Mapped[str | None] = mapped_column(String(100))
     ordem: Mapped[int] = mapped_column(Integer, default=0)
+    # de onde veio: mni (consulta com certificado: advogados de cada parte) | djen (diário: não diz quem representa quem)
+    fonte: Mapped[str | None] = mapped_column(String(10))
 
     processo: Mapped[Processo] = relationship(back_populates="partes")
     pessoa: Mapped[Pessoa] = relationship()

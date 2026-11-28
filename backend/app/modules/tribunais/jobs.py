@@ -115,6 +115,11 @@ def _executar(db: Session, j: Job) -> None:
 
             baixar_documentos(db, p, j.criado_por_id)
             caso_mod.anexar_autos(db, p)
+            if p.caso_id:  # a consulta com certificado traz as partes completas (documento e advogados de cada uma)
+                from app.modules.faturamento import partes_tribunal
+                from app.modules.faturamento.models import Caso
+
+                partes_tribunal.ao_ligar(db, db.get(Caso, p.caso_id), p)
     elif j.tipo == "importar_caso":
         from app.modules.faturamento.models import Caso
         from app.modules.tribunais import caso as caso_mod

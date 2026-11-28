@@ -29,18 +29,10 @@ from sqlalchemy.orm import Session
 from app.core import tenancy
 from app.core.models import Tenant
 from app.modules.faturamento import casos as regras_caso
-from app.modules.faturamento import envolvimento, seeds_caso
-from app.modules.faturamento.listas import slug
+from app.modules.faturamento import envolvimento, partes_tribunal, seeds_caso
 from app.modules.faturamento.models import Caso, Contrato
-from app.modules.faturamento.tipos_caso import (
-    ROTULOS,
-    EnvCategoria,
-    Envolvimento,
-    EnvolvimentoAdvogado,
-    EnvQualificacao,
-)
+from app.modules.faturamento.tipos_caso import ROTULOS, EnvCategoria, Envolvimento
 from app.modules.pessoas import service as pessoas
-from app.modules.pessoas.models import Advogado, AdvogadoOab
 from app.modules.rpa_nfse.models import Tomador
 from app.modules.tribunais.models import Pessoa, Processo
 from app.modules.tribunais.vinculo import normalizar_nome
@@ -123,95 +115,19 @@ def _tipos_e_clientes(db: Session, tenant_id: int, r: Resultado) -> None:
     db.flush()
 
 
-def _qualificacao(db: Session, cat: EnvCategoria, texto: str | None) -> EnvQualificacao | None:
-    alvo = slug(texto or "")
-    if not alvo:
-        return None
-    for q in db.scalars(select(EnvQualificacao).where(EnvQualificacao.categoria_id == cat.id, EnvQualificacao.ativo)):
-        if alvo in (q.codigo, slug(q.nome), slug(q.nome.split("(")[0])):
-            return q
-    return None
-
-
-def _advogado(db: Session, tenant_id: int, ap) -> tuple[Advogado, AdvogadoOab | None]:
-    """Advogado do cadastro único para um advogado de parte de processo importado (pela OAB, pelo CPF ou pelo nome)."""
-    oab = None
-    try:
-        oab = (pessoas.normalizar_oab(ap.oab_numero), pessoas.validar_uf(ap.oab_uf)) if ap.oab_numero and ap.oab_uf else None
-    except pessoas.RegraPessoa:
-        oab = None
-    adv = pessoas.advogado_por_oab(db, tenant_id, *oab) if oab else None
-    if adv is None:
-        p = pessoas.por_documento(db, tenant_id, ap.cpf) if ap.cpf else None
-        if p is None:
-            nome = normalizar_nome(ap.nome)
-            p = db.scalar(select(Pessoa).join(Advogado, Advogado.pessoa_id == Pessoa.id).where(
-                Pessoa.tenant_id == tenant_id, Pessoa.nome_normalizado == nome, Pessoa.cpf.is_(None),
-                Pessoa.mesclada_em_id.is_(None)).limit(1)) if not oab else None
-        if p is None:
-            p = Pessoa(tenant_id=tenant_id, tipo_pessoa="fisica", nome=ap.nome[:300], nome_normalizado=normalizar_nome(ap.nome)[:300],
-                       cpf=ap.cpf if ap.cpf and len(ap.cpf) == 11 else None, telefones=[], enderecos=[], contatos=[], outros_documentos=[])
-            db.add(p)
-            db.flush()
-        adv = db.scalar(select(Advogado).where(Advogado.pessoa_id == p.id))
-        if adv is None:
-            adv = Advogado(tenant_id=tenant_id, pessoa_id=p.id, eh_interno=bool(ap.usuario_id or ap.e_o_usuario))
-            if ap.usuario_id and not db.scalar(select(Advogado.id).where(Advogado.usuario_id == ap.usuario_id)):
-                adv.usuario_id = ap.usuario_id
-            db.add(adv)
-            db.flush()
-    registro = next((o for o in adv.oabs if oab and (o.numero, o.uf) == oab), None)
-    if oab and registro is None:
-        registro = AdvogadoOab(tenant_id=tenant_id, advogado_id=adv.id, numero=oab[0], uf=oab[1], principal=not adv.oabs)
-        db.add(registro)
-        db.flush()
-        db.refresh(adv, ["oabs"])
-    return adv, registro
-
-
 def _processos(db: Session, tenant_id: int, r: Resultado) -> None:
-    """Passo 3: partes e advogados dos processos importados que estão ligados a um caso."""
+    """Passo 3: partes e advogados dos processos importados que estão ligados a um caso (a mesma regra do botão
+    "Trazer partes do tribunal": `partes_tribunal.aplicar_partes`)."""
     for proc in db.scalars(select(Processo).where(Processo.tenant_id == tenant_id, Processo.caso_id.is_not(None))):
         c = db.get(Caso, proc.caso_id)
         if c is None or c.tenant_id != tenant_id:
             continue
-        contrato = db.get(Contrato, c.contrato_id)
-        tipo = regras_caso.tipo_caso_de(c)
-        do_cliente = {v.parte_id for v in proc.vinculos if v.status in ("automatico", "confirmado")
-                      and contrato and v.cliente_id == contrato.tomador_id}
-        for parte in proc.partes:
-            eh_cliente = parte.id in do_cliente
-            pessoa_id = contrato.tomador.pessoa_id if eh_cliente else (parte.pessoa.mesclada_em_id or parte.pessoa_id)
-            p = db.get(Pessoa, pessoa_id)
-            cat = envolvimento.categoria_do_polo(db, tenant_id, tipo, parte.polo if parte.polo in ("ativo", "passivo", "terceiro") else "neutro")
-            qual = _qualificacao(db, cat, parte.tipo_participacao)
-            e = db.scalar(select(Envolvimento).where(Envolvimento.caso_id == c.id, Envolvimento.pessoa_id == pessoa_id)
-                          .order_by(Envolvimento.id).limit(1))
-            if e is None:
-                e = Envolvimento(tenant_id=tenant_id, caso_id=c.id, pessoa_id=pessoa_id, categoria_id=cat.id,
-                                 qualificacao_id=qual.id if qual else None, eh_cliente=eh_cliente, ordem=parte.ordem,
-                                 principal=not envolvimento._tem_principal(db, c.id, cat.id), data_inclusao=c.data_abertura)
-                db.add(e)
-                db.flush()
-                r.parte("envolvimento", p, c, categoria=cat.nome, qualificacao=qual.nome if qual else "",
-                        observacao=f"Do processo {proc.numero_formatado}" + (" · cliente" if eh_cliente else ""))
-            elif eh_cliente and e.qualificacao_id is None and (e.pendente_reclassificacao or e.categoria_id == cat.id):
-                # o processo diz o polo e a qualificação do cliente (que já tinha entrado como parte no passo anterior)
-                if e.pendente_reclassificacao:
-                    r.numeros["pendencia"] -= 1
-                    e.principal = not envolvimento._tem_principal(db, c.id, cat.id, exceto=e.id)
-                e.categoria_id, e.qualificacao_id, e.pendente_reclassificacao = cat.id, (qual.id if qual else None), False
-            for ap in parte.advogados:
-                adv, oab = _advogado(db, tenant_id, ap)
-                if not db.scalar(select(EnvolvimentoAdvogado.id).where(EnvolvimentoAdvogado.envolvimento_id == e.id,
-                                                                       EnvolvimentoAdvogado.advogado_id == adv.id)):
-                    db.add(EnvolvimentoAdvogado(envolvimento_id=e.id, advogado_id=adv.id, oab_id=oab.id if oab else None,
-                                                principal=bool(ap.recebe_intimacao),
-                                                tipo_habilitacao={"defensor": "defensor_publico", "procurador": "procurador_publico"}
-                                                .get(ap.tipo_representante)))
-                    r.numeros["advogado_da_parte"] += 1
-        db.flush()
-        envolvimento.sincronizar_polo(db, c)
+        res = partes_tribunal.aplicar_partes(db, c, proc, qualquer_tipo=True)
+        for x in res["incluidas"]:
+            r.parte("envolvimento", db.get(Pessoa, x["pessoa_id"]), c, categoria=x["categoria"], qualificacao=x["qualificacao"] or "",
+                    observacao=f"Do processo {proc.numero_formatado}" + (" · cliente" if x["eh_cliente"] else ""))
+        r.numeros["pendencia"] -= sum(1 for x in res["ja_existiam"] if x.get("saiu_de_pendente"))
+        r.numeros["advogado_da_parte"] += len(res["advogados_incluidos"])
 
 
 def _parte_contraria(db: Session, tenant_id: int, r: Resultado) -> None:

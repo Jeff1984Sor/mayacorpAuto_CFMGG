@@ -395,7 +395,7 @@ def _bloco(ctx, c: Caso, ext, tipo: str, lote: dict | None = None) -> dict:
 
     db = ctx.db
     nomes_de = (lambda ids: lote["nomes"]) if lote else (lambda ids: listas.nomes(db, ids))
-    dados = {k: getattr(ext, k) for k in EXTENSAO[tipo].__table__.columns.keys() if k not in ("caso_id", "criado_em", "atualizado_em")}
+    dados = {k: getattr(ext, k) for k in EXTENSAO[tipo].__table__.columns.keys() if k not in ("caso_id", "criado_em", "atualizado_em", "preenchido_tribunal")}
     if tipo == TipoDeCaso.contencioso:
         sec = [x.item_id for x in c.itens_lista if x.papel == "assunto_secundario"]
         nomes = nomes_de([ext.classe_id, ext.assunto_id, *sec])

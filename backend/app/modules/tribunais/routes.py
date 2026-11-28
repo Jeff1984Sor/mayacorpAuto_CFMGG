@@ -558,16 +558,18 @@ def importar_numero(dados: ImportarNumeroIn, ctx: Ctx):
 
 @router.get("/capa")
 def capa(ctx: Ctx, numero: str = Query(min_length=20, max_length=25), contrato_id: int | None = None):
-    """Ficha do caso: só o número CNJ → tribunal, tipo, instância, vara, comarca, classe, partes, polo e parte contrária."""
+    """Ficha do caso: só o número CNJ → tribunal, tipo, instância, vara, comarca, classe, partes, polo e parte contrária.
+    Também o que o tribunal informar do contencioso (justiça, UF, órgão, sistema, sigilo, classe e assuntos com código
+    CNJ e item da lista) e, em cada parte, a pessoa do cadastro único que já existe. Formato em docs/capa_do_tribunal.md."""
     from app.modules.tribunais import caso as caso_mod
 
-    nomes = []
+    nomes, tomador = [], None
     if contrato_id:
         contrato = ctx.db.get(Contrato, contrato_id)
         if contrato and contrato.tenant_id == ctx.tenant_id and contrato.tomador:
-            nomes = [contrato.tomador.nome]
+            nomes, tomador = [contrato.tomador.nome], contrato.tomador
     try:
-        out = caso_mod.capa(ctx.db, ctx.tenant_id, numero, nomes)
+        out = caso_mod.capa(ctx.db, ctx.tenant_id, numero, nomes, cliente=tomador)
     except service.ErroIntegracao as e:
         _erro(e)
     ctx.db.commit()

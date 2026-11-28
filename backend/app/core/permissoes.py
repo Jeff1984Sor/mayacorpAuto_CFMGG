@@ -146,6 +146,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("POST", r"/faturamento/casos/\d+/timesheet$", "timesheet.lancar"),
     ("*", r"/faturamento/timesheet/\d+$", "timesheet.lancar"),
     ("*", r"/faturamento/timesheet", "timesheet.ver"),
+    ("POST", r"/faturamento/casos/\d+/partes-do-tribunal$", "casos.editar"),
     ("GET", r"/faturamento/(casos|anexos|andamentos|despesas)", "casos.ver"),
     ("DELETE", r"/faturamento/casos/\d+$", "casos.excluir"),
     ("*", r"/faturamento/(casos|anexos|andamentos|despesas)", "casos.editar"),

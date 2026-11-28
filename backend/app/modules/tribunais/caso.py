@@ -50,16 +50,19 @@ def _ufs(trib) -> list[str]:
     return []
 
 
-def capa(db: Session, tenant_id: int, numero: str, nomes_cliente: list[str] | None = None) -> dict:
-    """Dados para preencher a ficha do caso só com o número (nada é gravado)."""
+def capa(db: Session, tenant_id: int, numero: str, nomes_cliente: list[str] | None = None, cliente=None) -> dict:
+    """Dados para preencher a ficha do caso só com o número (nada é gravado). `cliente` é o cliente do contrato.
+
+    Além do de sempre, o que o tribunal informar dos campos do contencioso (`_detalhes`): só o que a fonte devolve."""
     numero = cnj.so_digitos(numero)
     trib = svc.tribunal_do_numero(db, numero)
     plat = svc.plataforma(db)
+    proc = db.scalar(select(Processo).where(Processo.tenant_id == tenant_id, Processo.numero_cnj == numero))
     out = {"numero_cnj": numero, "numero_formatado": cnj.formatar(numero), "tribunal": trib.sigla, "tribunal_nome": trib.nome,
            "tipo": cnj.TIPO_CASO_DO_RAMO.get(trib.ramo), "instancia": None, "vara": None, "comarca": None, "classe": None,
            "assuntos": [], "data_distribuicao": None, "sistema": None, "partes": [], "polo": None, "parte_contraria": None,
            "titulo": None, "movimentos": 0, "encontrado": False, "avisos": [],
-           "processo_id": db.scalar(select(Processo.id).where(Processo.tenant_id == tenant_id, Processo.numero_cnj == numero))}
+           "processo_id": proc.id if proc else None}
     dados = None
     if trib.alias_datajud:
         try:
@@ -85,6 +88,21 @@ def capa(db: Session, tenant_id: int, numero: str, nomes_cliente: list[str] | No
         partes = svc._juntar(partes, it["partes"], lambda x: (vinculo.normalizar_nome(x["nome"]), x["polo"]))
         out["classe"] = out["classe"] or it.get("classe")
         out["vara"] = out["vara"] or (it.get("orgao") or "")[:120] or None
+    advogados: list[dict] = []
+    for it in comunic:
+        advogados = svc._juntar(advogados, it["advogados"], lambda a: (a["oab"], a["uf"], a["nome"]))
+    fonte_partes = "djen" if partes else None
+    if proc is not None and proc.partes:  # já importado: as partes guardadas (com documento e advogados, se vieram do MNI)
+        from app.modules.faturamento import partes_tribunal
+
+        fonte_partes = "processo_importado"
+        sem_dono = partes_tribunal.fonte_das_partes(proc) == "djen"
+        advogados = [{"nome": a.nome, "oab": a.oab_numero, "uf": a.oab_uf} for pa in proc.partes for a in pa.advogados] if sem_dono else []
+        partes = [{"nome": pa.pessoa.nome, "polo": pa.polo, "tipo_participacao": pa.tipo_participacao,
+                   "documento": pa.pessoa.cnpj or pa.pessoa.cpf, "documento_parcial": pa.pessoa.documento_parcial,
+                   "assistencia_judiciaria": pa.assistencia_judiciaria,
+                   "advogados": [] if sem_dono else [{"nome": a.nome, "oab": a.oab_numero, "uf": a.oab_uf} for a in pa.advogados]}
+                  for pa in proc.partes]
     out["partes"] = partes
     if comunic:
         out["encontrado"] = True
@@ -96,7 +114,75 @@ def capa(db: Session, tenant_id: int, numero: str, nomes_cliente: list[str] | No
         out["polo"], out["parte_contraria"] = sugerir_polo(partes, nomes_cliente)
     resumo = svc.resumo_partes(partes)
     out["titulo"] = f"{out['classe'] or 'Processo'}{' — ' + resumo if resumo else ''}"[:250]
+    _detalhes(db, tenant_id, out, trib, (dados or {}).get("capa") or {}, proc, advogados, fonte_partes, cliente)
     return out
+
+
+def _detalhes(db: Session, tenant_id: int, out: dict, trib, c: dict, proc: Processo | None, advogados: list[dict],
+              fonte_partes: str | None, cliente) -> None:
+    """Campos novos do contencioso na capa (só leitura). `c` é a capa do DataJud; `proc`, o processo já importado.
+
+    DataJud: classe e assuntos (código CNJ e nome), sistema, sigilo. DJEN: nome e polo das partes e a lista de advogados
+    (sem dizer de quem). Juiz, valor da causa, justiça gratuita, documento e advogados de cada parte só existem quando o
+    processo já foi consultado com certificado (MNI): sem isso ficam nulos."""
+    from app.modules.faturamento import casos as regras_caso
+    from app.modules.faturamento import partes_tribunal as pt
+    from app.modules.faturamento.tipos_caso import ROTULOS
+    from app.modules.pessoas import service as pessoas
+
+    justica = regras_caso.justica_do_numero(out["numero_cnj"])
+    classe_nome = c.get("classe_nome") or out["classe"]
+    classe_item = pt.item_da_capa(db, tenant_id, "classe", classe_nome, criar=False)
+    assuntos = c.get("assuntos") or [a for a in (proc.assuntos if proc else []) or [] if a.get("nome")]
+    grau = c.get("grau") or (proc.grau if proc else None)
+    out.update(
+        justica=justica, justica_nome=ROTULOS["justica"].get(justica or ""),
+        uf=pt.uf_do_processo(trib, c.get("localidade_codigo") or (proc.localidade_codigo if proc else None)),
+        codigo_orgao=cnj.partes(out["numero_cnj"])["origem"],
+        juiz_relator=(proc.magistrado if proc else None) or None,
+        sistema_tribunal=pt.sistema_tribunal(c.get("sistema"), c.get("formato")),
+        valor_causa=str(proc.valor_causa) if proc and proc.valor_causa is not None else None,
+        segredo_justica=(c["nivel_sigilo"] > 0) if c.get("nivel_sigilo") is not None else (proc.segredo_justica if proc else None),
+        justica_gratuita=proc.justica_gratuita if proc else None,
+        fase_processual=pt.fase_da_classe(classe_nome, grau),
+        classe_codigo=c.get("classe_codigo_cnj") or (proc.classe_codigo_cnj if proc else None),
+        classe_detalhe={"codigo": c.get("classe_codigo_cnj") or (proc.classe_codigo_cnj if proc else None), "nome": classe_nome,
+                        "item_id": classe_item.id if classe_item else None} if classe_nome else None,
+        assuntos_detalhe=[{"codigo": a.get("codigo_cnj"), "nome": a["nome"], "principal": bool(a.get("principal")),
+                           "item_id": getattr(pt.item_da_capa(db, tenant_id, "assunto", a["nome"], criar=False), "id", None)}
+                          for a in assuntos if a.get("nome")],
+        fonte_partes=fonte_partes)
+    nome_cliente = vinculo.normalizar_nome(cliente.nome) if cliente is not None else None
+    doc_cliente = re.sub(r"\D", "", cliente.cpf_cnpj or "") if cliente is not None else ""
+
+    def advogado(a: dict) -> dict:
+        achado = None
+        try:
+            if a.get("oab") and a.get("uf"):
+                achado = pessoas.advogado_por_oab(db, tenant_id, pessoas.normalizar_oab(a["oab"]), pessoas.validar_uf(a["uf"]))
+        except pessoas.RegraPessoa:
+            achado = None
+        return {"nome": a["nome"], "oab_numero": a.get("oab") or None, "oab_uf": a.get("uf") or None,
+                "advogado_id": achado.id if achado else None}
+
+    for p in out["partes"]:
+        doc = p.get("documento")
+        do_caso = bool(cliente is not None and ((doc and doc == doc_cliente) or (
+            not doc and nome_cliente and vinculo.normalizar_nome(p["nome"]) == nome_cliente)))
+        if do_caso and cliente.pessoa_id:
+            pessoa, criterio = db.get(pt.Pessoa, cliente.pessoa_id), "documento" if doc else "nome"
+        else:
+            pessoa, criterio = pt.pessoa_do_cadastro(db, tenant_id, p["nome"], doc, p.get("documento_parcial"))
+        p.update(tipo_participacao=p.get("tipo_participacao"), documento=doc, documento_parcial=p.get("documento_parcial"),
+                 advogados=[advogado(a) for a in p.get("advogados") or []],
+                 pessoa_id=pessoa.id if pessoa else None, pessoa_criterio=criterio if pessoa else None,
+                 cliente_id=pessoas.clientes_de(db, [pessoa.id]).get(pessoa.id) if pessoa else None, cliente_do_caso=do_caso)
+    out["advogados"] = [advogado(a) for a in advogados]
+    if cliente is not None and not out["polo"]:  # o nome não bateu, mas o documento sim
+        achada = next((p for p in out["partes"] if p["cliente_do_caso"] and p["polo"] in ("ativo", "passivo")), None)
+        if achada:
+            outro = "passivo" if achada["polo"] == "ativo" else "ativo"
+            out["polo"], out["parte_contraria"] = achada["polo"], next((x["nome"] for x in out["partes"] if x["polo"] == outro), None)
 
 
 def sugerir_polo(partes: list[dict], nomes_cliente: list[str]) -> tuple[str | None, str | None]:
@@ -159,11 +245,18 @@ def importar_para_caso(db: Session, caso: Caso) -> Processo | None:
     if not cnj.valido(numero):
         return None
     p = db.scalar(select(Processo).where(Processo.tenant_id == caso.tenant_id, Processo.numero_cnj == numero))
+    aplicado = False  # ligar_caso já traz a ficha e as partes para o caso
     if p is None:
         p = svc.importar(db, caso.tenant_id, numero, usuario_id=caso.responsavel_id, advogado_id=caso.responsavel_id, origem="manual",
                          encontrado=_do_djen(db, numero))
+        aplicado = p.caso_id == caso.id
     if p.caso_id is None:
         svc.ligar_caso(db, p, caso)
+        aplicado = True
+    if not aplicado:  # processo que já estava no sistema (reimportação, ou outro caso com o mesmo número)
+        from app.modules.faturamento import partes_tribunal
+
+        partes_tribunal.ao_ligar(db, caso, p)
     anexar_autos(db, p)
     if svc.config(db, caso.tenant_id).modo == "real" and p.advogado_id and svc.certificado_ativo(db, p.advogado_id):
         jobs.enfileirar(db, caso.tenant_id, "baixar_documentos", p.id, tribunal_id=p.tribunal_id, criado_por_id=caso.responsavel_id)

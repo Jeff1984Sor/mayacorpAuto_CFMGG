@@ -368,7 +368,9 @@ def _aplicar_capa(db: Session, p: Processo, capa: dict, tribunal: Tribunal) -> b
     return mudou
 
 
-def _pessoa(db: Session, tenant_id: int, dados: dict) -> Pessoa:
+def _pessoa(db: Session, tenant_id: int, dados: dict, anteriores: dict[str, Pessoa] | None = None) -> Pessoa:
+    """`anteriores`: pessoas sem documento que já eram parte deste processo, pelo nome normalizado. Quando o tribunal
+    passa a informar o documento (DJEN → consulta com certificado), a mesma pessoa é completada em vez de nascer outra."""
     doc = re.sub(r"\D", "", dados.get("documento") or "")
     nome = (dados.get("nome") or "").strip()[:300] or "Parte sem nome"
     q = select(Pessoa).where(Pessoa.tenant_id == tenant_id, Pessoa.mesclada_em_id.is_(None))
@@ -380,6 +382,8 @@ def _pessoa(db: Session, tenant_id: int, dados: dict) -> Pessoa:
     if existente is None and not doc:
         existente = db.scalar(q.where(Pessoa.nome_normalizado == vinculo.normalizar_nome(nome), Pessoa.cpf.is_(None),
                                       Pessoa.cnpj.is_(None)))
+    if existente is None and len(doc) in (11, 14) and anteriores:
+        existente = anteriores.get(vinculo.normalizar_nome(nome))
     p = existente or Pessoa(tenant_id=tenant_id, nome=nome, nome_normalizado=vinculo.normalizar_nome(nome), telefones=[], enderecos=[],
                             outros_documentos=[])
     tipo = dados.get("tipo_pessoa") or ("juridica" if len(doc) == 14 or re.search(r"\b(LTDA|S\.?A\.?|EIRELI|ME|EPP|BANCO|CONDOMINIO)\b",
@@ -402,21 +406,28 @@ def _pessoa(db: Session, tenant_id: int, dados: dict) -> Pessoa:
     return p
 
 
-def substituir_partes(db: Session, p: Processo, partes: list[dict], oabs_conta: set[tuple[str, str]], usuario_id: int | None) -> None:
+def substituir_partes(db: Session, p: Processo, partes: list[dict], oabs_conta: set[tuple[str, str]], usuario_id: int | None,
+                      fonte: str | None = None) -> None:
     """Partes completas (MNI) ou resumidas (DJEN). A lista nova substitui a anterior.
 
     Vínculos que o usuário já confirmou/rejeitou acompanham a mesma pessoa na lista nova."""
     decisoes = [(v, v.parte.pessoa_id) for v in p.vinculos if v.parte_id and v.status in ("confirmado", "rejeitado")]
+    sem_doc = {x.pessoa.nome_normalizado: x.pessoa for x in p.partes if not x.pessoa.cpf and not x.pessoa.cnpj
+               and not x.pessoa.mesclada_em_id}
+    de_cliente = set(db.scalars(select(Tomador.pessoa_id).where(Tomador.pessoa_id.in_([x.id for x in sem_doc.values()])))
+                     ) if sem_doc else set()
+    # o documento da pessoa de um cliente vem do cadastro do cliente, não do tribunal
+    anteriores = {nome: pes for nome, pes in sem_doc.items() if nome and pes.id not in de_cliente}
     for v in [v for v in p.vinculos if v.parte_id]:
         p.vinculos.remove(v)
     for antiga in list(p.partes):
         p.partes.remove(antiga)
     db.flush()
     for i, dados in enumerate(partes, start=1):
-        pessoa = _pessoa(db, p.tenant_id, dados.get("pessoa") or dados)
+        pessoa = _pessoa(db, p.tenant_id, dados.get("pessoa") or dados, anteriores)
         parte = Parte(processo_id=p.id, polo=dados.get("polo") or "outro", tipo_participacao=dados.get("tipo_participacao"),
                       pessoa_id=pessoa.id, assistencia_judiciaria=dados.get("assistencia_judiciaria"),
-                      intimacao_pendente=dados.get("intimacao_pendente"), ordem=dados.get("ordem") or i)
+                      intimacao_pendente=dados.get("intimacao_pendente"), ordem=dados.get("ordem") or i, fonte=fonte)
         for a in dados.get("advogados") or []:
             e_usuario = (a.get("oab_numero"), (a.get("oab_uf") or "").upper()) in oabs_conta
             parte.advogados.append(AdvogadoParte(nome=a.get("nome") or "", cpf=a.get("cpf"), oab_numero=a.get("oab_numero"),
@@ -468,7 +479,7 @@ def ligar_caso_existente(db: Session, p: Processo) -> None:
 
 
 def ligar_caso(db: Session, p: Processo, caso: Caso) -> None:
-    """Liga o processo ao caso e traz todo o histórico como andamentos."""
+    """Liga o processo ao caso, traz todo o histórico como andamentos e, no contencioso, a ficha e as partes."""
     p.caso_id = caso.id
     caso.numero_processo = caso.numero_processo or p.numero_formatado
     if not caso.responsavel_id and p.responsavel_interno_id:
@@ -477,6 +488,9 @@ def ligar_caso(db: Session, p: Processo, caso: Caso) -> None:
     db.flush()
     for m in sorted(p.movimentacoes, key=lambda x: x.data_hora):
         _espelhar_andamento(db, p, m)
+    from app.modules.faturamento import partes_tribunal
+
+    partes_tribunal.ao_ligar(db, caso, p)  # só no contencioso com a busca no tribunal ligada; idempotente
 
 
 def criar_caso(db: Session, p: Processo, contrato, usuario: Usuario, titulo: str | None = None) -> Caso:
@@ -554,7 +568,7 @@ def importar(db: Session, tenant_id: int, numero: str, *, usuario_id: int | None
             partes = [{"polo": x["polo"], "pessoa": {"nome": x["nome"]}} for x in d["partes"]]
             if partes and d.get("advogados"):  # o DJEN não diz quem representa quem: advogados ficam na 1ª parte do polo da conta
                 partes[0]["advogados"] = [{"nome": a["nome"], "oab_numero": a["oab"], "oab_uf": a["uf"]} for a in d["advogados"]]
-            substituir_partes(db, p, partes, oabs, advogado_id)
+            substituir_partes(db, p, partes, oabs, advogado_id, fonte="djen")
         p.classe_nome = p.classe_nome or encontrado.classe_resumo
         p.orgao_julgador = p.orgao_julgador or encontrado.orgao_resumo
         for c in d.get("comunicacoes", []):
@@ -598,7 +612,7 @@ def consultar_mni(db: Session, p: Processo, advogado_id: int, usuario_id: int | 
     sist.ultima_requisicao_em = agora()
     oabs = {(o["numero"], o["uf"]) for o in oabs_do_advogado(db, adv)}
     if res.partes:
-        substituir_partes(db, p, res.partes, oabs, advogado_id)
+        substituir_partes(db, p, res.partes, oabs, advogado_id, fonte="mni")
     c = res.capa
     for campo in ("competencia", "magistrado", "orgao_julgador", "orgao_julgador_codigo", "localidade_codigo"):
         if c.get(campo):
