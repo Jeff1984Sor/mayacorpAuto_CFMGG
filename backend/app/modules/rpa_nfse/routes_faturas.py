@@ -328,20 +328,10 @@ def alterar(fid: int, dados: FaturaPatch, ctx: Operador):
 def baixa(fid: int, dados: BaixaManualIn, ctx: Operador):
     """Baixa manual pela fatura: dá baixa também na NFS-e (são o mesmo recebimento)."""
     f = _fatura(ctx, fid)
-    if f.status != StatusFatura.aberta:
-        raise HTTPException(400, "Esta fatura não está em aberto.")
-    n = f.nfse
-    if not n:  # ND ou NH ainda sem nota
-        f.status, f.pago_em = StatusFatura.paga, dados.data
-        faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
-        faturas.espelhar_no_financeiro(ctx.db, f, dados.conta_bancaria_id)
-        ctx.auditar("fatura.baixa", "fatura", f.id, descricao=f"{f.codigo} paga em {dados.data:%d/%m/%Y}")
-        ctx.db.commit()
-        return fatura_out(f)
-    n.pago_em, n.valor_pago, n.baixa_origem = dados.data, dados.valor or f.total, "manual"
-    faturas.sincronizar(ctx.db, n)
-    if dados.conta_bancaria_id:
-        faturas.espelhar_no_financeiro(ctx.db, f, dados.conta_bancaria_id)
+    try:
+        faturas.dar_baixa(ctx.db, f, dados.data, valor=dados.valor, conta_bancaria_id=dados.conta_bancaria_id)
+    except faturas.BaixaInvalida as e:
+        raise HTTPException(400, str(e)) from e
     ctx.auditar("fatura.baixa", "fatura", f.id, descricao=f"{f.codigo} paga em {dados.data:%d/%m/%Y}")
     ctx.db.commit()
     return fatura_out(f)
@@ -350,20 +340,10 @@ def baixa(fid: int, dados: BaixaManualIn, ctx: Operador):
 @router.delete("/faturas/{fid}/baixa", response_model=FaturaOut)
 def desfazer_baixa(fid: int, ctx: Admin):
     f = _fatura(ctx, fid)
-    n = f.nfse
-    if f.status != StatusFatura.paga:
-        raise HTTPException(400, "Esta fatura não está paga.")
-    if not n:
-        f.status, f.pago_em = StatusFatura.aberta, None
-        faturas.salvar_pdf(ctx.db, f, service.config_nfse(ctx.db, ctx.tenant_id))
-        faturas.espelhar_no_financeiro(ctx.db, f)
-        ctx.auditar("fatura.desfazer_baixa", "fatura", f.id, descricao=f.codigo)
-        ctx.db.commit()
-        return fatura_out(f)
-    if n.lancamento_id:
-        raise HTTPException(400, "Esta baixa veio do extrato: desfaça pela tela de Recebimentos.")
-    n.pago_em = n.valor_pago = n.baixa_origem = None
-    faturas.sincronizar(ctx.db, n)
+    try:
+        faturas.desfazer_baixa(ctx.db, f)
+    except faturas.BaixaInvalida as e:
+        raise HTTPException(400, str(e)) from e
     ctx.auditar("fatura.desfazer_baixa", "fatura", f.id, descricao=f.codigo)
     ctx.db.commit()
     return fatura_out(f)

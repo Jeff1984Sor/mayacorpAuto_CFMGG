@@ -33,6 +33,7 @@ from app.modules.faturamento import routes_casos, routes_revisao
 from app.modules.faturamento import tarefas as faturamento_tarefas
 from app.modules.faturamento import timesheet as faturamento_timesheet
 from app.modules.financas import routes as financas_routes
+from app.modules.financas import routes_conciliacao
 from app.modules.mcp import oauth as mcp_oauth
 from app.modules.mcp import servidor as mcp_servidor
 from app.modules.pessoas import routes as pessoas_routes
@@ -149,7 +150,7 @@ async def _validacao(_: Request, exc: RequestValidationError):
 
 for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
           nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
-          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_listas.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, routes_casos.router, faturamento_envolvimento.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, comissoes_routes.router, comissoes_routes.regras_router, boletos_routes.router, relatorios_routes.router, pessoas_routes.router, pessoas_routes.advogados, mcp_oauth.router, mcp_servidor.router,
+          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_listas.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, routes_casos.router, faturamento_envolvimento.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, routes_conciliacao.router, comissoes_routes.router, comissoes_routes.regras_router, boletos_routes.router, relatorios_routes.router, pessoas_routes.router, pessoas_routes.advogados, mcp_oauth.router, mcp_servidor.router,
           tribunais_routes.router, tribunais_protocolo.router, tribunais_config.router, tribunais_config.publico,
           admin_mayacorp.router, cobranca_routes.admin, cobranca_routes.publico, cobranca_routes.meu, ia_admin_routes.router, ia_admin_routes.clientes,
           cadastro_routes.publico, cadastro_routes.admin):

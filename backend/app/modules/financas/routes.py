@@ -230,9 +230,7 @@ def _validar_lanc(ctx, dados: LancamentoIn):
 def lancar(cid: int, dados: LancamentoIn, ctx: Operador):
     c = _get(ctx, ContaBancaria, cid, "Conta")
     _validar_lanc(ctx, dados)
-    lc = Lancamento(tenant_id=ctx.tenant_id, conta_id=c.id, criado_por_id=ctx.usuario.id, origem="manual", **dados.model_dump())
-    ctx.db.add(lc)
-    ctx.db.flush()
+    lc = service.lancar(ctx.db, ctx.tenant_id, ctx.usuario, c, dados.model_dump())
     ctx.auditar("financeiro.lancamento.criar", "fin_lancamento", lc.id, descricao=f"{c.nome}: {lc.descricao} {lc.valor}")
     ctx.db.commit()
     return _lanc_out(ctx, lc)

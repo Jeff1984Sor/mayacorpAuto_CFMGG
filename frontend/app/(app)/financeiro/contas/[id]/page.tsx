@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Download,
   FileSpreadsheet,
+  GitCompareArrows,
   Landmark,
   MoreHorizontal,
   Pencil,
@@ -26,6 +27,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { mesAtual } from "@/components/financeiro/comum";
+import { EnviarExtratoDialog } from "@/components/financeiro/conciliacao/comum";
 import { ContaForm } from "@/components/financeiro/contas/conta-form";
 import { ImportarExtratoDialog } from "@/components/financeiro/contas/importar-dialog";
 import { LancamentoDialog } from "@/components/financeiro/contas/lancamento-dialog";
@@ -77,6 +79,8 @@ export default function ExtratoPage() {
   const { pode } = useAuth();
   const podeEditar = pode("contas_bancarias.editar");
   const podeExcluir = pode("contas_bancarias.excluir");
+  const podeConciliar = pode("conciliacao.conciliar");
+  const [conciliar, setConciliar] = useState(false);
   const [periodo, setPeriodo] = useState(mesAtual);
   const [lanc, setLanc] = useState<{ l: LancamentoOut | null } | null>(null);
   const [excluir, setExcluir] = useState<LancamentoOut | null>(null);
@@ -197,6 +201,11 @@ export default function ExtratoPage() {
                 </Button>
               </>
             )}
+            {podeConciliar && (
+              <Button variant="outline" onClick={() => setConciliar(true)}>
+                <GitCompareArrows /> Conciliar extrato
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Mais ações da conta" />}>
                 <MoreHorizontal />
@@ -211,6 +220,11 @@ export default function ExtratoPage() {
                 {podeEditar && (
                   <DropdownMenuItem onClick={() => setImportar(true)}>
                     <Upload /> Importar planilha
+                  </DropdownMenuItem>
+                )}
+                {pode("conciliacao.ver") && (
+                  <DropdownMenuItem render={<Link href="/financeiro/conciliacao" />}>
+                    <GitCompareArrows /> Conciliações desta e de outras contas
                   </DropdownMenuItem>
                 )}
                 {(podeEditar || podeExcluir) && <DropdownMenuSeparator />}
@@ -402,6 +416,7 @@ export default function ExtratoPage() {
         <Input value={motivoEstorno} onChange={(e) => setMotivoEstorno(e.target.value)} placeholder="Motivo (opcional), ex.: lançado em dobro" />
       </ConfirmDialog>
       <ImportarExtratoDialog open={importar} onOpenChange={setImportar} contaId={cid} contaNome={c.nome} />
+      {conciliar && <EnviarExtratoDialog open onOpenChange={setConciliar} contaId={cid} />}
       <ConfirmDialog
         open={!!excluir}
         onOpenChange={(o) => !o && setExcluir(null)}
