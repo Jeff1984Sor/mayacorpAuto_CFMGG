@@ -293,3 +293,27 @@ def test_mescla_leva_as_partes(cliente):  # noqa: F811
     # pessoa desativada não entra em caso novo
     r = c.post(f"/api/faturamento/casos/{caso['id']}/envolvimentos", json={"pessoa_id": errada["id"], "categoria_id": passivo["id"]}, headers=h)
     assert r.status_code == 400 and "desativada" in r.json()["detail"]
+
+
+def test_relatorio_de_casos_com_tipo_fase_prognostico_e_partes(cliente):  # noqa: F811
+    c, h = cliente, _login(cliente)
+    k = contrato_novo(c, h, "Cliente do Relatório de Partes", 70630008)
+    caso = caso_novo(c, h, k["id"], tipo_caso="contencioso", polo="ativo", titulo="Relatório 7063",
+                     contencioso={"pre_ajuizamento": True, "fase_processual": "recursal", "prognostico": "provavel"})
+    passivo = _bloco(_partes(c, h, caso["id"]), "Polo Passivo")
+    _incluir(c, h, caso["id"], pessoa_id=_pessoa(c, h, "Réu do Relatório 7063")["id"], categoria_id=passivo["id"], principal=True)
+    cons = caso_novo(c, h, k["id"], tipo_caso="consultivo", titulo="Relatório 7063 consultivo")
+    cat = c.get("/api/relatorios/catalogo", headers=h).json()
+    colunas = {col["id"]: col["rotulo"] for f in cat["fontes"] if f["id"] == "casos" for col in f["colunas"]}
+    assert {"tipo_caso": "Tipo de caso", "fase": "Fase / etapa", "prognostico": "Prognóstico", "partes": "Partes"}.items() <= colunas.items()
+    r = c.post("/api/relatorios/executar", headers=h, json={
+        "fonte": "casos", "colunas": ["numero", "tipo_caso", "fase", "prognostico", "partes"],
+        "filtros": [{"coluna": "cliente", "valores": ["Cliente do Relatório de Partes"]}]})
+    assert r.status_code == 200, r.text
+    linhas = {x[0]: x[1:] for x in r.json()["linhas"]}
+    assert linhas[caso["numero"]] == ["Contencioso", "Recursal", "Provável", "Cliente do Relatório de Partes x Réu do Relatório 7063"]
+    assert linhas[cons["numero"]] == ["Consultivo", "Recebido", None, "Cliente do Relatório de Partes"]
+    r = c.post("/api/relatorios/executar", headers=h, json={
+        "fonte": "casos", "filtros": [{"coluna": "cliente", "valores": ["Cliente do Relatório de Partes"]}],
+        "grafico": {"tipo": "barras", "dimensao": "tipo_caso"}}).json()
+    assert {x["rotulo"]: x["total"] for x in r["grafico"]["categorias"]} == {"Contencioso": 1, "Consultivo": 1}

@@ -390,14 +390,15 @@ def ler_cnj(db: Session, tenant_id: int, numero: str, exceto_caso_id: int | None
             "duplicado": cnj_duplicado(db, tenant_id, digitos, exceto_caso_id)}
 
 
-def _bloco(ctx, c: Caso, ext, tipo: str) -> dict:
+def _bloco(ctx, c: Caso, ext, tipo: str, lote: dict | None = None) -> dict:
     from app.modules.faturamento import schemas
 
     db = ctx.db
+    nomes_de = (lambda ids: lote["nomes"]) if lote else (lambda ids: listas.nomes(db, ids))
     dados = {k: getattr(ext, k) for k in EXTENSAO[tipo].__table__.columns.keys() if k not in ("caso_id", "criado_em", "atualizado_em")}
     if tipo == TipoDeCaso.contencioso:
         sec = [x.item_id for x in c.itens_lista if x.papel == "assunto_secundario"]
-        nomes = listas.nomes(db, [ext.classe_id, ext.assunto_id, *sec])
+        nomes = nomes_de([ext.classe_id, ext.assunto_id, *sec])
         dados.update(classe_nome=nomes.get(ext.classe_id), assunto_nome=nomes.get(ext.assunto_id), assuntos_secundarios_ids=sec,
                      assuntos_secundarios=[{"id": i, "nome": nomes.get(i, "")} for i in sec])
         return schemas.ContenciosoDados(**dados)
@@ -406,36 +407,66 @@ def _bloco(ctx, c: Caso, ext, tipo: str) -> dict:
 
         sol = db.get(Pessoa, ext.solicitante_id) if ext.solicitante_id else None
         gerou = db.get(Caso, ext.gerou_contencioso_id) if ext.gerou_contencioso_id else None
-        minutos = db.scalar(select(func.coalesce(func.sum(Timesheet.minutos), 0)).where(Timesheet.caso_id == c.id)) or 0
-        dados.update(tipo_demanda_nome=listas.nomes(db, [ext.tipo_demanda_id]).get(ext.tipo_demanda_id),
+        minutos = lote["minutos"].get(c.id, 0) if lote else (
+            db.scalar(select(func.coalesce(func.sum(Timesheet.minutos), 0)).where(Timesheet.caso_id == c.id)) or 0)
+        dados.update(tipo_demanda_nome=nomes_de([ext.tipo_demanda_id]).get(ext.tipo_demanda_id),
                      solicitante_nome=sol.nome if sol else None,
                      horas_realizadas=(Decimal(minutos) / 60).quantize(Decimal("0.01")),
                      gerou_contencioso_titulo=f"#{gerou.numero} {gerou.titulo}" if gerou else None)
         return schemas.ConsultivoDados(**dados)
-    nomes = listas.nomes(db, [ext.orgao_id, ext.tipo_procedimento_id])
+    nomes = nomes_de([ext.orgao_id, ext.tipo_procedimento_id])
     judicial = db.get(Caso, ext.caso_judicial_id) if ext.caso_judicial_id else None
     dados.update(orgao_nome=nomes.get(ext.orgao_id), tipo_procedimento_nome=nomes.get(ext.tipo_procedimento_id),
                  caso_judicial_titulo=f"#{judicial.numero} {judicial.titulo}" if judicial else None)
     return schemas.AdministrativoDados(**dados)
 
 
-def saida(ctx, c: Caso, ficha: bool = True) -> dict:
-    """Parte nova de CasoOut. Na lista (`ficha=False`) o aviso de CNJ repetido fica de fora."""
+def preparar_lista(ctx, casos: list[Caso]) -> dict:
+    """Tudo o que a lista de casos precisa da parte nova, em poucas consultas (em vez de várias por caso)."""
+    from app.modules.faturamento import envolvimento
+    from app.modules.faturamento.tipos_caso import Envolvimento, ListaItem
+
+    db, t = ctx.db, ctx.tenant_id
+    ids = [c.id for c in casos]
+    lote = {"ext": {}, "minutos": {}, "pendentes": {}, "partes": {}, "usuarios": {}, "nomes": {}}
+    if not ids:
+        return lote
+    for tipo, modelo in EXTENSAO.items():
+        for ext in db.scalars(select(modelo).where(modelo.caso_id.in_(ids))):
+            lote["ext"][(tipo, ext.caso_id)] = ext
+    lote["minutos"] = dict(db.execute(select(Timesheet.caso_id, func.sum(Timesheet.minutos)).where(Timesheet.caso_id.in_(ids))
+                                      .group_by(Timesheet.caso_id)).all())
+    lote["pendentes"] = dict(db.execute(select(Envolvimento.caso_id, func.count()).where(
+        Envolvimento.caso_id.in_(ids), Envolvimento.ativo, Envolvimento.pendente_reclassificacao).group_by(Envolvimento.caso_id)).all())
+    lote["partes"] = envolvimento.resumos_do_escritorio(db, t)
+    lote["usuarios"] = dict(db.execute(select(Usuario.id, Usuario.nome).where(Usuario.tenant_id == t)).all())
+    lote["nomes"] = dict(db.execute(select(ListaItem.id, ListaItem.nome).where(ListaItem.tenant_id == t)).all())
+    return lote
+
+
+def saida(ctx, c: Caso, ficha: bool = True, lote: dict | None = None) -> dict:
+    """Parte nova de CasoOut. Na lista (`ficha=False`, com o `lote` de `preparar_lista`) o aviso de CNJ repetido e o
+    título sugerido ficam de fora."""
     db = ctx.db
-    nomes = listas.nomes(db, [c.motivo_encerramento_id, c.origem_id, c.centro_custo_id, *(x.item_id for x in c.itens_lista)])
+    from app.modules.faturamento import envolvimento
+
     equipe_ids = [e.usuario_id for e in c.equipe]
-    usuarios = dict(db.execute(select(Usuario.id, Usuario.nome).where(Usuario.id.in_(equipe_ids))).all()) if equipe_ids else {}
     etiquetas = [x.item_id for x in c.itens_lista if x.papel == "etiqueta"]
     pai = db.get(Caso, c.caso_pai_id) if c.caso_pai_id else None
     tipo = tipo_caso_de(c)
-    ext = extensao(db, c, criar=False)
-    from app.modules.faturamento import envolvimento
-
+    if lote:
+        nomes, usuarios, ext = lote["nomes"], lote["usuarios"], lote["ext"].get((tipo, c.id))
+        partes, n_pendentes = lote["partes"].get(c.id), lote["pendentes"].get(c.id, 0)
+    else:
+        nomes = listas.nomes(db, [c.motivo_encerramento_id, c.origem_id, c.centro_custo_id, *(x.item_id for x in c.itens_lista)])
+        usuarios = dict(db.execute(select(Usuario.id, Usuario.nome).where(Usuario.id.in_(equipe_ids))).all()) if equipe_ids else {}
+        ext = extensao(db, c, criar=False)
+        partes, n_pendentes = envolvimento.resumo_partes(db, c.id), envolvimento.pendentes(db, c.id)
     return {
-        "partes_resumo": envolvimento.resumo_partes(db, c.id),
+        "partes_resumo": partes,
         "titulo_sugerido": envolvimento.titulo_sugerido(db, c) if ficha else None,
-        "pendentes_reclassificacao": envolvimento.pendentes(db, c.id),
-        tipo: _bloco(ctx, c, ext, tipo) if ext else None,
+        "pendentes_reclassificacao": n_pendentes,
+        tipo: _bloco(ctx, c, ext, tipo, lote) if ext else None,
         "aviso_cnj_duplicado": cnj_duplicado(db, c.tenant_id, c.numero_processo, c.id) if ficha and tipo == "contencioso" else None,
         "tipo_caso": tipo, "tipo_caso_nome": ROTULOS["tipo_caso"][tipo], "status_nome": ROTULOS["status"][c.status.value],
         "equipe_ids": equipe_ids, "equipe": [{"id": i, "nome": usuarios.get(i, "")} for i in equipe_ids],

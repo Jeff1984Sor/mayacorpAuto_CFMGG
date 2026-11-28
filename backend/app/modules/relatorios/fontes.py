@@ -224,6 +224,10 @@ def _col_casos(ctx) -> list[Coluna]:
         Coluna("contrato", "Contrato", "lista"),
         Coluna("area", "Área", "lista", True),
         Coluna("tipo", "Tipo", "lista"),
+        Coluna("tipo_caso", "Tipo de caso", "lista"),
+        Coluna("fase", "Fase / etapa", "lista"),
+        Coluna("prognostico", "Prognóstico", "lista"),
+        Coluna("partes", "Partes", "texto"),
         Coluna("status", "Status", "lista", True),
         Coluna("responsavel", "Responsável", "lista", True),
         Coluna("cadastro", "Data de cadastro", "data"),
@@ -311,10 +315,29 @@ def _carregar_casos(ctx, de, ate) -> list[dict]:
                                                                           Andamento.id.desc())):
         ultimo.setdefault(cid, (d, tit))
     campos = [(c.id, _TIPO_CAMPO.get(_v(c.tipo), "texto")) for c in _campos(ctx)]
+    # tipos de caso: fase (contencioso: fase processual; consultivo: etapa; administrativo: fase) e prognóstico
+    from app.modules.faturamento import casos as regras_caso
+    from app.modules.faturamento import envolvimento
+    from app.modules.faturamento.tipos_caso import ROTULOS, CasoAdministrativo, CasoConsultivo, CasoContencioso
+
+    fase: dict[tuple[str, int], str | None] = {}
+    prognostico: dict[tuple[str, int], str | None] = {}
+    for tipo, modelo, col_fase, rotulo in (("contencioso", CasoContencioso, CasoContencioso.fase_processual, "fase_processual"),
+                                           ("consultivo", CasoConsultivo, CasoConsultivo.etapa, "etapa"),
+                                           ("administrativo", CasoAdministrativo, CasoAdministrativo.fase_adm, "fase_adm")):
+        col_prog = getattr(modelo, "prognostico", None)
+        linhas = ctx.db.execute(select(modelo.caso_id, col_fase, *([col_prog] if col_prog is not None else []))
+                                .join(Caso, Caso.id == modelo.caso_id).where(Caso.tenant_id == t)).all()
+        for linha in linhas:
+            fase[(tipo, linha[0])] = ROTULOS[rotulo].get(linha[1] or "")
+            if col_prog is not None:
+                prognostico[(tipo, linha[0])] = ROTULOS["prognostico"].get(linha[2] or "")
+    partes = envolvimento.resumos_do_escritorio(ctx.db, t)
     hoje = date.today()
     out = []
     for row in ctx.db.execute(sel):
         c: Caso = row[0]
+        tipo_caso = regras_caso.tipo_caso_de(c)
         m = row._mapping
         ini = c.data_abertura or c.data_distribuicao
         fim = c.data_encerramento if c.status == StatusCaso.encerrado and c.data_encerramento else hoje
@@ -322,6 +345,8 @@ def _carregar_casos(ctx, de, ate) -> list[dict]:
         d = {
             "numero": c.numero, "titulo": c.titulo, "cliente": m["cliente"], "contrato": m["contrato"], "area": m["area"],
             "tipo": TIPO_CASO.get(_v(c.tipo)), "status": STATUS_CASO.get(_v(c.status)), "responsavel": m["responsavel"],
+            "tipo_caso": ROTULOS["tipo_caso"][tipo_caso], "fase": fase.get((tipo_caso, c.id)),
+            "prognostico": prognostico.get((tipo_caso, c.id)), "partes": partes.get(c.id),
             "processo": c.numero_processo, "parte_contraria": c.parte_contraria, "polo": POLO.get(c.polo or ""),
             "instancia": INSTANCIA.get(c.instancia or "", c.instancia), "tribunal": c.tribunal, "vara": c.vara,
             "comarca": c.comarca, "foro": c.comarca or c.tribunal, "valor_causa": _num(c.valor_causa),
