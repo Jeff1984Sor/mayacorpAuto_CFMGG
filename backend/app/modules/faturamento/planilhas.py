@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 from app.core.deps import Ctx, Operador
 from app.core.documentos import so_digitos
 from app.core.models import Usuario
+from app.modules.faturamento import casos as regras_caso
 from app.modules.faturamento.judiciario import INSTANCIAS
 from app.modules.faturamento.models import (
     ROTULO_TIPO_CASO,
@@ -321,6 +322,7 @@ async def importar_casos(ctx: Operador, arquivo: UploadFile = File(...)):
                            or t.value == str(tipo).strip().lower()), None)
             if achado:
                 c.tipo = achado
+                c.tipo_caso = None  # a planilha manda no tipo: reclassifica logo abaixo
             else:
                 erros.append(f"Linha {i}: tipo “{tipo}” inválido (use {', '.join(ROTULO_TIPO_CASO.values())}).")
         if inst := _col(cab, row, "instância", "instancia"):
@@ -367,6 +369,7 @@ async def importar_casos(ctx: Operador, arquivo: UploadFile = File(...)):
             else:
                 valores[str(cp.id)] = str(v)
         c.campos = valores
+        regras_caso.ao_criar(ctx.db, c)
         ctx.db.flush()
     ctx.auditar("faturamento.caso.importar", "fat_caso", descricao=f"{criados} novos, {atualizados} atualizados, {len(erros)} avisos")
     ctx.db.commit()

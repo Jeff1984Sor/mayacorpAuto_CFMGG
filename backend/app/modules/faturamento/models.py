@@ -13,7 +13,7 @@ import enum
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.core.db import Base, Timestamped
@@ -198,7 +198,9 @@ ROTULO_TIPO_CASO = {
 
 
 class StatusCaso(enum.StrEnum):
-    aberto = "aberto"
+    aberto = "aberto"  # ativo
+    suspenso = "suspenso"
+    arquivado = "arquivado"
     encerrado = "encerrado"
 
 
@@ -228,8 +230,21 @@ class Caso(Base, Timestamped):
     status: Mapped[StatusCaso] = mapped_column(_enum(StatusCaso), default=StatusCaso.aberto)
     data_abertura: Mapped[date | None] = mapped_column(Date)
     data_encerramento: Mapped[date | None] = mapped_column(Date)
+    # contencioso | consultivo | administrativo (tipos_caso.TipoDeCaso). A coluna `tipo` acima é calculada dele + justiça
+    # (casos.sincronizar_tipo); vazio só em caso antigo ainda não classificado (migrar_partes).
+    tipo_caso: Mapped[str | None] = mapped_column(String(15), index=True)
+    motivo_encerramento_id: Mapped[int | None] = mapped_column(ForeignKey("fat_lista_item.id"))
+    origem_id: Mapped[int | None] = mapped_column(ForeignKey("fat_lista_item.id"))  # origem da captação
+    centro_custo_id: Mapped[int | None] = mapped_column(ForeignKey("fat_lista_item.id"))
+    valor_estimado: Mapped[Decimal | None] = mapped_column(Dinheiro)
+    caso_pai_id: Mapped[int | None] = mapped_column(ForeignKey("fat_caso.id", ondelete="SET NULL"), index=True)
+    tipo_vinculo: Mapped[str | None] = mapped_column(String(15))  # recurso | incidente | apenso | desdobramento | conexo | judicializacao
+    sigiloso: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # só a equipe vê
+    observacoes: Mapped[str | None] = mapped_column(Text)
 
     contrato: Mapped[Contrato] = relationship(back_populates="casos")
+    equipe: Mapped[list["CasoEquipe"]] = relationship(cascade="all, delete-orphan")
+    itens_lista: Mapped[list["CasoLista"]] = relationship(cascade="all, delete-orphan")
     regras: Mapped[list["RegraCobranca"]] = relationship(back_populates="caso")
     area: Mapped["AreaAtuacao | None"] = relationship()
     anexos: Mapped[list["AnexoCaso"]] = relationship(back_populates="caso", cascade="all, delete-orphan",
@@ -545,3 +560,6 @@ class RevisaoItem(Base):
     def detalhe(self) -> str | None:
         """De onde veio o valor (regra por faixas)."""
         return (self.faixa or {}).get("texto")
+
+
+from app.modules.faturamento.tipos_caso import CasoEquipe, CasoLista  # noqa: E402, F401  (tabelas que acompanham o caso)

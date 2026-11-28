@@ -14,7 +14,8 @@ from app.core import tenancy
 from app.core.deps import Admin, Ctx, Operador
 from app.core.models import Cargo, Usuario
 from app.core.schemas import Mensagem
-from app.modules.faturamento import service, titulo_caso
+from app.modules.faturamento import casos as regras_caso
+from app.modules.faturamento import listas, service, titulo_caso
 from app.modules.faturamento.judiciario import INSTANCIAS
 from app.modules.faturamento.models import (
     ROTULO_TIPO_CASO,
@@ -356,7 +357,8 @@ def _caso_out(ctx, c: Caso) -> CasoOut:
         tabela_preco_efetiva=(t.nome if (t := ctx.db.get(TabelaPreco, c.tabela_preco_id or c.contrato.tabela_preco_id or 0)) else None),
         data_abertura=c.data_abertura, data_encerramento=c.data_encerramento,
         tem_regra_propria=any(r.ativo for r in c.regras),
-        horas_pendentes=(Decimal(min_pend) / 60).quantize(Decimal("0.01")), despesas_pendentes=Decimal(desp))
+        horas_pendentes=(Decimal(min_pend) / 60).quantize(Decimal("0.01")), despesas_pendentes=Decimal(desp),
+        **regras_caso.saida(ctx, c))
 
 
 def _validar_caso(ctx, dados: CasoIn, contrato: Contrato) -> None:
@@ -410,9 +412,11 @@ def _validar_campos(ctx, valores: dict, area_id: int | None, tomador_id: int | N
 
 @router.get("/casos", response_model=list[CasoOut])
 def casos(ctx: Ctx, contrato_id: int | None = None, tomador_id: int | None = None, q: str | None = None,
-          status: str | None = Query(None, pattern="^(aberto|encerrado)$"), tipo: TipoCaso | None = None,
-          area_id: int | None = None):
+          status: str | None = Query(None, pattern="^(aberto|suspenso|arquivado|encerrado)$"), tipo: TipoCaso | None = None,
+          area_id: int | None = None, tipo_caso: str | None = Query(None, pattern="^(contencioso|consultivo|administrativo)$")):
     sel = select(Caso).join(Contrato, Caso.contrato_id == Contrato.id).where(Caso.tenant_id == ctx.tenant_id)
+    if tipo_caso:
+        sel = sel.where(Caso.tipo_caso == tipo_caso)
     if contrato_id:
         sel = sel.where(Caso.contrato_id == contrato_id)
     if tomador_id:
@@ -428,7 +432,7 @@ def casos(ctx: Ctx, contrato_id: int | None = None, tomador_id: int | None = Non
         if q.strip().isdigit():
             conds.append(Caso.numero == int(q))
         sel = sel.where(or_(*conds))
-    return [_caso_out(ctx, c) for c in ctx.db.scalars(sel.order_by(Caso.numero.desc()).limit(500))]
+    return [_caso_out(ctx, c) for c in ctx.db.scalars(sel.order_by(Caso.numero.desc()).limit(500)) if regras_caso.pode_ver(ctx, c)]
 
 
 @router.post("/contratos/{cid}/casos", response_model=CasoOut, status_code=201)
@@ -436,10 +440,11 @@ def criar_caso(cid: int, dados: CasoIn, ctx: Operador):
     contrato = _get(ctx, Contrato, cid, "Contrato")
     _validar_caso(ctx, dados, contrato)
     numero = (ctx.db.scalar(select(func.max(Caso.numero)).where(Caso.tenant_id == ctx.tenant_id)) or 0) + 1
-    c = Caso(tenant_id=ctx.tenant_id, numero=numero, contrato_id=contrato.id, **dados.model_dump())
+    c = Caso(tenant_id=ctx.tenant_id, numero=numero, contrato_id=contrato.id, **dados.model_dump(exclude=regras_caso.CAMPOS_NOVOS))
     c.data_abertura = c.data_abertura or date.today()
     c.contrato = contrato
     ctx.db.add(c)
+    regras_caso.aplicar(ctx, c, dados, novo=True)
     ctx.db.flush()
     _titulo_final(ctx, c)
     ctx.auditar("faturamento.caso.criar", "fat_caso", c.id, descricao=f"#{c.numero} {c.titulo}")
@@ -453,7 +458,9 @@ def criar_caso(cid: int, dados: CasoIn, ctx: Operador):
 
 @router.get("/casos/{cid}", response_model=CasoOut)
 def ler_caso(cid: int, ctx: Ctx):
-    return _caso_out(ctx, _get(ctx, Caso, cid, "Caso"))
+    c = _get(ctx, Caso, cid, "Caso")
+    regras_caso.exigir_ver(ctx, c)
+    return _caso_out(ctx, c)
 
 
 @router.put("/casos/{cid}", response_model=CasoOut)
@@ -461,8 +468,10 @@ def alterar_caso(cid: int, dados: CasoIn, ctx: Operador):
     c = _get(ctx, Caso, cid, "Caso")
     _validar_caso(ctx, dados, c.contrato)
     numero_antes = c.numero_processo
-    for k, v in dados.model_dump().items():
+    regras_caso.exigir_ver(ctx, c)
+    for k, v in dados.model_dump(exclude=regras_caso.CAMPOS_NOVOS).items():
         setattr(c, k, v)
+    regras_caso.aplicar(ctx, c, dados, novo=False)
     ctx.db.flush()  # a área nova precisa estar carregada para o modelo de título
     ctx.db.expire(c, ["area"])
     _titulo_final(ctx, c)
@@ -862,6 +871,7 @@ def excluir_anexo(aid: int, ctx: Operador):
 # ================================================================ áreas de atuação e campos adicionais (Configurações)
 @router.get("/areas", response_model=list[AreaOut])
 def areas(ctx: Ctx):
+    listas.garantir(ctx)  # as áreas padrão entram junto com as listas
     qtd = dict(ctx.db.execute(select(Caso.area_id, func.count()).where(Caso.tenant_id == ctx.tenant_id).group_by(Caso.area_id)).all())
     return [AreaOut.model_validate(a).model_copy(update={"qtd_casos": qtd.get(a.id, 0)})
             for a in ctx.db.scalars(select(AreaAtuacao).where(AreaAtuacao.tenant_id == ctx.tenant_id)

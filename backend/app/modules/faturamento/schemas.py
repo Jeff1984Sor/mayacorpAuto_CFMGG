@@ -19,6 +19,7 @@ from app.modules.faturamento.models import (
     TipoRegra,
     TipoTarefa,
 )
+from app.modules.faturamento.tipos_caso import TipoDeCaso, TipoVinculo
 
 
 # ---------- funcionários e tabelas de preço (cargo × valor/hora)
@@ -191,9 +192,27 @@ class CasoIn(BaseModel):
     campos: dict[str, Any] | None = None  # {"<id do campo>": valor}
     responsavel_id: int | None = None
     tabela_preco_id: int | None = None  # vazio = a do contrato
-    status: StatusCaso = StatusCaso.aberto
+    status: StatusCaso = StatusCaso.aberto  # aberto (ativo) | suspenso | arquivado | encerrado
     data_abertura: date | None = None
-    data_encerramento: date | None = None
+    data_encerramento: date | None = None  # obrigatória quando encerrado
+    # --- tipos de caso. Sem tipo_caso, vale o `tipo` antigo; sem os dois: com nº de processo é contencioso, senão consultivo.
+    # Os campos abaixo só são alterados quando vêm no pedido (telas antigas não mandam e não apagam nada).
+    tipo_caso: TipoDeCaso | None = None
+    equipe_ids: list[int] | None = None  # demais profissionais (o responsável fica em responsavel_id)
+    etiqueta_ids: list[int] | None = None  # itens da lista "etiqueta"
+    motivo_encerramento_id: int | None = None  # lista "motivo_encerramento"
+    origem_id: int | None = None  # lista "origem"
+    centro_custo_id: int | None = None  # lista "centro_custo"
+    valor_estimado: Decimal | None = Field(default=None, ge=0)
+    caso_pai_id: int | None = None
+    tipo_vinculo: TipoVinculo | None = None
+    sigiloso: bool | None = None
+    observacoes: str | None = None
+
+
+class ItemNome(BaseModel):
+    id: int
+    nome: str
 
 
 class CasoOut(Schema):
@@ -235,6 +254,26 @@ class CasoOut(Schema):
     tem_regra_propria: bool = False
     horas_pendentes: Decimal = Decimal(0)
     despesas_pendentes: Decimal = Decimal(0)
+    # --- tipos de caso
+    tipo_caso: TipoDeCaso
+    tipo_caso_nome: str
+    status_nome: str
+    equipe_ids: list[int] = []
+    equipe: list[ItemNome] = []
+    etiqueta_ids: list[int] = []
+    etiquetas: list[ItemNome] = []
+    motivo_encerramento_id: int | None = None
+    motivo_encerramento_nome: str | None = None
+    origem_id: int | None = None
+    origem_nome: str | None = None
+    centro_custo_id: int | None = None
+    centro_custo_nome: str | None = None
+    valor_estimado: Decimal | None = None
+    caso_pai_id: int | None = None
+    caso_pai_titulo: str | None = None
+    tipo_vinculo: TipoVinculo | None = None
+    sigiloso: bool = False
+    observacoes: str | None = None
 
 
 # ---------- regras de cobrança

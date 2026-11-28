@@ -77,6 +77,9 @@ def base(db) -> Tenant:
     db.add(Identidade(tenant_id=t.id, nome_exibicao="CFME Advogados", cor_destaque=None,
                       assinatura_email="CFME Advogados\nDepartamento Financeiro"))
     db.add(ConfigNotificacao(tenant_id=t.id, remetente_nome="CFME Advogados", avisos_destinatarios=[]))
+    from app.modules.faturamento import seeds_caso
+
+    seeds_caso.garantir(db, t.id)  # listas, áreas e papéis das partes padrão
     db.commit()
     return t
 

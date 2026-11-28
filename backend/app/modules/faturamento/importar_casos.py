@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.core.deps import Operador
+from app.modules.faturamento import casos as regras_caso
 from app.modules.faturamento import service, titulo_caso
 from app.modules.faturamento.models import CampoAdicional, Caso, Contrato, RegraCobranca, TipoRegra
 from app.modules.financas.planilhas import ler_data, ler_valor
@@ -819,6 +820,7 @@ def aplicar(tid: int, dados: AplicarIn, ctx: Operador):
                         parte_contraria=_texto(_pega(linha, m.parte_contraria))[:200] or None, campos=campos)
             caso.contrato = contrato
             ctx.db.add(caso)
+            regras_caso.ao_criar(ctx.db, caso)
             ctx.db.flush()
             if dec or not por_titulo:
                 titulo_caso.aplicar(ctx.db, caso)

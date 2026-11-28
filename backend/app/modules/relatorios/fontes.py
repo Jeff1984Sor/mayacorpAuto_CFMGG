@@ -90,7 +90,7 @@ def _num(x) -> float | None:
 
 
 SIM_NAO = {True: "Sim", False: "Não"}
-STATUS_CASO = {"aberto": "Aberto", "encerrado": "Encerrado"}
+STATUS_CASO = {"aberto": "Aberto", "suspenso": "Suspenso", "arquivado": "Arquivado", "encerrado": "Encerrado"}
 TIPO_CASO = {k.value: v for k, v in ROTULO_TIPO_CASO.items()}
 POLO = {"ativo": "Ativo (autor)", "passivo": "Passivo (réu)", "terceiro": "Terceiro interessado", "consultivo": "Consultivo"}
 INSTANCIA = {"primeira": "1ª instância", "juizado": "Juizado", "segunda": "2ª instância", "turma_recursal": "Turma recursal",

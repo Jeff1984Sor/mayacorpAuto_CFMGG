@@ -293,8 +293,8 @@ def test_excluir_caso(cliente):  # noqa: F811
 def test_ficha_do_caso_areas_campos_anexos_andamentos(cliente):  # noqa: F811
     h = _login(cliente)
     _, contrato, caso = _base(cliente, h, "F")
-    area = cliente.post("/api/faturamento/areas", headers=h, json={"nome": "Trabalhista", "cor": "#1A8F5E"}).json()
-    assert cliente.post("/api/faturamento/areas", headers=h, json={"nome": "trabalhista"}).status_code == 409
+    area = cliente.post("/api/faturamento/areas", headers=h, json={"nome": "Trabalhista Sindical", "cor": "#1A8F5E"}).json()
+    assert cliente.post("/api/faturamento/areas", headers=h, json={"nome": "trabalhista sindical"}).status_code == 409
     fase = cliente.post("/api/faturamento/campos", headers=h, json={
         "nome": "Fase", "tipo": "lista", "opcoes": ["Conhecimento", "Recursal", "Execução"], "obrigatorio": True}).json()
     sindicato = cliente.post("/api/faturamento/campos", headers=h, json={"nome": "Sindicato", "tipo": "texto",
@@ -311,7 +311,7 @@ def test_ficha_do_caso_areas_campos_anexos_andamentos(cliente):  # noqa: F811
         **base, "campos": {str(fase["id"]): "Recursal", str(sindicato["id"]): "Sindicato X", "999": "ignorado"}})
     assert r.status_code == 200, r.text
     c = r.json()
-    assert c["area_nome"] == "Trabalhista" and c["polo"] == "passivo" and c["valor_causa"] == "150000.00"
+    assert c["area_nome"] == "Trabalhista Sindical" and c["polo"] == "passivo" and c["valor_causa"] == "150000.00"
     assert c["campos"] == {str(fase["id"]): "Recursal", str(sindicato["id"]): "Sindicato X"}
     assert any(a["id"] == area["id"] and a["qtd_casos"] == 1 for a in cliente.get("/api/faturamento/areas", headers=h).json())
 

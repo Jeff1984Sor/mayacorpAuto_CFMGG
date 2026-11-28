@@ -497,9 +497,11 @@ def criar_caso(db: Session, p: Processo, contrato, usuario: Usuario, titulo: str
              data_distribuicao=p.data_ajuizamento.date() if p.data_ajuizamento else None,
              responsavel_id=p.responsavel_interno_id or usuario.id, data_abertura=date.today())
     db.add(c)
-    db.flush()
+    from app.modules.faturamento import casos as regras_caso
     from app.modules.faturamento import titulo_caso
 
+    regras_caso.ao_criar(db, c)
+    db.flush()
     titulo_caso.aplicar(db, c)  # modelo de título do cliente, se houver
     ligar_caso(db, p, c)
     return c

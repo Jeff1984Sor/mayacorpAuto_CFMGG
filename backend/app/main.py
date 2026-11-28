@@ -25,6 +25,7 @@ from app.modules.boletos import routes as boletos_routes
 from app.modules.comissoes import routes as comissoes_routes
 from app.modules.faturamento import importar_casos as faturamento_importar_casos
 from app.modules.faturamento import judiciario as faturamento_judiciario
+from app.modules.faturamento import listas as faturamento_listas
 from app.modules.faturamento import planilhas as faturamento_planilhas
 from app.modules.faturamento import routes as faturamento_routes
 from app.modules.faturamento import routes_revisao
@@ -146,7 +147,7 @@ async def _validacao(_: Request, exc: RequestValidationError):
 
 for r in (auth.router, public.router, hub.router, config.router, nfse_routes.config_router, routes_financeiro.config_router,
           nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
-          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, comissoes_routes.router, comissoes_routes.regras_router, boletos_routes.router, relatorios_routes.router, mcp_oauth.router, mcp_servidor.router,
+          auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_listas.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, comissoes_routes.router, comissoes_routes.regras_router, boletos_routes.router, relatorios_routes.router, mcp_oauth.router, mcp_servidor.router,
           tribunais_routes.router, tribunais_protocolo.router, tribunais_config.router, tribunais_config.publico,
           admin_mayacorp.router, cobranca_routes.admin, cobranca_routes.publico, cobranca_routes.meu, ia_admin_routes.router, ia_admin_routes.clientes,
           cadastro_routes.publico, cadastro_routes.admin):

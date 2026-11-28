@@ -250,6 +250,9 @@ def provisionar(slug: str, nome: str, *, admin_email: str, admin_nome: str = "",
             db.add(t)
             db.flush()
             db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
+            from app.modules.faturamento import seeds_caso
+
+            seeds_caso.garantir(db, t.id)  # listas, áreas e papéis das partes padrão
             suporte = _usuario_suporte(db, t.id, slug) if tipo != "mayacorp" else None
             if primeiro_acesso:  # o próprio cliente cria o usuário master pelo link de boas-vindas
                 db.commit()
