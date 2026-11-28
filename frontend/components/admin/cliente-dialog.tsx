@@ -176,7 +176,7 @@ export function ClienteDialog({
       else if (externo)
         toast.success(`${c.nome} cadastrado, sem acesso ao sistema.`, {
           description:
-            "Para cobrar, crie uma cobrança recorrente ou avulsa na aba Cobranças.",
+            "Para cobrar, crie a regra de cobrança na aba Cobranças: ela aparece em Faturamento › Itens a faturar.",
         });
       else
         toast.success(`Ambiente de ${c.nome} criado. Boas-vindas enviadas.`, {

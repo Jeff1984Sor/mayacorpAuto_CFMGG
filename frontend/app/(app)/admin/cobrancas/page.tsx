@@ -196,10 +196,10 @@ export default function CobrancasPage() {
       </div>
       {r && (
         <p className="-mt-3 mb-5 text-xs text-muted-foreground">
-          Receita recorrente prevista por mês: {moeda(r.receita_planos)} de mensalidades
-          de plano + {moeda(r.receita_recorrencias)} de cobranças recorrentes
-          ativas (as anuais, semestrais etc. entram divididas pelo número de
-          meses).
+          Receita recorrente prevista por mês: as mensalidades de plano (as
+          anuais entram divididas por 12). Os outros serviços cobrados dos
+          clientes são regras de cobrança e aparecem em Faturamento › Itens a
+          faturar.
         </p>
       )}
       {r && r.nao_enviadas > 0 && (
@@ -250,7 +250,7 @@ export default function CobrancasPage() {
           <EmptyState
             icone={HandCoins}
             titulo="Nenhuma cobrança"
-            descricao="As mensalidades saem sozinhas todo dia 1 e as recorrentes, na data de cada uma (com o Mercado Pago conectado). Você também pode gerar agora ou criar uma cobrança avulsa."
+            descricao="As mensalidades saem sozinhas todo dia 1 (com o Mercado Pago conectado). Você também pode gerar agora ou criar uma cobrança avulsa. Outros serviços são regras de cobrança do cliente e aparecem em Faturamento › Itens a faturar."
           />
         ) : (
           <div className="overflow-x-auto">

@@ -20,7 +20,7 @@ import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { TOM_STATUS_CASO } from "@/lib/casos";
-import { useUsaContrato } from "@/lib/contrato";
+import { useLinkCliente, useUsaContrato } from "@/lib/contrato";
 import {
   type CasoOut,
   hhmm,
@@ -130,6 +130,7 @@ export function DetalhesCaso({
   podeEditar: boolean;
 }) {
   const usaContrato = useUsaContrato();
+  const linkCliente = useLinkCliente();
   const campos = useCampos();
   const opcoes = useOpcoesCaso();
   /** rótulo de uma lista fixa do sistema (fase, etapa, prognóstico...) */
@@ -514,7 +515,7 @@ export function DetalhesCaso({
             {usaContrato ? (
               caso.tomador_nome
             ) : (
-              <Link href={`/cadastros/clientes?id=${caso.tomador_id}`} className="text-info-ink hover:underline">
+              <Link href={linkCliente(caso.tomador_id)} className="text-info-ink hover:underline">
                 {caso.tomador_nome}
               </Link>
             )}

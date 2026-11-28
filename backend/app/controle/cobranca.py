@@ -6,8 +6,9 @@
 - Quem paga no cartão (assinatura recorrente) já tem o plano debitado pelo Mercado Pago: a mensalidade dele leva só
   os excedentes. Cada débito da assinatura vira uma cobrança "cartao" paga.
 - Avulsa: valor e descrição livres, sem produto.
-- Recorrente: um serviço cobrado todo período (app/controle/recorrencia.py), para qualquer cliente, inclusive o
-  que não tem acesso ao sistema (tipo "externo": sem plano, sem mensalidade, sem cartão recorrente).
+- Recorrente: HISTÓRICO. Serviço cobrado todo período hoje é regra de cobrança do faturamento, no banco do admin
+  (app/controle/faturamento_admin.py); as cobranças "recorrente" que já existem seguem a régua e a baixa.
+- Cliente sem acesso ao sistema (tipo "externo"): sem plano, sem mensalidade, sem cartão recorrente; só avulsas.
 - Régua: e-mails nos dias da régua (ex.: 3 dias antes, no dia, 3 e 10 dias depois). Atraso só gera aviso; a
   suspensão é sempre manual, no admin.
 """
@@ -402,12 +403,10 @@ def _avisar_pagamento(cob: Cobranca) -> None:
 
 # ---------------------------------------------------------------- rotina diária (worker)
 def rotina_diaria(hoje: date | None = None) -> dict:
-    """Gera as mensalidades do mês (se automático) e as cobranças recorrentes que chegaram na data, e manda os
-    e-mails da régua. Atraso só gera aviso."""
-    from app.controle import recorrencia
-
+    """Gera as mensalidades do mês (se automático) e manda os e-mails da régua. Atraso só gera aviso. Serviço
+    recorrente não nasce mais aqui: é regra de cobrança e aparece em Faturamento › Itens a faturar."""
     hoje = hoje or date.today()
-    feitos = {"geradas": 0, "recorrentes": 0, "avisos": 0}
+    feitos = {"geradas": 0, "avisos": 0}
     with SessaoControle() as db:
         cfg = config(db)
         db.commit()
@@ -423,7 +422,6 @@ def rotina_diaria(hoje: date | None = None) -> dict:
                     db.rollback()
                     log.exception("Mensalidade de %s falhou", c.slug)
         regua = sorted(set(cfg.regua or []))
-        feitos["recorrentes"] = recorrencia.rotina(db, hoje, regua)  # a nova já sai com o e-mail (não entra na régua de hoje)
         pendentes = db.scalars(select(Cobranca).where(Cobranca.status == "pendente", Cobranca.tipo != "cartao"))
         for cob in pendentes:
             devidos = [p for p in regua if hoje >= cob.vencimento + timedelta(days=p) and p not in (cob.avisos or [])]

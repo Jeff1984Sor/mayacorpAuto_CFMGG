@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLinkCliente } from "@/lib/contrato";
 import { aliquota, data, dataHora, documento, moeda } from "@/lib/format";
 import type { NfseDetalhe } from "@/lib/types";
 
@@ -32,6 +33,7 @@ function Linha({ l, children }: { l: string; children: React.ReactNode }) {
 export default function NotaDetalhePage() {
   const { id } = useParams<{ id: string }>();
   const { pode } = useAuth();
+  const linkCliente = useLinkCliente();
   const podeEmail = pode("nfse_notas.enviar_email");
   const acoes = useAcoesNota();
   const [cancelar, setCancelar] = useState(false);
@@ -189,7 +191,7 @@ export default function NotaDetalhePage() {
               <Linha l="E-mails">{n.tomador_emails.length ? n.tomador_emails.join(", ") : "—"}</Linha>
             </div>
             {n.tomador_id && (
-              <Button variant="ghost" size="sm" className="mt-2 -ml-2" render={<Link href={`/cadastros/clientes?id=${n.tomador_id}`} />}>
+              <Button variant="ghost" size="sm" className="mt-2 -ml-2" nativeButton={false} render={<Link href={linkCliente(n.tomador_id, "dados")} />}>
                 Ver cadastro →
               </Button>
             )}

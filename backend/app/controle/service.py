@@ -491,6 +491,9 @@ def migrar_todos() -> list[str]:
             migrar(esc)
             feitos.append(esc.slug)
     espelhar_todos_no_cadastro()
+    from app.controle import faturamento_admin
+
+    faturamento_admin.preparar()  # admin sem contratos + recorrências antigas viram regras de cobrança (idempotente)
     return feitos
 
 

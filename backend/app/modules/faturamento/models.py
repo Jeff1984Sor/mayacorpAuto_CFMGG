@@ -87,6 +87,9 @@ class ConfigFaturamento(Base, Timestamped):
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), primary_key=True)
     # False = o escritório trabalha só com Cliente → Caso: cada cliente tem um contrato único, criado por trás
     usa_contrato: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 1ª linha da fatura de honorários e da NFS-e dela; vazio = "Honorários advocatícios". O painel MayaCorp usa
+    # "Serviços prestados" (posto por app/controle/faturamento_admin.py)
+    texto_servico: Mapped[str | None] = mapped_column(String(80))
 
 
 class Contrato(Base, Timestamped):

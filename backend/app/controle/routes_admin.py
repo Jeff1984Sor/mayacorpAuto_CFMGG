@@ -15,7 +15,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 
-from app.controle import contratos, indicacao, planos, service
+from app.controle import contratos, faturamento_admin, indicacao, planos, service
 from app.controle.models import Cliente, ContratoCliente, Dominio, ModeloContrato, Plano, SessaoControle
 from app.core import tenancy
 from app.core.db import SessionLocal, agora
@@ -578,6 +578,8 @@ def mudar_status(cid: int, dados: StatusIn, ctx: Painel):
         c.status = dados.status
         db.commit()
         service.limpar_cache()
+        # inativo não é cobrado: as regras de cobrança dele somem de Itens a faturar e voltam quando for reativado
+        faturamento_admin.cobrar_cliente(ctx.db, ctx.tenant_id, c.tomador_id, dados.status != "inativo")
         ctx.auditar("admin.cliente.status", "controle_cliente", c.id, descricao=f"{c.nome}: {antes} → {dados.status}")
         ctx.db.commit()
         return _saida(ctx, db, c)
@@ -1063,11 +1065,11 @@ def ia_mensagem(dados: MensagemIAIn, ctx: Painel):
 # ================================================================ exclusões
 @router.delete("/clientes/{cid}")
 def excluir_cliente_saas(cid: int, ctx: Painel, confirmar: str = ""):
-    """Apaga o cliente de vez (banco, usuários, domínios, contratos, cobranças e recorrências). Só inativo e com o
+    """Apaga o cliente de vez (banco, usuários, domínios, contratos e cobranças). Só inativo e com o
     identificador digitado de novo, porque não tem volta. Cliente sem acesso que nunca teve ambiente não tem banco."""
     with SessaoControle() as db:
         c = _cliente(db, cid)
-        slug, nome, tinha_banco = c.slug, c.nome, c.banco is not None
+        slug, nome, tinha_banco, tomador_id = c.slug, c.nome, c.banco is not None, c.tomador_id
         if confirmar.strip().lower() != slug:
             raise HTTPException(400, f"Para confirmar, digite o identificador do cliente: {slug}")
         if c.tipo == "mayacorp" or (c.banco is None and c.tipo != "externo"):
@@ -1083,6 +1085,8 @@ def excluir_cliente_saas(cid: int, ctx: Painel, confirmar: str = ""):
         service.excluir_escritorio(slug)
     except service.RegraControle as e:
         _erro(e)
+    # o cadastro e as faturas dele ficam no banco do admin (histórico), mas nada mais dele entra em Itens a faturar
+    faturamento_admin.cobrar_cliente(ctx.db, ctx.tenant_id, tomador_id, False)
     ctx.auditar("admin.cliente.excluir", "controle_cliente", cid,
                 descricao=f"{slug}: {nome}" + (" (banco apagado)" if tinha_banco else " (sem acesso ao sistema)"))
     ctx.db.commit()

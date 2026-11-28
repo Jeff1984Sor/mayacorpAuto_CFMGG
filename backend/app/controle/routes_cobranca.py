@@ -172,20 +172,18 @@ def listar(ctx: Painel, status: str | None = None, cliente_id: int | None = None
 @admin.get("/cobrancas/resumo")
 def resumo(ctx: Painel):
     hoje = date.today()
-    from app.controle import recorrencia
-
     with SessaoControle() as db:
         todas = list(db.scalars(select(Cobranca).where(Cobranca.status != "cancelada")))
-        planos_mes, recorrencias_mes = mrr_dos_planos(db), recorrencia.receita_mensal(db)
+        planos_mes = mrr_dos_planos(db)
     aberto = sum((k.valor for k in todas if k.status == "pendente" and k.vencimento >= hoje), Decimal(0))
     vencido = sum((k.valor for k in todas if k.status == "pendente" and k.vencimento < hoje), Decimal(0))
     recebido = sum((k.valor for k in todas if k.status == "paga" and k.pago_em and k.pago_em.date().replace(day=1)
                     == hoje.replace(day=1)), Decimal(0))
     return {"em_aberto": _d(aberto), "vencido": _d(vencido), "recebido_mes": _d(recebido),
             "inadimplentes": len({k.cliente_id for k in todas if k.status == "pendente" and k.vencimento < hoje}),
-            # receita recorrente mensal prevista: mensalidades de plano + recorrências ativas, tudo trazido para o mês
-            "receita_recorrente": _d(planos_mes + recorrencias_mes), "receita_planos": _d(planos_mes),
-            "receita_recorrencias": _d(recorrencias_mes),
+            # receita recorrente mensal prevista: só as mensalidades de plano (os outros serviços recorrentes são
+            # regras de cobrança do faturamento e aparecem em Itens a faturar e nos relatórios de lá)
+            "receita_recorrente": _d(planos_mes), "receita_planos": _d(planos_mes),
             "nao_enviadas": len([k for k in todas if k.status == "pendente" and k.envio_erro])}
 
 

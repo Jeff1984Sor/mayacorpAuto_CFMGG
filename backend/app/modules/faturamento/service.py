@@ -49,6 +49,15 @@ def usa_contrato(db: Session, tenant_id: int) -> bool:
     return cfg.usa_contrato if cfg else True
 
 
+TEXTO_SERVICO = "Honorários advocatícios"
+
+
+def texto_servico(db: Session, tenant_id: int) -> str:
+    """Como a fatura e a nota chamam o serviço (1ª linha do texto)."""
+    cfg = db.get(ConfigFaturamento, tenant_id)
+    return (cfg.texto_servico or "").strip() if cfg and cfg.texto_servico else TEXTO_SERVICO
+
+
 def clientes_com_varios_contratos(db: Session, tenant_id: int) -> list[str]:
     from sqlalchemy import func
 
@@ -389,7 +398,8 @@ def _criar_faturas_grupo(db: Session, tenant_id: int, contrato: Contrato, sel: l
             contrato_id=contrato.id, tomador_id=tomador_id, rateio=rateio, ano=hoje.year,
             numero=faturas.proximo_numero(db, emissora_id, tipo), data_emissao=hoje,
             data_vencimento=hoje if vencimento_na_emissao else hoje + timedelta(days=dias_vencimento),
-            descricao=_descricao(contrato, sel, tipo, pct if rateio else None, usa_contrato(db, tenant_id)),
+            descricao=_descricao(contrato, sel, tipo, pct if rateio else None, usa_contrato(db, tenant_id),
+                                 texto_servico(db, tenant_id)),
             valor=valor, observacao=observacao,
         )
         db.add(fat)
@@ -704,14 +714,14 @@ def analisar_com_ia(db: Session, rev: Revisao) -> dict:
 
 
 def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota: Decimal | None = None,
-               com_contrato: bool = True) -> str:
+               com_contrato: bool = True, servico: str = TEXTO_SERVICO) -> str:
     """Texto da fatura — e, para honorários, a discriminação da futura NFS-e."""
     parte = f" — cota de {_pct(cota)}%" if cota is not None else ""
     if tipo == TipoFatura.despesas:
         if not com_contrato:
             return f"Reembolso de despesas{parte}"
         return f"Reembolso de despesas — contrato #{contrato.numero} {contrato.nome}{parte}"
-    linhas = [f"Honorários advocatícios — {contrato.nome}{parte}" if com_contrato else f"Honorários advocatícios{parte}"]
+    linhas = [f"{servico} — {contrato.nome}{parte}" if com_contrato else f"{servico}{parte}"]
     horas = [p for p in itens if p.tipo == "hora"]
     outros = [p for p in itens if p.tipo != "hora"]
     linhas += [f"- {p.descricao}" for p in outros]

@@ -92,7 +92,7 @@ function DarAcessoDialog({
       descricao={
         volta
           ? "O ambiente que este cliente já teve continua guardado: ele volta como estava, com os mesmos usuários, senhas e dados. A mensalidade do plano volta a ser cobrada."
-          : "O cliente passa a usar o MayaJus: ganha o ambiente próprio, plano, teste grátis e as boas-vindas por e-mail. As cobranças recorrentes dele continuam valendo."
+          : "O cliente passa a usar o MayaJus: ganha o ambiente próprio, plano, teste grátis e as boas-vindas por e-mail. As regras de cobrança dele continuam valendo."
       }
       largura="lg"
       salvando={salvar.isPending}
@@ -271,9 +271,9 @@ export function BotaoAcesso({ cli }: { cli: ClienteSaaS }) {
             </span>
             <span className="block">
               Nada é apagado: o ambiente, os usuários e os dados ficam guardados
-              e voltam como estavam se você devolver o acesso. As cobranças
-              recorrentes e avulsas continuam valendo, e as cobranças já geradas
-              seguem em aberto.
+              e voltam como estavam se você devolver o acesso. As regras de
+              cobrança e as cobranças avulsas continuam valendo, e as cobranças
+              já geradas seguem em aberto.
             </span>
           </span>
         }

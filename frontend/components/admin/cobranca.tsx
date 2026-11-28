@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/mayacorp/empty-state";
+import { CobrancaDoCliente } from "@/components/faturamento/contratos-cliente";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Pill } from "@/components/mayacorp/status-badge";
@@ -179,15 +180,42 @@ export function NaoEnviada({ k }: { k: Cobranca }) {
   );
 }
 
-/** Aba da ficha do cliente: como ele paga (link ou cartão recorrente), as recorrências e as cobranças dele. */
-export function AbaCobrancas({
-  cli,
-  recorrencias,
-}: {
-  cli: ClienteSaaS;
-  /** seção "Cobranças recorrentes", entre a forma de pagamento e a lista */
-  recorrencias?: React.ReactNode;
-}) {
+/**
+ * Regras de cobrança do cliente: as mesmas do módulo de faturamento dos escritórios (valor fixo, fixo recorrente e
+ * por hora; quem paga; empresa emissora; tabela de preço), gravadas no cadastro completo dele no banco do admin.
+ */
+function RegrasDoCliente({ cli }: { cli: ClienteSaaS }) {
+  const tomadorId = cli.cadastro.tomador_id;
+  return (
+    <section className="card-surface space-y-3 p-4" aria-labelledby="regras-cobranca">
+      <div>
+        <p id="regras-cobranca" className="font-medium">
+          Regras de cobrança
+        </p>
+        <p className="text-xs text-muted-foreground">
+          O que estiver aqui aparece em Faturamento › Itens a faturar na data;
+          de lá você gera a fatura e a nota fiscal.
+        </p>
+      </div>
+      {tomadorId ? (
+        <CobrancaDoCliente
+          tomadorId={tomadorId}
+          vazioTexto="Defina como este cliente é cobrado: valor fixo numa data, valor recorrente (todo mês, a cada 3 meses…) ou por hora."
+        />
+      ) : (
+        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          Este cliente ainda está sem cadastro
+          {cli.cadastro.conflito ? ` (${cli.cadastro.conflito})` : ""}. Complete
+          o cadastro, pelo aviso no alto da ficha, para definir as regras de
+          cobrança.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Aba da ficha do cliente: as regras de cobrança (faturamento) e, abaixo, o que é do Mercado Pago (como ele paga o plano e as cobranças). */
+export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
   const qc = useQueryClient();
   const [avulsa, setAvulsa] = useState(false);
   const externo = cli.tipo === "externo";
@@ -223,11 +251,12 @@ export function AbaCobrancas({
   const p = pag.data;
   return (
     <div className="space-y-4">
+      <RegrasDoCliente cli={cli} />
       {externo ? (
         <div className="card-surface space-y-1 p-4">
-          <p className="font-medium">Forma de pagamento</p>
+          <p className="font-medium">Cobrança avulsa pelo Mercado Pago</p>
           <p className="text-sm">
-            Link do Mercado Pago em cada cobrança (Pix, cartão ou boleto).
+            Link do Mercado Pago em cada cobrança avulsa (Pix, cartão ou boleto).
           </p>
           <p className="text-xs text-muted-foreground">
             O link vai por e-mail para o financeiro do cliente quando a cobrança
@@ -236,7 +265,7 @@ export function AbaCobrancas({
         </div>
       ) : (
       <div className="card-surface space-y-3 p-4">
-        <p className="font-medium">Forma de pagamento</p>
+        <p className="font-medium">Forma de pagamento do plano</p>
         <div className="flex flex-wrap items-center gap-3">
           <NativeSelect
             value={p?.forma_pagamento ?? "link"}
@@ -278,9 +307,17 @@ export function AbaCobrancas({
         </p>
       </div>
       )}
-      {recorrencias}
-      <div className="flex items-center justify-between">
-        <p className="font-medium">Cobranças</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-medium">
+            {externo ? "Cobranças pelo Mercado Pago" : "Cobranças do plano (Mercado Pago)"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {externo
+              ? "Cobranças avulsas com link de pagamento. Não passam por Itens a faturar."
+              : "Mensalidade do plano, cartão e cobranças avulsas, com link de pagamento. Não passam por Itens a faturar."}
+          </p>
+        </div>
         <Button size="sm" onClick={() => setAvulsa(true)}>
           <Plus /> Cobrança avulsa
         </Button>
@@ -291,7 +328,7 @@ export function AbaCobrancas({
           titulo="Nenhuma cobrança"
           descricao={
             externo
-              ? "As cobranças das recorrências e as avulsas aparecem aqui assim que forem geradas."
+              ? "As cobranças avulsas aparecem aqui assim que forem geradas."
               : "As mensalidades aparecem aqui assim que forem geradas."
           }
         />

@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { abrirArquivo, api } from "@/lib/api";
-import { useUsaContrato } from "@/lib/contrato";
+import { useLinkCliente, useUsaContrato } from "@/lib/contrato";
 import { aposCriarFaturas } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import {
@@ -74,16 +74,16 @@ function Tri({ itens, sel, onChange, rotulo }: { itens: ItemPendente[]; sel: Set
 }
 
 /** Para onde ir para corrigir o aviso do item. */
-function linkAviso(aviso: string, contratoId: number, casoId: number | null, clienteId?: number) {
-  // sem a figura do contrato (clienteId informado), a cobrança fica na ficha do cliente
-  const dono = clienteId ? `/cadastros/clientes?id=${clienteId}` : `/faturamento/contratos/${contratoId}`;
+function linkAviso(aviso: string, contratoId: number, casoId: number | null, clienteId?: string) {
+  // sem a figura do contrato (clienteId = o link da ficha do cliente), a cobrança fica na ficha do cliente
+  const dono = clienteId ?? `/faturamento/contratos/${contratoId}`;
   if (/tabela de pre[cç]o no (contrato|cliente)/i.test(aviso))
     return casoId ? { href: `/faturamento/casos/${casoId}`, rotulo: "Escolher no caso" } : { href: dono, rotulo: clienteId ? "Escolher no cliente" : "Escolher no contrato" };
   if (/sem cargo/i.test(aviso)) return { href: "/configuracoes/faturamento", rotulo: "Ajustar cargo ou tabela" };
   return { href: dono, rotulo: clienteId ? "Abrir cliente" : "Abrir contrato" };
 }
 
-function LinhaItem({ i, sel, onToggle, contratoId, clienteId }: { i: ItemPendente; sel: boolean; onToggle: (v: boolean) => void; contratoId: number; clienteId?: number }) {
+function LinhaItem({ i, sel, onToggle, contratoId, clienteId }: { i: ItemPendente; sel: boolean; onToggle: (v: boolean) => void; contratoId: number; /** sem contratos: o link da ficha do cliente */ clienteId?: string }) {
   const aviso = !!i.aviso;
   return (
     <tr className={cn("text-sm transition-colors", aviso ? "bg-warning/6" : sel ? "bg-brand/[0.04]" : "hover:bg-accent/30")}>
@@ -217,6 +217,7 @@ const semAcento = (x: string) =>
 
 export default function ItensAFaturarPage() {
   const usaContrato = useUsaContrato();
+  const linkCliente = useLinkCliente();
   const qc = useQueryClient();
   const router = useRouter();
   const { pode } = useAuth();
@@ -423,7 +424,7 @@ export default function ItensAFaturarPage() {
             titulo="Nada a faturar no período"
             descricao={`Confira se os ${usaContrato ? "contratos" : "clientes"} têm regras de cobrança e se as horas e despesas foram lançadas nos casos.`}
             acao={
-              <Button variant="outline" render={<Link href={usaContrato ? "/faturamento/contratos" : "/cadastros/clientes"} />}>
+              <Button variant="outline" nativeButton={false} render={<Link href={usaContrato ? "/faturamento/contratos" : linkCliente()} />}>
                 {usaContrato ? "Ver contratos" : "Ver clientes"}
               </Button>
             }
@@ -540,7 +541,7 @@ export default function ItensAFaturarPage() {
                                       </thead>
                                       <tbody className="divide-y">
                                         {k.itens.map((i) => (
-                                          <LinhaItem key={i.chave} i={i} contratoId={k.contrato_id} clienteId={usaContrato ? undefined : c.tomador_id} sel={sel.has(i.chave)} onToggle={(v) => marcar([i], v)} />
+                                          <LinhaItem key={i.chave} i={i} contratoId={k.contrato_id} clienteId={usaContrato ? undefined : linkCliente(c.tomador_id)} sel={sel.has(i.chave)} onToggle={(v) => marcar([i], v)} />
                                         ))}
                                       </tbody>
                                     </table>

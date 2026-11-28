@@ -266,7 +266,6 @@ export interface ResumoCobranca {
   /** mensalidades de plano + recorrências ativas, tudo trazido para o mês */
   receita_recorrente: Decimal;
   receita_planos: Decimal;
-  receita_recorrencias: Decimal;
   nao_enviadas: number;
 }
 
@@ -276,81 +275,6 @@ export const ROTULO_TIPO_COBRANCA: Record<Cobranca["tipo"], string> = {
   recorrente: "Recorrente",
   cartao: "Cartão (assinatura)",
 };
-
-// ---------------------------------------------------------------- cobranças recorrentes
-export type Periodicidade = "mensal" | "bimestral" | "trimestral" | "semestral" | "anual";
-
-export const ROTULO_PERIODICIDADE: Record<Periodicidade, string> = {
-  mensal: "Mensal",
-  bimestral: "Bimestral (a cada 2 meses)",
-  trimestral: "Trimestral (a cada 3 meses)",
-  semestral: "Semestral (a cada 6 meses)",
-  anual: "Anual",
-};
-
-export type StatusRecorrencia = "ativa" | "pausada" | "encerrada" | "concluida";
-
-export const TOM_RECORRENCIA: Record<StatusRecorrencia, "success" | "warning" | "neutral" | "info"> = {
-  ativa: "success",
-  pausada: "warning",
-  encerrada: "neutral",
-  concluida: "info",
-};
-
-export interface RecorrenciaIn {
-  descricao: string;
-  valor: string;
-  periodicidade: Periodicidade;
-  /** 1 a 28; 0 = último dia do mês */
-  dia_vencimento: number;
-  /** mês da primeira cobrança (AAAA-MM-01) */
-  inicio: string;
-  termino_tipo: "sem_fim" | "data" | "quantidade";
-  termino_data: string | null;
-  termino_quantidade: number | null;
-  /** dias antes do vencimento em que a cobrança é gerada e enviada */
-  antecedencia: number | null;
-  observacao: string | null;
-}
-
-export interface Recorrencia extends Omit<RecorrenciaIn, "valor" | "antecedencia"> {
-  id: number;
-  cliente_id: number;
-  cliente_nome: string;
-  valor: Decimal;
-  antecedencia: number;
-  periodicidade_rotulo: string;
-  status: StatusRecorrencia;
-  status_rotulo: string;
-  geradas: number;
-  pagas: number;
-  em_aberto: number;
-  proxima_competencia: string | null;
-  proximo_vencimento: string | null;
-  cliente_inativo: boolean;
-  criado_em: string;
-  encerrada_em: string | null;
-  sem_email?: boolean;
-}
-
-export interface PreviaRecorrencia {
-  proximas: {
-    competencia: string;
-    vencimento: string;
-    vencimento_previsto: string;
-    sai_em: string;
-    valor: Decimal;
-    ja_sai: boolean;
-  }[];
-  /** quantas cobranças já passaram da data e sairiam nas próximas rodadas */
-  saem_ja: number;
-  termina: boolean;
-  por_dia: number;
-  prazo_atrasada: number;
-  antecedencia: number;
-  sem_email: boolean;
-  cliente_inativo: boolean;
-}
 
 export interface ConfigCobranca {
   conectado: boolean;

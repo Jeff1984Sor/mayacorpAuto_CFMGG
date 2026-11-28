@@ -15,7 +15,6 @@ from app.controle import routes_admin as admin_mayacorp
 from app.controle import routes_cadastro as cadastro_routes
 from app.controle import routes_cobranca as cobranca_routes
 from app.controle import routes_ia as ia_admin_routes
-from app.controle import routes_recorrencia as recorrencia_routes
 from app.core import cnpj, tenancy
 from app.core.config import BASE_DIR, settings
 from app.core.escritorio_http import EscritorioMiddleware
@@ -153,7 +152,7 @@ for r in (auth.router, public.router, hub.router, config.router, nfse_routes.con
           nfse_routes.router, routes_financeiro.router, routes_faturas.router, routes_dashboard.router, ia.router, cnpj.router, comunicador.router, comunicador.ws_router,
           auditoria.router, assistente_routes.router, faturamento_judiciario.router, faturamento_listas.router, faturamento_planilhas.router, faturamento_importar_casos.router, faturamento_tarefas.router, faturamento_timesheet.router, routes_casos.router, faturamento_envolvimento.router, faturamento_routes.router, routes_revisao.router, financas_routes.router, routes_conciliacao.router, comissoes_routes.router, comissoes_routes.regras_router, boletos_routes.router, relatorios_routes.router, pessoas_routes.router, pessoas_routes.advogados, mcp_oauth.router, mcp_servidor.router,
           tribunais_routes.router, tribunais_protocolo.router, tribunais_config.router, tribunais_config.publico,
-          admin_mayacorp.router, cobranca_routes.admin, recorrencia_routes.admin, cobranca_routes.publico, cobranca_routes.meu, ia_admin_routes.router, ia_admin_routes.clientes,
+          admin_mayacorp.router, cobranca_routes.admin, cobranca_routes.publico, cobranca_routes.meu, ia_admin_routes.router, ia_admin_routes.clientes,
           cadastro_routes.publico, cadastro_routes.admin):
     app.include_router(r, prefix="/api")
 app.include_router(mcp_oauth.raiz)  # descoberta OAuth do conector MCP (/.well-known)

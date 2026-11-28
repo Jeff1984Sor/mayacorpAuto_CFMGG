@@ -163,8 +163,9 @@ class ChaveIA(BaseControle):
 
 
 class CobrancaRecorrente(BaseControle):
-    """Serviço cobrado todo período (hospedagem, suporte…), além ou no lugar da mensalidade do plano. A rotina diária
-    gera a cobrança de cada competência (app/controle/recorrencia.py); mudar o valor aqui só vale para as próximas."""
+    """HISTÓRICO. Era o serviço cobrado todo período com link do Mercado Pago; hoje esses serviços são regras de
+    cobrança do faturamento no banco do admin (app/controle/faturamento_admin.py). Nada mais gera cobrança daqui:
+    as ativas e pausadas foram migradas (status "migrada" + `regra_id`) e as cobranças já geradas continuam valendo."""
 
     __tablename__ = "cobranca_recorrente"
 
@@ -179,12 +180,13 @@ class CobrancaRecorrente(BaseControle):
     termino_data: Mapped[date | None] = mapped_column(Date)  # último vencimento aceito
     termino_quantidade: Mapped[int | None] = mapped_column(Integer)  # total de cobranças
     antecedencia: Mapped[int] = mapped_column(Integer, default=3)  # dias antes do vencimento em que a cobrança sai
-    status: Mapped[str] = mapped_column(String(10), default="ativa")  # ativa | pausada | encerrada | concluida
+    status: Mapped[str] = mapped_column(String(10), default="ativa")  # ativa | pausada | encerrada | concluida | migrada
+    regra_id: Mapped[int | None] = mapped_column(Integer)  # migrada: a RegraCobranca (fat_regra) no banco do admin
     observacao: Mapped[str | None] = mapped_column(Text)
     # cursor da geração: a próxima competência (dia 1) e quantas já saíram; é ele que impede pular ou repetir
     proxima_competencia: Mapped[date] = mapped_column(Date)
     geradas: Mapped[int] = mapped_column(Integer, default=0)
-    # teto de segurança da rotina: quantas saíram sozinhas no último dia em que a rotina gerou (recorrencia.TETO_POR_DIA)
+    # teto de segurança da rotina antiga: quantas saíram sozinhas no último dia em que ela gerou
     rotina_dia: Mapped[date | None] = mapped_column(Date)
     rotina_no_dia: Mapped[int] = mapped_column(Integer, default=0)
     criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
@@ -194,8 +196,8 @@ class CobrancaRecorrente(BaseControle):
 
 
 class Cobranca(BaseControle):
-    """Uma cobrança ao cliente: mensalidade (do plano), avulsa (sem produto), recorrente (de uma CobrancaRecorrente)
-    ou paga pela assinatura no cartão."""
+    """Uma cobrança ao cliente pelo Mercado Pago: mensalidade (do plano), avulsa (sem produto) ou paga pela assinatura
+    no cartão. "recorrente" é histórico (de uma CobrancaRecorrente): não nasce mais, mas segue a régua e recebe baixa."""
 
     __tablename__ = "cobranca"
     __table_args__ = (

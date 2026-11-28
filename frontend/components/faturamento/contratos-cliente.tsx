@@ -23,7 +23,7 @@ import { RegrasCobranca } from "./regras";
  * Aba "Cobrança" no cadastro do cliente, para o escritório que trabalha sem contratos (Configurações › Faturamento):
  * as regras de cobrança, quem paga, a empresa emissora e a tabela de preço ficam direto no cliente.
  */
-export function CobrancaDoCliente({ tomadorId }: { tomadorId: number }) {
+export function CobrancaDoCliente({ tomadorId, vazioTexto }: { tomadorId: number; /** lista de regras vazia */ vazioTexto?: string }) {
   const { pode } = useAuth();
   const podeEditar = pode("contratos.editar");
   const podeCriar = pode("casos.editar");
@@ -67,7 +67,7 @@ export function CobrancaDoCliente({ tomadorId }: { tomadorId: number }) {
       </div>
       <RegrasCobranca
         contratoId={c.id}
-        vazioTexto="Defina como este cliente é cobrado: valor fixo, mensalidade recorrente ou por hora. Um caso pode ter regra própria."
+        vazioTexto={vazioTexto ?? "Defina como este cliente é cobrado: valor fixo, mensalidade recorrente ou por hora. Um caso pode ter regra própria."}
       />
       <ContratoDialog open={editar} onOpenChange={setEditar} contrato={c} simples />
     </div>

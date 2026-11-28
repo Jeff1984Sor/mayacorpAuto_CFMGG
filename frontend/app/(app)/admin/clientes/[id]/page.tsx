@@ -35,7 +35,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { AbaCobrancas } from "@/components/admin/cobranca";
 import { AbaIA } from "@/components/admin/ia-liberacao";
-import { Recorrencias } from "@/components/admin/recorrencia";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -186,8 +185,8 @@ export default function FichaClientePage() {
                 titulo={`Excluir ${cli.nome} de vez?`}
                 descricao={
                   externo && !cli.ambiente_guardado
-                    ? "Apaga a ficha, os contratos, as recorrências e as cobranças deste cliente. Não tem volta."
-                    : "O acesso é cortado na hora e o banco do escritório é apagado com tudo dentro (usuários, clientes, notas, faturas), junto com os domínios, contratos, recorrências e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
+                    ? "Apaga a ficha, os contratos e as cobranças deste cliente, e as regras de cobrança dele param de aparecer em Itens a faturar. As faturas e notas já emitidas ficam. Não tem volta."
+                    : "O acesso é cortado na hora e o banco do escritório é apagado com tudo dentro (usuários, clientes, notas, faturas), junto com os domínios, contratos e cobranças; as regras de cobrança dele param de aparecer em Itens a faturar. Não tem volta. Os arquivos ficam guardados no servidor."
                 }
                 digitar={cli.slug}
                 rotulo={externo ? "Excluir cliente" : "Excluir escritório"}
@@ -238,7 +237,7 @@ export default function FichaClientePage() {
           <AbaContratos cli={cli} />
         </TabsContent>
         <TabsContent value="cobrancas">
-          <AbaCobrancas cli={cli} recorrencias={<Recorrencias cli={cli} />} />
+          <AbaCobrancas cli={cli} />
         </TabsContent>
         {!externo && (
           <TabsContent value="ia">
@@ -255,10 +254,10 @@ export default function FichaClientePage() {
         descricao={
           externo
             ? mudar === "inativo"
-              ? "As cobranças recorrentes deixam de ser geradas enquanto ele estiver inativo. As cobranças já geradas continuam em aberto."
-              : "As cobranças recorrentes ativas voltam a ser geradas na data de cada uma."
+              ? "As regras de cobrança dele saem de Itens a faturar enquanto ele estiver inativo. As cobranças e faturas já geradas continuam em aberto."
+              : "As regras de cobrança dele voltam a aparecer em Itens a faturar na data de cada uma."
             : mudar === "inativo"
-            ? "Ninguém do escritório consegue entrar enquanto estiver inativo. Os dados são mantidos."
+            ? "Ninguém do escritório consegue entrar enquanto estiver inativo, e as regras de cobrança dele saem de Itens a faturar. Os dados são mantidos."
             : mudar === "suspenso"
               ? "O escritório continua entrando normalmente; serve para marcar quem está com pagamento em atraso."
               : "O escritório volta a entrar normalmente."

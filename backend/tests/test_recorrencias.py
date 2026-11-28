@@ -1,6 +1,6 @@
-"""Admin MayaCorp: cliente sem acesso ao sistema (só cobrança) e cobranças recorrentes."""
+"""Admin MayaCorp: cliente sem acesso ao sistema (só cobrança) e o serviço recorrente como regra de cobrança do
+faturamento (as recorrências antigas do controle, com link do Mercado Pago, são migradas e desligadas)."""
 
-import logging
 import tempfile
 from datetime import date
 from decimal import Decimal
@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.core import tenancy
 from tests.test_api_fluxo import _login, cliente  # noqa: F401  (fixture)
@@ -43,10 +42,9 @@ class _Hoje(date):
 
 @pytest.fixture(autouse=True)
 def hoje_fixo(monkeypatch):
-    """As telas decidem "vencida", a prévia e o "gerar agora" pelo dia de hoje. Os testes usam datas de 2027: com o
-    hoje fixo eles não mudam de resultado conforme o dia em que rodam."""
+    """As telas decidem "vencida" pelo dia de hoje. Os testes usam datas de 2027: com o hoje fixo eles não mudam de
+    resultado conforme o dia em que rodam."""
     monkeypatch.setattr("app.controle.routes_cobranca.date", _Hoje)
-    monkeypatch.setattr("app.controle.routes_recorrencia.date", _Hoje)
 
 
 @pytest.fixture
@@ -103,12 +101,54 @@ def _externo(c, adm, nome, **ficha):
     return r.json()
 
 
-def _recorrencia(c, adm, cid, **dados):
-    corpo = {"descricao": "Hospedagem do site", "valor": "300.00", "periodicidade": "mensal", "dia_vencimento": 10,
-             "inicio": "2027-01-01", "antecedencia": 5, **dados}
-    r = c.post(f"/api/admin/clientes/{cid}/recorrencias", headers=adm, json=corpo)
-    assert r.status_code == 201, r.text
-    return r.json()
+def _recorrencia_antiga(cid, **dados) -> int:
+    """Uma linha do motor antigo, gravada direto no controle (as rotas que criavam não existem mais)."""
+    from app.controle.models import CobrancaRecorrente, SessaoControle
+
+    campos = {"descricao": "Hospedagem do site", "valor": Decimal("300.00"), "periodicidade": "mensal", "dia_vencimento": 10,
+              "inicio": date(2027, 1, 1), "termino_tipo": "sem_fim", "antecedencia": 5, "status": "ativa", "geradas": 0,
+              "rotina_no_dia": 0, **dados}
+    campos.setdefault("proxima_competencia", campos["inicio"])
+    with SessaoControle() as db:
+        r = CobrancaRecorrente(cliente_id=cid, **campos)
+        db.add(r)
+        db.commit()
+        return r.id
+
+
+def _cobranca_antiga(cid, rid, competencia, descricao, valor) -> int:
+    from app.controle.models import Cobranca, SessaoControle
+
+    with SessaoControle() as db:
+        k = Cobranca(cliente_id=cid, tipo="recorrente", recorrencia_id=rid, competencia=competencia, descricao=descricao,
+                     itens=[{"descricao": descricao, "valor": valor}], valor=Decimal(valor),
+                     vencimento=date(int(competencia[:4]), int(competencia[5:]), 10), status="pendente", avisos=[])
+        db.add(k)
+        db.commit()
+        return k.id
+
+
+def _emissora(c, adm) -> int:
+    lista = c.get("/api/nfse/emissoras", headers=adm).json()
+    if lista:
+        return lista[0]["id"]
+    r = c.post("/api/nfse/emissoras", headers=adm, json={
+        "razao_social": "MayaCorp MEI", "cnpj": "37552605000103", "ccm": "", "sistema_emissao": "nacional", "regime": "mei",
+        "cep": "18035000", "cidade": "Sorocaba", "uf": "SP", "codigo_municipio": "3552205", "cod_trib_nacional": "010101",
+        "serie_rps": "2", "prox_rps": 1, "aliquota_iss": "0.02"})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _regras(c, adm, tomador_id):
+    k = c.get(f"/api/faturamento/clientes/{tomador_id}/contrato", headers=adm).json()
+    return c.get("/api/faturamento/regras", headers=adm, params={"contrato_id": k["id"]}).json() if k else []
+
+
+def _itens(c, adm, tomador_id, de, ate):
+    r = c.get("/api/faturamento/itens-a-faturar", headers=adm, params={"de": de, "ate": ate, "cliente_ids": [tomador_id]})
+    assert r.status_code == 200, r.text
+    return [i for cli in r.json()["clientes"] for k in cli["contratos"] for i in k["itens"]]
 
 
 def _cobrancas(c, adm, cid, **filtro):
@@ -212,212 +252,180 @@ def test_cliente_sem_acesso_nao_cria_banco_nem_login(painel, mp):
     assert _login(c)  # a CFME (banco principal) continua entrando
 
 
-def test_recorrencia_gera_na_data_sem_duplicar(painel, mp):
-    from app.controle import cobranca
-    from app.controle.models import Cobranca, SessaoControle
+def test_recorrencias_antigas_viram_regras_de_cobranca(painel, mp, caplog):
+    """O motor do controle foi desligado: no migrar do deploy cada recorrência ativa ou pausada vira uma regra
+    recorrente do faturamento no cliente, só com as competências que ainda não tinham saído, uma vez só."""
+    from app.controle import cobranca, faturamento_admin
+    from app.controle.models import Cliente, Cobranca, CobrancaRecorrente, SessaoControle
 
     c = painel
     adm = _entrar(c)
     _conectar_mp(c, adm)
-    cid = _externo(c, adm, "Clínica Vida", documento="33000167000101", email_financeiro="fin@clinicavida.com.br")["id"]
+    # o banco do admin trabalha sem contratos (ligado sozinho no migrar); o dos escritórios não muda
+    assert faturamento_admin.preparar()["sem_contratos"] is True
+    assert c.get("/api/faturamento/config", headers=adm).json() == {"usa_contrato": False}
+    # e tem o emissor de NFS-e liberado (a nota da fatura sai pela tela do lote)
+    assert "nfse_lote" in c.get("/api/auth/me", headers=adm).json()["robos"]
+    assert c.get("/api/faturamento/config", headers=_login(c)).json() == {"usa_contrato": True}
 
-    # prévia antes de salvar: as 3 próximas datas e valores
-    corpo = {"cliente_id": cid, "descricao": "Hospedagem do site", "valor": "300.00", "periodicidade": "mensal",
-             "dia_vencimento": 10, "inicio": "2027-01-15", "antecedencia": 5}
-    p = c.post("/api/admin/recorrencias/previa", headers=adm, json=corpo).json()
-    assert [(x["competencia"], x["vencimento"], x["valor"]) for x in p["proximas"]] == [
-        ("2027-01", "2027-01-10", "300.00"), ("2027-02", "2027-02-10", "300.00"), ("2027-03", "2027-03-10", "300.00")]
-    assert p["sem_email"] is False and p["termina"] is False
-    assert c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json() == []  # a prévia não grava
-    # sem informar a antecedência, vale o primeiro aviso da régua (3 dias antes)
-    assert c.post("/api/admin/recorrencias/previa", headers=adm, json={**corpo, "antecedencia": None}).json()["antecedencia"] == 3
-    # término que não deixa nascer nenhuma cobrança
-    r = c.post("/api/admin/recorrencias/previa", headers=adm, json={**corpo, "termino_tipo": "data", "termino_data": "2027-01-05"})
-    assert r.status_code == 400 and "nenhuma cobrança" in r.json()["detail"]
-
-    rec = _recorrencia(c, adm, cid)
-    rid = rec["id"]
-    assert rec["status"] == "ativa" and rec["proximo_vencimento"] == "2027-01-10" and rec["geradas"] == 0
-    assert rec["sem_email"] is False
-
-    # antes da data nada sai; 5 dias antes do vencimento sai uma, com link e e-mail; rodar de novo no dia não duplica
-    assert cobranca.rotina_diaria(date(2027, 1, 4))["recorrentes"] == 0
-    mp["emails"].clear()
-    assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 1
-    assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 0
-    (k,) = _cobrancas(c, adm, cid)
-    assert (k["tipo"], k["competencia"], k["descricao"], k["valor"], k["vencimento"], k["status"]) == (
-        "recorrente", "2027-01", "Hospedagem do site 01/2027", "300.00", "2027-01-10", "pendente")
-    assert k["recorrencia_id"] == rid and k["link"] == f"https://mp.test/cob:{k['id']}" and k["envio_erro"] is None
-    assert [(e[0], e[1]) for e in mp["emails"]] == [(["fin@clinicavida.com.br"], "MayaCorp — Hospedagem do site 01/2027: vence em 10/01/2027")]
-    # depois segue a régua como qualquer cobrança (3 dias antes do vencimento)
-    assert cobranca.rotina_diaria(date(2027, 1, 7))["avisos"] == 1
+    vida = _externo(c, adm, "Clínica Vida", documento="33000167000101", email_financeiro="fin@clinicavida.com.br")
+    cid, tid = vida["id"], vida["tomador_id"]
+    assert tid and _regras(c, adm, tid) == []
+    # como está em produção: mensal, dia 5, começa em 12/2026, nenhuma cobrança gerada
+    r1 = _recorrencia_antiga(cid, descricao="Geração de Documentos", valor=Decimal("200.00"), dia_vencimento=5,
+                             inicio=date(2026, 12, 1), observacao="Combinado com a Dra. Ana")
+    # trimestral de 5 cobranças que já gerou 2 (jan e abr/2027): sobram 3, a partir de julho
+    r2 = _recorrencia_antiga(cid, descricao="Suporte", valor=Decimal("450.00"), periodicidade="trimestral",
+                             termino_tipo="quantidade", termino_quantidade=5, geradas=2, proxima_competencia=date(2027, 7, 1))
+    k_abril = _cobranca_antiga(cid, r2, "2027-04", "Suporte 04/2027", "450.00")
+    # pausada, anual, no último dia do mês, até uma data
+    r3 = _recorrencia_antiga(cid, descricao="Domínio", valor=Decimal("90.00"), periodicidade="anual", dia_vencimento=0,
+                             inicio=date(2027, 2, 1), termino_tipo="data", termino_data=date(2029, 12, 31), status="pausada")
+    # as que não entram: encerrada, e a que já gerou tudo o que tinha para gerar
+    r4 = _recorrencia_antiga(cid, descricao="Antiga", status="encerrada")
+    r5 = _recorrencia_antiga(cid, descricao="Parcelas", termino_tipo="quantidade", termino_quantidade=2, geradas=2,
+                             proxima_competencia=date(2027, 3, 1))
+    # cliente cujo CNPJ é o cadastro de outro: fica sem cadastro ligado, não migra e o log avisa
+    orfao = _externo(c, adm, "Sem Cadastro Ligado")["id"]
     with SessaoControle() as db:
-        assert db.get(Cobranca, k["id"]).avisos == [-3]
-    # o tipo aparece na tela geral e dá para filtrar
-    assert [x["id"] for x in c.get("/api/admin/cobrancas", headers=adm, params={"tipo": "recorrente"}).json()] == [k["id"]]
+        o = db.get(Cliente, orfao)
+        o.documento, o.tomador_id = "33000167000101", None
+        db.commit()
+    r6 = _recorrencia_antiga(orfao, descricao="Backup")
 
-    # reajuste vale só para as próximas: a de janeiro continua 300, a de fevereiro sai 350
-    edicao = {"descricao": "Hospedagem do site", "valor": "350.00", "periodicidade": "mensal", "dia_vencimento": 10,
-              "inicio": "2027-01-01", "antecedencia": 5}
-    r = c.put(f"/api/admin/recorrencias/{rid}", headers=adm, json=edicao)
-    assert r.status_code == 200 and r.json()["valor"] == "350.00" and r.json()["proxima_competencia"] == "2027-02", r.text
-    # o início não muda depois que a primeira saiu
-    assert c.put(f"/api/admin/recorrencias/{rid}", headers=adm, json={**edicao, "inicio": "2027-06-01"}).status_code == 400
-    assert cobranca.rotina_diaria(date(2027, 2, 5))["recorrentes"] == 1
-    assert sorted((x["competencia"], x["valor"]) for x in _cobrancas(c, adm, cid)) == [("2027-01", "300.00"), ("2027-02", "350.00")]
+    with caplog.at_level("WARNING"):
+        feito = faturamento_admin.preparar()
+    assert len(feito["regras"]) == 3
+    assert "Backup" in caplog.text and "NÃO foi migrada" in caplog.text
+    assert faturamento_admin.preparar()["regras"] == []  # rodar de novo (todo deploy) não cria outra
 
-    # pausada não gera; retomada continua de onde parou, sem pular março
-    assert c.post(f"/api/admin/recorrencias/{rid}/situacao", headers=adm, json={"acao": "pausar"}).json()["status"] == "pausada"
-    assert cobranca.rotina_diaria(date(2027, 3, 5))["recorrentes"] == 0
-    assert c.post(f"/api/admin/recorrencias/{rid}/gerar", headers=adm).status_code == 400  # pausada
-    assert c.post(f"/api/admin/recorrencias/{rid}/situacao", headers=adm, json={"acao": "retomar"}).json()["status"] == "ativa"
-    assert cobranca.rotina_diaria(date(2027, 3, 6))["recorrentes"] == 1
-    assert sorted(x["competencia"] for x in _cobrancas(c, adm, cid)) == ["2027-01", "2027-02", "2027-03"]
+    regras = {r["descricao"]: r for r in _regras(c, adm, tid)}
+    assert set(regras) == {"Geração de Documentos", "Suporte", "Domínio"}
+    g, s, d = regras["Geração de Documentos"], regras["Suporte"], regras["Domínio"]
+    assert (g["tipo"], g["valor"], g["frequencia"], g["intervalo"], g["data_inicio"], g["termino"], g["ativo"], g["caso_id"]) == (
+        "recorrente", "200.00", "mensal", 1, "2026-12-05", "sem", True, None)
+    assert "cobrança recorrente nº" in g["observacao"] and "Combinado com a Dra. Ana" in g["observacao"]
+    assert (s["frequencia"], s["intervalo"], s["data_inicio"], s["termino"], s["ocorrencias"]) == (
+        "mensal", 3, "2027-07-10", "ocorrencias", 3)
+    assert (d["frequencia"], d["intervalo"], d["data_inicio"], d["termino"], d["data_fim"], d["ativo"]) == (
+        "anual", 1, "2027-02-28", "data", "2029-12-31", False)
 
-    # um cliente pode ter várias: a anual, no último dia do mês, cai no mesmo mês de outra sem conflito
-    anual = _recorrencia(c, adm, cid, descricao="Suporte anual", valor="1200.00", periodicidade="anual", dia_vencimento=0,
-                         inicio="2027-03-01", antecedencia=10)
-    assert anual["proximo_vencimento"] == "2027-03-31"
-    assert cobranca.rotina_diaria(date(2027, 3, 21))["recorrentes"] == 1
-    marco = [x for x in _cobrancas(c, adm, cid) if x["competencia"] == "2027-03"]
-    assert sorted((x["descricao"], x["valor"], x["vencimento"]) for x in marco) == [
-        ("Hospedagem do site 03/2027", "350.00", "2027-03-10"), ("Suporte anual 03/2027", "1200.00", "2027-03-31")]
-    assert c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json()[0]["proximo_vencimento"] == "2028-03-31"
-
-    # "Gerar a próxima agora" não espera a data e nunca repete a competência
-    r = c.post(f"/api/admin/recorrencias/{rid}/gerar", headers=adm)
-    assert r.status_code == 200 and r.json()["cobranca"]["competencia"] == "2027-04", r.text
-    assert r.json()["recorrencia"]["geradas"] == 4 and r.json()["recorrencia"]["proxima_competencia"] == "2027-05"
-    assert cobranca.rotina_diaria(date(2027, 4, 6))["recorrentes"] == 0  # abril já saiu
-    # o banco não aceita duas da mesma recorrência no mesmo mês, e a regra das mensalidades continua valendo
     with SessaoControle() as db:
-        db.add(Cobranca(cliente_id=cid, tipo="recorrente", recorrencia_id=rid, competencia="2027-04", descricao="x", itens=[],
-                        valor=Decimal(1), vencimento=date(2027, 4, 10), status="pendente", avisos=[]))
-        with pytest.raises(IntegrityError):
-            db.commit()
-        db.rollback()
-        for _ in range(2):
-            db.add(Cobranca(cliente_id=cid, tipo="mensalidade", competencia="2027-04", descricao="x", itens=[],
-                            valor=Decimal(1), vencimento=date(2027, 4, 10), status="pendente", avisos=[]))
-        with pytest.raises(IntegrityError):
-            db.commit()
+        situacao = {r.id: (r.status, r.regra_id) for r in db.scalars(select(CobrancaRecorrente))}
+        assert situacao[r1] == ("migrada", g["id"]) and situacao[r2] == ("migrada", s["id"]) and situacao[r3] == ("migrada", d["id"])
+        assert situacao[r4] == ("encerrada", None) and situacao[r5] == ("concluida", None) and situacao[r6] == ("ativa", None)
+        assert "regra de cobrança nº" in db.get(CobrancaRecorrente, r1).observacao
+        antes = db.scalar(select(Cobranca.id).order_by(Cobranca.id.desc()))
 
-    # cliente inativo não é cobrado; encerrar não apaga o que já saiu
+    # aparece em Itens a faturar no mês certo, sem repetir o que o motor antigo já tinha cobrado
+    assert [(i["descricao"], i["data"], i["valor"]) for i in _itens(c, adm, tid, "2026-12-01", "2026-12-31")] == [
+        ("Geração de Documentos — parcela 1", "2026-12-05", "200.00")]
+    de_2027 = [(i["descricao"], i["data"]) for i in _itens(c, adm, tid, "2027-01-01", "2027-12-31")]
+    assert [x for x in de_2027 if x[0].startswith("Suporte")] == [("Suporte — parcela 1/3", "2027-07-10"),
+                                                                  ("Suporte — parcela 2/3", "2027-10-10")]
+    assert not [x for x in de_2027 if x[0].startswith("Domínio")]  # pausada
+
+    # o motor antigo não gera mais nada, em dia nenhum; a cobrança que ele já tinha gerado continua na régua e recebe baixa
+    for dia in (date(2026, 12, 2), date(2026, 12, 5), date(2027, 7, 8), date(2028, 1, 10)):
+        feitos = cobranca.rotina_diaria(dia)
+        assert "recorrentes" not in feitos and feitos["geradas"] == 0
+    with SessaoControle() as db:
+        assert db.scalar(select(Cobranca.id).order_by(Cobranca.id.desc())) == antes
+        assert db.get(Cobranca, k_abril).avisos  # a régua passou por ela
+    assert [k["id"] for k in _cobrancas(c, adm, cid, tipo="recorrente")] == [k_abril]
+    assert c.post(f"/api/admin/cobrancas/{k_abril}/baixa", headers=adm, json={"forma": "pix"}).status_code == 200
+    # as rotas do motor antigo saíram, e a receita recorrente do resumo é só a dos planos
+    assert c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).status_code == 404
+    assert c.post(f"/api/admin/clientes/{cid}/recorrencias", headers=adm, json={}).status_code == 404
+    assert c.post(f"/api/admin/recorrencias/{r6}/gerar", headers=adm).status_code == 404
+    resumo = c.get("/api/admin/cobrancas/resumo", headers=adm).json()
+    assert "receita_recorrencias" not in resumo and resumo["receita_recorrente"] == resumo["receita_planos"]
+
+    # cliente inativo não é cobrado: some de Itens a faturar e volta ao ser reativado; excluído, some de vez
     c.post(f"/api/admin/clientes/{cid}/status", headers=adm, json={"status": "inativo"})
-    assert cobranca.rotina_diaria(date(2027, 5, 6))["recorrentes"] == 0
+    assert _itens(c, adm, tid, "2026-12-01", "2026-12-31") == []
     c.post(f"/api/admin/clientes/{cid}/status", headers=adm, json={"status": "ativo"})
-    r = c.post(f"/api/admin/recorrencias/{rid}/situacao", headers=adm, json={"acao": "encerrar"})
-    assert r.json()["status"] == "encerrada" and r.json()["proximo_vencimento"] is None
-    assert cobranca.rotina_diaria(date(2027, 5, 7))["recorrentes"] == 0
-    assert len([x for x in _cobrancas(c, adm, cid) if x["recorrencia_id"] == rid]) == 4
-    assert c.delete(f"/api/admin/recorrencias/{rid}", headers=adm).status_code == 409  # já gerou: só encerra
-    # receita recorrente mensal prevista: a anual de 1.200 vale 100 por mês (a encerrada não conta)
-    assert c.get("/api/admin/cobrancas/resumo", headers=adm).json()["receita_recorrencias"] == "100.00"
+    assert len(_itens(c, adm, tid, "2026-12-01", "2026-12-31")) == 1
+    assert c.delete(f"/api/admin/clientes/{cid}", headers=adm, params={"confirmar": vida["slug"]}).status_code == 200
+    assert _itens(c, adm, tid, "2026-12-01", "2027-12-31") == []
+    with SessaoControle() as db:  # a recorrência órfã não fica para o próximo teste
+        db.delete(db.get(CobrancaRecorrente, r6))
+        db.commit()
 
 
-def test_recorrencia_termino_e_atrasadas_com_teto(painel, mp):
-    from app.controle import cobranca, recorrencia
-
-    c = painel
-    adm = _entrar(c)
-    _conectar_mp(c, adm)
-    cid = _externo(c, adm, "Oficina do Zé", email_financeiro="ze@oficina.com.br")["id"]
-
-    # N cobranças: sai a 2ª e a recorrência fica concluída
-    duas = _recorrencia(c, adm, cid, descricao="Parcelas do sistema", termino_tipo="quantidade", termino_quantidade=2)
-    assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 1
-    assert cobranca.rotina_diaria(date(2027, 2, 5))["recorrentes"] == 1
-    assert cobranca.rotina_diaria(date(2027, 3, 5))["recorrentes"] == 0
-    lista = {x["id"]: x for x in c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json()}
-    assert lista[duas["id"]]["status"] == "concluida" and lista[duas["id"]]["geradas"] == 2
-    assert c.post(f"/api/admin/recorrencias/{duas['id']}/gerar", headers=adm).status_code == 400
-    # até uma data: o vencimento de abril (10/04) passa do término (31/03)
-    ate = _recorrencia(c, adm, cid, descricao="Manutenção", inicio="2027-03-01", termino_tipo="data", termino_data="2027-03-31")
-    assert cobranca.rotina_diaria(date(2027, 3, 5))["recorrentes"] == 1
-    assert cobranca.rotina_diaria(date(2027, 4, 5))["recorrentes"] == 0
-    lista = {x["id"]: x for x in c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json()}
-    assert lista[ate["id"]]["status"] == "concluida"
-    # criada por engano, sem cobrança: dá para excluir
-    engano = _recorrencia(c, adm, cid, descricao="Engano", inicio="2030-01-01")
-    assert c.delete(f"/api/admin/recorrencias/{engano['id']}", headers=adm).status_code == 200
-
-    # o sistema ficou parado: em 15/06 há 6 competências para trás (jan a jun). Saem em ordem, 3 por dia.
-    velha = _recorrencia(c, adm, cid, descricao="Backup", valor="80.00", inicio="2027-01-01", antecedencia=3)
-    p = c.post("/api/admin/recorrencias/previa", headers=adm, json={
-        "cliente_id": cid, "descricao": "Backup", "valor": "80.00", "periodicidade": "mensal", "dia_vencimento": 10,
-        "inicio": "2020-01-01", "antecedencia": 3}).json()
-    assert p["saem_ja"] > 80 and p["por_dia"] == recorrencia.TETO_POR_DIA == 3  # a tela avisa antes de salvar
-    mp["emails"].clear()
-    assert cobranca.rotina_diaria(date(2027, 6, 15))["recorrentes"] == 3
-    assert cobranca.rotina_diaria(date(2027, 6, 15))["recorrentes"] == 0  # o teto é por dia, mesmo rodando de novo
-    feitas = sorted((x["competencia"], x["vencimento"]) for x in _cobrancas(c, adm, cid) if x["recorrencia_id"] == velha["id"])
-    # a que nasce depois do vencimento ganha 5 dias para pagar (não nasce vencida)
-    assert feitas == [("2027-01", "2027-06-20"), ("2027-02", "2027-06-20"), ("2027-03", "2027-06-20")]
-    assert len([e for e in mp["emails"] if "Backup" in e[1]]) == 3 and all("vence em 20/06/2027" in e[1] for e in mp["emails"] if "Backup" in e[1])
-    assert cobranca.rotina_diaria(date(2027, 6, 16))["recorrentes"] == 3
-    assert cobranca.rotina_diaria(date(2027, 6, 17))["recorrentes"] == 0  # em dia: julho só sai em 07/07
-    feitas = sorted((x["competencia"], x["vencimento"]) for x in _cobrancas(c, adm, cid) if x["recorrencia_id"] == velha["id"])
-    assert [f[0] for f in feitas] == ["2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"]
-    assert feitas[-1] == ("2027-06", "2027-06-21")
-    assert cobranca.rotina_diaria(date(2027, 7, 7))["recorrentes"] == 1
-
-
-def test_recorrencia_de_cliente_sem_email(painel, mp, caplog):
-    from app.controle import cobranca
+def test_regra_do_cliente_vira_fatura_e_nota(painel, mp):
+    """O caminho novo, inteiro: regra recorrente no cliente do admin (sem caso) → Itens a faturar → fatura para o
+    cadastro completo → NFS-e pelo lote das faturas, com o texto da regra e sem "Honorários advocatícios"."""
+    from app.controle import faturamento_admin
 
     c = painel
     adm = _entrar(c)
-    _conectar_mp(c, adm)
-    sem = _externo(c, adm, "Mercadinho Sem Email")
-    cid = sem["id"]
-    rec = _recorrencia(c, adm, cid, descricao="Site", valor="150.00")
-    assert rec["sem_email"] is True  # a tela avisa ao criar
-    mp["emails"].clear()
-    with caplog.at_level(logging.WARNING):
-        assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 1  # a cobrança nasce mesmo assim
-        (k,) = _cobrancas(c, adm, cid)
-        assert k["status"] == "pendente" and k["link"] and k["envio_erro"] == "falta o e-mail do financeiro"
-        assert c.get("/api/admin/cobrancas/resumo", headers=adm).json()["nao_enviadas"] >= 1
-        # os dias passam (régua: 3 antes, no dia, 3 depois) e nada de erro repetido no log
-        for dia in (7, 8, 10, 13, 14):
-            cobranca.rotina_diaria(date(2027, 1, dia))
-    # só o que a cobrança registrou (outras partes do sistema rodam em paralelo nos testes e têm os próprios logs)
-    da_cobranca = [r for r in caplog.records if r.name.startswith("app.controle")]
-    assert not [r for r in da_cobranca if r.levelno >= logging.ERROR], caplog.text
-    assert len([r for r in da_cobranca if "Mercadinho Sem Email" in r.getMessage()]) <= 1
-    assert not [e for e in mp["emails"] if "Site 01/2027" in e[1]]
-    # mandar pela tela explica o que falta
-    r = c.post(f"/api/admin/cobrancas/{k['id']}/enviar", headers=adm)
-    assert r.status_code == 400 and "e-mail do financeiro" in r.json()["detail"]
-    # com o e-mail na ficha, a próxima rodada envia e tira a marca
-    c.put(f"/api/admin/clientes/{cid}", headers=adm, json={
-        "nome": sem["nome"], "documento": None, "responsavel": None, "email_financeiro": "dono@mercadinho.com.br",
-        "telefone": None, "plano_id": None, "ciclo": "mensal", "inicio_contrato": None, "teste_ate": None,
-        "observacao": None, "indicado_por_id": None})
-    cobranca.rotina_diaria(date(2027, 1, 15))
-    assert [e[0] for e in mp["emails"] if "Site 01/2027" in e[1]] == [["dono@mercadinho.com.br"]]
-    (k,) = _cobrancas(c, adm, cid)
-    assert k["envio_erro"] is None
+    faturamento_admin.preparar()
+    _emissora(c, adm)
+    novo = _externo(c, adm, None, cadastro={
+        "tipo": "PJ", "nome": "Cartório Central", "cpf_cnpj": "11.222.333/0001-81", "emails": ["fin@cartoriocentral.com.br"],
+        "cep": "18035-000", "logradouro": "Rua do Cartório", "numero": "50", "bairro": "Centro", "cidade": "Sorocaba",
+        "uf": "SP", "telefones": [{"numero": "(15) 3222-2000", "tipo": "comercial"}], "contatos": [{"nome": "Caio Central"}]})
+    tid = novo["tomador_id"]
+    assert novo["cadastro"]["completo"] is True and tid
+
+    # a ficha do admin usa as mesmas rotas da aba Cobrança dos escritórios: o contrato único nasce por trás
+    assert c.get(f"/api/faturamento/clientes/{tid}/contrato", headers=adm).json() is None
+    k = c.post(f"/api/faturamento/clientes/{tid}/contrato", headers=adm, json={})
+    assert k.status_code == 200 and k.json()["tomador_id"] == tid, k.text
+    r = c.post(f"/api/faturamento/contratos/{k.json()['id']}/regras", headers=adm, json={
+        "tipo": "recorrente", "descricao": "Geração de Documentos", "valor": "200.00", "frequencia": "mensal",
+        "intervalo": 1, "data_inicio": "2026-12-05"})
+    assert r.status_code == 201 and r.json()["caso_id"] is None, r.text
+
+    periodo = {"de": "2026-12-01", "ate": "2026-12-31"}
+    assert _itens(c, adm, tid, "2026-11-01", "2026-11-30") == []
+    (item,) = _itens(c, adm, tid, **periodo)
+    assert (item["tipo"], item["descricao"], item["data"], item["valor"], item["caso_id"], item["aviso"]) == (
+        "recorrente", "Geração de Documentos — parcela 1", "2026-12-05", "200.00", None, None)
+    r = c.post("/api/faturamento/faturar", headers=adm, json={"aba": "honorarios", **periodo, "cliente_ids": [tid],
+                                                             "chaves": [item["chave"]]})
+    assert r.status_code == 200, r.text
+    (nh,) = r.json()["faturas"]
+    assert nh["tomador_nome"] == "Cartório Central" and nh["valor"] == "200.00"
+    assert _itens(c, adm, tid, **periodo) == []  # faturado: não aparece de novo
+    fat = c.get(f"/api/nfse/faturas/{nh['id']}", headers=adm).json()
+    assert fat["tomador_id"] == tid and fat["pode_emitir_nfse"] and fat["nfse_id"] is None
+    assert fat["descricao"] == "Serviços prestados\n- Geração de Documentos — parcela 1"
+
+    r = c.post("/api/faturamento/emitir-nfse", headers=adm, json={"fatura_ids": [nh["id"]]})
+    assert r.status_code == 200, r.text
+    lote_id = r.json()["lote_id"]
+    r = c.post(f"/api/nfse/importacoes/{lote_id}/emitir", headers=adm)
+    assert r.status_code == 200, r.text
+    fat = c.get(f"/api/nfse/faturas/{nh['id']}", headers=adm).json()
+    assert fat["nfse_id"] and not fat["pode_emitir_nfse"], fat
+    nota = c.get(f"/api/nfse/notas/{fat['nfse_id']}", headers=adm).json()
+    assert nota["tomador_id"] == tid and nota["tomador_doc"] == "11222333000181" and nota["valor"] == "200.00"
+    assert "Geracao de Documentos" in nota["discriminacao"] or "Geração de Documentos" in nota["discriminacao"], nota["discriminacao"]
+    assert "Honor" not in nota["discriminacao"] and "ontrato" not in nota["discriminacao"]
+    # nos escritórios o texto padrão continua o de sempre
+    from app.core.db import SessionLocal
+    from app.modules.faturamento import service as fat_service
+
+    with tenancy.usando(tenancy.Escritorio(slug="cfme", banco=None)), SessionLocal() as db:
+        assert fat_service.texto_servico(db, 1) == "Honorários advocatícios"
 
 
 def test_recorrente_paga_da_baixa_e_emite_nota(painel, mp, monkeypatch):
-    """O aviso do Mercado Pago dá baixa na cobrança recorrente e a NFS-e sai pelo caminho de sempre."""
-    from app.controle import cobranca, nota_fiscal
+    """Histórico: a cobrança "recorrente" que o motor antigo já tinha gerado continua recebendo a baixa do Mercado
+    Pago (e a manual), e a NFS-e dela sai pelo caminho de sempre."""
+    from app.controle import nota_fiscal
 
     monkeypatch.setattr(nota_fiscal, "EM_SEGUNDO_PLANO", False)
     c = painel
     adm = _entrar(c)
     _conectar_mp(c, adm)
-    r = c.post("/api/nfse/emissoras", headers=adm, json={
-        "razao_social": "MayaCorp MEI", "cnpj": "37552605000103", "ccm": "", "sistema_emissao": "nacional", "regime": "mei",
-        "cep": "18035000", "cidade": "Sorocaba", "uf": "SP", "codigo_municipio": "3552205", "cod_trib_nacional": "010101",
-        "serie_rps": "2", "prox_rps": 1, "aliquota_iss": "0.02"})
-    assert r.status_code == 200, r.text
+    emissora_id = _emissora(c, adm)
     cfg = c.get("/api/admin/cobranca/config", headers=adm).json()
     r = c.put("/api/admin/cobranca/config", headers=adm, json={
         "dia_vencimento": cfg["dia_vencimento"], "gerar_automatico": True, "regua": cfg["regua"], "nfse_automatica": True,
-        "nfse_emissora_id": r.json()["id"], "nfse_descricao": "Licença MayaJus - {descricao}"})
+        "nfse_emissora_id": emissora_id, "nfse_descricao": "Licença MayaJus - {descricao}"})
     assert r.status_code == 200, r.text
 
     # cliente novo já com o cadastro completo (o mesmo formulário de Cadastros › Clientes): é ele que vai na nota
@@ -430,8 +438,9 @@ def test_recorrente_paga_da_baixa_e_emite_nota(painel, mp, monkeypatch):
     assert (novo["nome"], novo["documento"], novo["email_financeiro"], novo["telefone"], novo["responsavel"]) == (
         "Escola Saber", "60746948000112", "fin@escolasaber.com.br", "(15) 3222-1000", "Sara Saber")
     assert novo["cadastro"]["completo"] is True and novo["tomador_id"]
-    _recorrencia(c, adm, cid, descricao="Portal do aluno", valor="480.00")
-    assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 1
+    rid = _recorrencia_antiga(cid, descricao="Portal do aluno", valor=Decimal("480.00"), status="migrada", geradas=2,
+                              proxima_competencia=date(2027, 3, 1))
+    _cobranca_antiga(cid, rid, "2027-01", "Portal do aluno 01/2027", "480.00")
     (k,) = _cobrancas(c, adm, cid)
     mp["ref"] = f"cob:{k['id']}"
     assert c.post("/api/public/mercadopago", json={"type": "payment", "data": {"id": "901"}}).status_code == 200
@@ -444,18 +453,15 @@ def test_recorrente_paga_da_baixa_e_emite_nota(painel, mp, monkeypatch):
     assert "Portal do aluno 01/2027" in nota["discriminacao"] and "MayaJus" not in nota["discriminacao"]
     assert mp["emails"][-1][1] == "MayaCorp — pagamento recebido (Portal do aluno 01/2027)"
     # baixa manual também vale, e paga não entra mais na régua
-    assert c.post(f"/api/admin/recorrencias/{c.get(f'/api/admin/clientes/{cid}/recorrencias', headers=adm).json()[0]['id']}/gerar",
-                  headers=adm).status_code == 200
-    k2 = next(x for x in _cobrancas(c, adm, cid) if x["competencia"] == "2027-02")
-    assert c.post(f"/api/admin/cobrancas/{k2['id']}/baixa", headers=adm, json={"forma": "pix"}).status_code == 200
-    rec = c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json()[0]
-    assert (rec["geradas"], rec["pagas"], rec["em_aberto"]) == (2, 2, 0)
+    k2 = _cobranca_antiga(cid, rid, "2027-02", "Portal do aluno 02/2027", "480.00")
+    assert c.post(f"/api/admin/cobrancas/{k2}/baixa", headers=adm, json={"forma": "pix"}).status_code == 200
+    assert {x["status"] for x in _cobrancas(c, adm, cid)} == {"paga"}
     c.put("/api/admin/cobranca/config", headers=adm, json={"dia_vencimento": 10, "gerar_automatico": True,
                                                            "regua": cfg["regua"], "nfse_automatica": False})
 
 
 def test_dar_e_tirar_o_acesso_ao_sistema(painel, mp, monkeypatch):
-    from app.controle import cobranca, service
+    from app.controle import service
     from app.controle.models import Cliente, SessaoControle
 
     monkeypatch.setattr(service, "enviar_email", lambda *a, **kw: None)  # boas-vindas
@@ -464,7 +470,11 @@ def test_dar_e_tirar_o_acesso_ao_sistema(painel, mp, monkeypatch):
     _conectar_mp(c, adm)
     ext = _externo(c, adm, "Lima Contabilidade", email_financeiro="fin@limacont.com.br")
     cid, slug = ext["id"], ext["slug"]
-    rid = _recorrencia(c, adm, cid, descricao="E-mail corporativo", valor="60.00")["id"]
+    tid = ext["tomador_id"]
+    k = c.post(f"/api/faturamento/clientes/{tid}/contrato", headers=adm, json={}).json()
+    assert c.post(f"/api/faturamento/contratos/{k['id']}/regras", headers=adm, json={
+        "tipo": "recorrente", "descricao": "E-mail corporativo", "valor": "60.00", "frequencia": "mensal",
+        "data_inicio": "2027-01-10"}).status_code == 201
     solo = next(p for p in c.get("/api/admin/planos", headers=adm).json() if p["nome"] == "Solo")
 
     # externo → escritório: ganha o ambiente pelo caminho do cadastro normal, com plano, teste e boas-vindas
@@ -488,9 +498,9 @@ def test_dar_e_tirar_o_acesso_ao_sistema(painel, mp, monkeypatch):
     assert {u["email"] for u in c.get(f"/api/admin/clientes/{cid}/usuarios", headers=adm).json()} == {
         "lia@limacont.com.br", f"suporte+{slug}@mayacorp.com.br"}
     assert c.get(f"/api/admin/clientes/{cid}/uso", headers=adm).json()["usuarios"] == 1
-    # a 1ª mensalidade do plano nasce (vence no fim do teste) e a recorrência continua sendo dele
+    # a 1ª mensalidade do plano nasce (vence no fim do teste) e a regra de cobrança continua sendo dele
     assert [(k["tipo"], k["valor"]) for k in _cobrancas(c, adm, cid)] == [("mensalidade", "119.00")]
-    assert [x["id"] for x in c.get(f"/api/admin/clientes/{cid}/recorrencias", headers=adm).json()] == [rid]
+    assert [i["descricao"] for i in _itens(c, adm, tid, "2027-01-01", "2027-01-31")] == ["E-mail corporativo — parcela 1"]
     assert c.post(f"/api/admin/clientes/{cid}/dar-acesso", headers=adm, json={}).status_code == 400  # já tem
 
     # escritório → externo: ninguém entra, a mensalidade para, o cartão é cancelado no Mercado Pago e nada é apagado
@@ -515,8 +525,8 @@ def test_dar_e_tirar_o_acesso_ao_sistema(painel, mp, monkeypatch):
     assert "Lima Contabilidade" not in c.post("/api/admin/cobrancas/gerar", headers=adm,
                                               json={"competencia": "2027-03", "enviar": False}).json()["criadas"]
     assert _arquivo_do_banco(slug).exists()  # o banco fica guardado
-    assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] >= 1  # a recorrência segue cobrando
-    assert "recorrente" in {k["tipo"] for k in _cobrancas(c, adm, cid)}
+    # sem acesso, o serviço dele segue em Itens a faturar
+    assert [i["descricao"] for i in _itens(c, adm, tid, "2027-01-01", "2027-01-31")] == ["E-mail corporativo — parcela 1"]
     # o escritório do banco principal não pode perder o acesso
     cfme = next(x for x in c.get("/api/admin/clientes", headers=adm).json() if x["slug"] == "cfme")
     assert c.post(f"/api/admin/clientes/{cfme['id']}/tirar-acesso", headers=adm).status_code == 400
