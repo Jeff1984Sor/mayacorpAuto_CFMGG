@@ -13,6 +13,7 @@ RECURSOS: dict[str, str] = {
     "contador": "Integração com contador",
     "boletos": "Boletos registrados (CNAB 240, remessa e retorno)",
     "relatorios": "Relatórios com gráficos, gerador de relatórios e Excel",
+    "comissoes": "Comissões dos profissionais (regras por cliente, contrato ou caso e conta a pagar)",
     "claude": "Conector do Claude (MCP): consultar e operar o sistema conversando",
 }
 
@@ -25,9 +26,9 @@ ROBOS: dict[str, str] = {
 PADRAO = [
     # nome, mensal, anual (2 meses grátis), usuários, notas/mês, recursos
     ("Solo", "119", "1190", 1, 20, ["gestao", "relatorios", "claude"]),
-    ("Escritório", "279", "2790", 5, 100, ["gestao", "boletos", "relatorios", "claude"]),
-    ("Pro", "549", "5490", 15, 500, ["gestao", "automacoes", "contador", "boletos", "relatorios", "claude"]),
-    ("Ilimitado", "990", "9900", 30, None, ["gestao", "automacoes", "contador", "boletos", "relatorios", "claude"]),
+    ("Escritório", "279", "2790", 5, 100, ["gestao", "boletos", "relatorios", "comissoes", "claude"]),
+    ("Pro", "549", "5490", 15, 500, ["gestao", "automacoes", "contador", "boletos", "relatorios", "comissoes", "claude"]),
+    ("Ilimitado", "990", "9900", 30, None, ["gestao", "automacoes", "contador", "boletos", "relatorios", "comissoes", "claude"]),
 ]
 
 

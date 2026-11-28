@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BriefcaseBusiness, Camera, Check, IdCard, KeyRound, Loader2, Mail, MapPin, Plus, ShieldCheck, UserRound, X } from "lucide-react";
+import { BadgePercent, BriefcaseBusiness, Camera, Check, IdCard, KeyRound, Loader2, Mail, MapPin, Plus, ShieldCheck, UserRound, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 
+import { RegrasComissao } from "@/components/comissoes/regras-comissao";
 import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { PerfilAcessoSelect, PerfilBadge, usePerfisAcesso } from "@/components/perfis/comum";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
@@ -465,6 +466,18 @@ export function FuncionarioDialog({
                 </p>
               )}
             </Secao>
+
+            {pode("cfg_profissionais.ver") && (
+              <Secao id="func-sec-comissao" icone={BadgePercent} titulo="Comissão" descricao="Percentual sobre o que o cliente pagou em honorários: geral ou por cliente, contrato ou caso.">
+                {usuario ? (
+                  <RegrasComissao usuarioId={usuario.id} somenteLeitura={somenteLeitura} />
+                ) : (
+                  <p className="rounded-xl border border-dashed bg-background/60 px-3 py-4 text-center text-sm text-muted-foreground">
+                    Salve o cadastro para definir a comissão deste profissional.
+                  </p>
+                )}
+              </Secao>
+            )}
 
             <Secao id="func-sec-endereco" icone={MapPin} titulo="Endereço" descricao="Digite o CEP para preencher o resto.">
               <div className="grid gap-4 sm:grid-cols-6">
