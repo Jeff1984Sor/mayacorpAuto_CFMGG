@@ -154,10 +154,26 @@ export function CasoDialog({
   const [adm, setAdm] = useState<AdministrativoDados>(administrativoVazio);
   /** depois de salvar um caso novo: abrir a ficha na aba Partes */
   const irParaPartes = useRef(false);
+  /** o que já foi carregado nesta abertura (caso + campos adicionais disponíveis) */
+  const carregado = useRef<string | null>(null);
 
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o formulário ao abrir */
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      carregado.current = null;
+      return;
+    }
+    // carrega uma vez por abertura: se a ficha for recarregada por trás (busca no tribunal, outro usuário), o que a
+    // pessoa já digitou não é desfeito
+    const chave = `${caso?.id ?? "novo"}|${campos.data ? 1 : 0}`;
+    if (carregado.current === chave) return;
+    const primeira = carregado.current === null;
+    carregado.current = chave;
+    if (!primeira) {
+      // os campos adicionais chegaram depois da abertura: só eles são convertidos, o resto fica como está
+      if (caso) setF((o) => ({ ...o, campos: camposParaForm(casoParaIn(caso).campos, campos.data ?? []) }));
+      return;
+    }
     setAba(abaInicial);
     setTrocar(null);
     irParaPartes.current = false;
