@@ -50,6 +50,7 @@ import {
   type ValorCampo,
 } from "@/lib/faturamento";
 import { paraBr, paraDecimalApi } from "@/lib/financeiro";
+import { garantirContratoDoCliente, useUsaContrato } from "@/lib/contrato";
 import { cn } from "@/lib/utils";
 import type { Pagina, TomadorOut } from "@/lib/types";
 
@@ -124,6 +125,7 @@ export function ContratoDialog({
   contrato,
   tomadorId,
   onSalvo,
+  simples = false,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -131,6 +133,8 @@ export function ContratoDialog({
   /** cliente fixo (aberto a partir do cadastro do cliente) */
   tomadorId?: number;
   onSalvo?: (c: ContratoOut) => void;
+  /** sem a figura do contrato: só o que vale para o cliente (quem paga, emissora, tabela e observação) */
+  simples?: boolean;
 }) {
   const qc = useQueryClient();
   const emissoras = useEmissoras();
@@ -227,7 +231,7 @@ export function ContratoDialog({
     },
     onSuccess: (c) => {
       toast.success(
-        contrato ? "Contrato atualizado" : `Contrato #${c.numero} criado`,
+        simples ? "Cobrança do cliente atualizada" : contrato ? "Contrato atualizado" : `Contrato #${c.numero} criado`,
       );
       qc.invalidateQueries({ queryKey: ["fat"] });
       onSalvo?.(c);
@@ -240,9 +244,13 @@ export function ContratoDialog({
       open={open}
       onOpenChange={onOpenChange}
       titulo={
-        contrato ? `Editar contrato #${contrato.numero}` : "Novo contrato"
+        simples ? "Cobrança do cliente" : contrato ? `Editar contrato #${contrato.numero}` : "Novo contrato"
       }
-      descricao="O contrato reúne os casos e as regras de cobrança do cliente."
+      descricao={
+        simples
+          ? "Quem paga as faturas, por qual empresa elas saem e a tabela de preço das horas."
+          : "O contrato reúne os casos e as regras de cobrança do cliente."
+      }
       largura="lg"
       salvando={salvar.isPending}
       onSubmit={(e) => {
@@ -253,14 +261,16 @@ export function ContratoDialog({
         salvar.mutate();
       }}
       rodapeExtra={
-        <label className="flex items-center gap-2 text-sm">
-          <Switch
-            checked={f.ativo}
-            onCheckedChange={(v) => set("ativo", v)}
-            aria-label="Contrato ativo"
-          />{" "}
-          Ativo
-        </label>
+        simples ? undefined : (
+          <label className="flex items-center gap-2 text-sm">
+            <Switch
+              checked={f.ativo}
+              onCheckedChange={(v) => set("ativo", v)}
+              aria-label="Contrato ativo"
+            />{" "}
+            Ativo
+          </label>
+        )
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -294,6 +304,7 @@ export function ContratoDialog({
             </div>
           </Field>
         )}
+        {!simples && (
         <Field
           label="Nome do contrato"
           obrigatorio
@@ -308,6 +319,8 @@ export function ContratoDialog({
             autoFocus
           />
         </Field>
+        )}
+        {!simples && (
         <Field
           label="Objeto"
           htmlFor="contrato-objeto"
@@ -321,6 +334,7 @@ export function ContratoDialog({
             placeholder="O que o escritório faz por este cliente"
           />
         </Field>
+        )}
         <Field label="Quem paga" className="sm:col-span-2">
           <PagadoresCampo
             tomadorId={f.tomador_id}
@@ -365,7 +379,7 @@ export function ContratoDialog({
             vazio="Nenhuma"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3 sm:col-span-2 sm:max-w-sm">
+        <div className={cn("grid grid-cols-2 gap-3 sm:col-span-2 sm:max-w-sm", simples && "hidden")}>
           <Field label="Início" htmlFor="contrato-inicio">
             <Input
               id="contrato-inicio"
@@ -519,6 +533,7 @@ export function CasoDialog({
   const areas = useAreas(open);
   const campos = useCampos(open);
   const instancias = useInstancias(open);
+  const usaContrato = useUsaContrato();
   const escolherContrato = !contratoId && !caso;
   const [contrato, setContrato] = useState<number | null>(null);
   const [clienteSel, setClienteSel] = useState<ClienteEscolhido[]>([]);
@@ -622,12 +637,11 @@ export function CasoDialog({
         data_encerramento:
           f.status === "encerrado" ? f.data_encerramento : null,
       };
-      return caso
-        ? api.put<CasoOut>(`/faturamento/casos/${caso.id}`, body)
-        : api.post<CasoOut>(
-            `/faturamento/contratos/${contratoId ?? contrato}/casos`,
-            body,
-          );
+      if (caso) return api.put<CasoOut>(`/faturamento/casos/${caso.id}`, body);
+      const criar = (id: number) => api.post<CasoOut>(`/faturamento/contratos/${id}/casos`, body);
+      // sem a figura do contrato: o caso entra no contrato único do cliente (criado por trás na primeira vez)
+      if (!contratoId && !usaContrato && cliente) return garantirContratoDoCliente(cliente).then((k) => criar(k.id));
+      return criar((contratoId ?? contrato) as number);
     },
     onSuccess: (c) => {
       toast.success(caso ? "Caso atualizado" : `Caso #${c.numero} criado`);
@@ -667,7 +681,7 @@ export function CasoDialog({
           e.stopPropagation();
           if (escolherContrato && !cliente)
             return toast.error("Escolha o cliente do caso.");
-          if (escolherContrato && !contrato)
+          if (escolherContrato && usaContrato && !contrato)
             return toast.error("Escolha o contrato do caso.");
           if (!tituloGerado && f.titulo.trim().length < 2)
             return toast.error(modeloTitulo ? "Preencha os campos do título ou digite um título." : "Informe o título do caso.");
@@ -683,9 +697,10 @@ export function CasoDialog({
           <SecaoForm titulo="Identificação">
             {escolherContrato && (
               <>
-                <Field label="Cliente" obrigatorio htmlFor="caso-cliente" className="sm:col-span-3">
+                <Field label="Cliente" obrigatorio htmlFor="caso-cliente" className={usaContrato ? "sm:col-span-3" : "sm:col-span-6"}>
                   <ClientesMulti unico id="caso-cliente" valor={clienteSel} onChange={escolherCliente} />
                 </Field>
+                {usaContrato && (
                 <Field label="Contrato" obrigatorio htmlFor="caso-contrato" className="sm:col-span-3">
                   <NativeSelect
                     id="caso-contrato"
@@ -703,7 +718,8 @@ export function CasoDialog({
                     ))}
                   </NativeSelect>
                 </Field>
-                {cliente && !contratos.isLoading && contratosDoCliente.length === 0 && !contrato && (
+                )}
+                {usaContrato && cliente && !contratos.isLoading && contratosDoCliente.length === 0 && !contrato && (
                   <div className="flex flex-wrap items-end gap-2 rounded-xl border border-warning/30 bg-warning/8 p-3 sm:col-span-6">
                     <p className="w-full text-sm">
                       <strong>{clienteSel[0]?.nome}</strong> ainda não tem contrato. Crie um agora para cadastrar o caso.
@@ -1034,7 +1050,7 @@ export function CasoDialog({
 
           <SecaoForm titulo="Cobrança">
             <Field
-              label="Tabela de preço (vazio = a do contrato)"
+              label={usaContrato ? "Tabela de preço (vazio = a do contrato)" : "Tabela de preço (vazio = a do cliente)"}
               htmlFor="caso-tabela"
               dica={dicaTabela}
               className="sm:col-span-6"
@@ -1043,7 +1059,7 @@ export function CasoDialog({
                 id="caso-tabela"
                 valor={f.tabela_preco_id}
                 onChange={(v) => set("tabela_preco_id", v)}
-                vazio="A do contrato"
+                vazio={usaContrato ? "A do contrato" : "A do cliente"}
               />
             </Field>
           </SecaoForm>

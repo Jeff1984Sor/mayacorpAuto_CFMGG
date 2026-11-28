@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardEstado } from "@/hooks/use-dashboard-estado";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import {
   atalho,
@@ -95,6 +96,7 @@ function Carregando() {
 }
 
 export default function DashboardPage() {
+  const usaContrato = useUsaContrato();
   const { pode } = useAuth();
   const q = useQuery({
     queryKey: ["dashboard-faturamento"],
@@ -374,7 +376,7 @@ export default function DashboardPage() {
 
       {/* segmentações */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-        {SLICERS.map((dim) => (
+        {SLICERS.filter((dim) => usaContrato || dim !== "contrato").map((dim) => (
           <Slicer
             key={dim}
             titulo={ROTULO_DIM[dim]}

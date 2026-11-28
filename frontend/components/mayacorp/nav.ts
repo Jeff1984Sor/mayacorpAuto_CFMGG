@@ -202,13 +202,15 @@ export function navPara(
   equipeMayaCorp = false,
   painelMayaCorp = false,
   robos: string[] | null = null,
+  /** Configurações › Faturamento: sem a figura do contrato, o item some do menu. */
+  usaContrato = true,
 ): NavGrupo[] {
   if (!pode) return [];
   return NAV.map((g) => ({
     ...g,
     itens: g.itens.filter(
       (i) => (!i.permissao || pode(i.permissao)) && (!i.equipe || equipeMayaCorp) && (!i.painel || painelMayaCorp) && !(i.foraDoPainel && painelMayaCorp) &&
-        (!i.robo || robos === null || robos.includes(i.robo)),
+        (!i.robo || robos === null || robos.includes(i.robo)) && (usaContrato || i.href !== "/faturamento/contratos"),
     ),
   })).filter((g) => g.itens.length > 0);
 }

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.models import Usuario
 from app.modules.faturamento.models import (
     Caso,
+    ConfigFaturamento,
     Contrato,
     Despesa,
     FaturaItem,
@@ -36,6 +37,39 @@ LIMITE_OCORRENCIAS = 2000  # proteção contra regra diária sem fim num períod
 
 class RegraFaturamento(ValueError):
     pass
+
+
+# ---------------------------------------------------------------- com ou sem a figura do contrato
+NOME_CONTRATO_UNICO = "Geral"
+
+
+def usa_contrato(db: Session, tenant_id: int) -> bool:
+    """Configurações › Faturamento: o escritório trabalha com Cliente → Contrato → Caso (padrão) ou só Cliente → Caso."""
+    cfg = db.get(ConfigFaturamento, tenant_id)
+    return cfg.usa_contrato if cfg else True
+
+
+def clientes_com_varios_contratos(db: Session, tenant_id: int) -> list[str]:
+    from sqlalchemy import func
+
+    return list(db.scalars(
+        select(Tomador.nome).join(Contrato, Contrato.tomador_id == Tomador.id).where(Contrato.tenant_id == tenant_id)
+        .group_by(Tomador.id, Tomador.nome).having(func.count(Contrato.id) > 1).order_by(Tomador.nome)))
+
+
+def contrato_do_cliente(db: Session, tenant_id: int, tomador_id: int, *, criar: bool = False) -> Contrato | None:
+    """O contrato único do cliente (sem a figura do contrato): o ativo mais antigo; `criar` abre um se não houver."""
+    from sqlalchemy import func
+
+    c = db.scalar(select(Contrato).where(Contrato.tenant_id == tenant_id, Contrato.tomador_id == tomador_id)
+                  .order_by(Contrato.ativo.desc(), Contrato.numero).limit(1))
+    if c or not criar:
+        return c
+    numero = (db.scalar(select(func.max(Contrato.numero)).where(Contrato.tenant_id == tenant_id)) or 0) + 1
+    c = Contrato(tenant_id=tenant_id, numero=numero, tomador_id=tomador_id, nome=NOME_CONTRATO_UNICO, data_inicio=date.today())
+    db.add(c)
+    db.flush()
+    return c
 
 
 # ---------------------------------------------------------------- recorrência
@@ -339,7 +373,8 @@ def _criar_faturas_grupo(db: Session, tenant_id: int, contrato: Contrato, sel: l
     if rateio:
         nomes = {t.id: t.nome for t in db.scalars(select(Tomador).where(Tomador.id.in_([t for t, _ in cotas])))}
         divisao = " · ".join(f"{nomes.get(t, '?')} {_pct(pct)}%" for t, pct in cotas)
-        observacao = "\n".join(x for x in (observacao, f"Contrato dividido entre pagadores: {divisao}.") if x)
+        o_que = "Contrato dividido" if usa_contrato(db, tenant_id) else "Cobrança dividida"
+        observacao = "\n".join(x for x in (observacao, f"{o_que} entre pagadores: {divisao}.") if x)
     hoje = date.today()
     criadas = []
     for n, (tomador_id, pct) in enumerate(cotas):
@@ -354,7 +389,8 @@ def _criar_faturas_grupo(db: Session, tenant_id: int, contrato: Contrato, sel: l
             contrato_id=contrato.id, tomador_id=tomador_id, rateio=rateio, ano=hoje.year,
             numero=faturas.proximo_numero(db, emissora_id, tipo), data_emissao=hoje,
             data_vencimento=hoje if vencimento_na_emissao else hoje + timedelta(days=dias_vencimento),
-            descricao=_descricao(contrato, sel, tipo, pct if rateio else None), valor=valor, observacao=observacao,
+            descricao=_descricao(contrato, sel, tipo, pct if rateio else None, usa_contrato(db, tenant_id)),
+            valor=valor, observacao=observacao,
         )
         db.add(fat)
         db.flush()
@@ -667,12 +703,15 @@ def analisar_com_ia(db: Session, rev: Revisao) -> dict:
     return res
 
 
-def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota: Decimal | None = None) -> str:
+def _descricao(contrato: Contrato, itens: list[Pendente], tipo: TipoFatura, cota: Decimal | None = None,
+               com_contrato: bool = True) -> str:
     """Texto da fatura — e, para honorários, a discriminação da futura NFS-e."""
     parte = f" — cota de {_pct(cota)}%" if cota is not None else ""
     if tipo == TipoFatura.despesas:
+        if not com_contrato:
+            return f"Reembolso de despesas{parte}"
         return f"Reembolso de despesas — contrato #{contrato.numero} {contrato.nome}{parte}"
-    linhas = [f"Honorários advocatícios — {contrato.nome}{parte}"]
+    linhas = [f"Honorários advocatícios — {contrato.nome}{parte}" if com_contrato else f"Honorários advocatícios{parte}"]
     horas = [p for p in itens if p.tipo == "hora"]
     outros = [p for p in itens if p.tipo != "hora"]
     linhas += [f"- {p.descricao}" for p in outros]

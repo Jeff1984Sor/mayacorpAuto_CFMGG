@@ -217,9 +217,12 @@ def _contrato(fat: Fatura):
     from sqlalchemy.orm import object_session
 
     from app.modules.faturamento.models import Contrato
+    from app.modules.faturamento.service import usa_contrato
 
     sess = object_session(fat)
-    return sess.get(Contrato, fat.contrato_id) if sess else None
+    if not sess or not usa_contrato(sess, fat.tenant_id):  # sem a figura do contrato: a nota não fala dele
+        return None
+    return sess.get(Contrato, fat.contrato_id)
 
 
 def _brl(v) -> str:

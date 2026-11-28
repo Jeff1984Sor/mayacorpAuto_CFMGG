@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import { type CasoIn, type CasoOut, type DespesaOut, hhmm, ROTULO_DESPESA, type TimesheetOut } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
@@ -466,6 +467,7 @@ function Despesas({ caso }: { caso: CasoOut }) {
 }
 
 export default function CasoPage() {
+  const usaContrato = useUsaContrato();
   const { id } = useParams<{ id: string }>();
   const cid = Number(id);
   const qc = useQueryClient();
@@ -497,8 +499,11 @@ export default function CasoPage() {
 
   return (
     <div>
-      <Link href={`/faturamento/contratos/${c.contrato_id}`} className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" /> Contrato #{c.contrato_numero} {c.contrato_nome}
+      <Link
+        href={usaContrato ? `/faturamento/contratos/${c.contrato_id}` : "/faturamento/casos"}
+        className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-3.5" /> {usaContrato ? `Contrato #${c.contrato_numero} ${c.contrato_nome}` : "Casos"}
       </Link>
       <div className="card-surface relative mb-5 overflow-hidden p-5">
         <div className="absolute inset-x-0 top-0 h-1.5" style={{ background: c.area_cor ? c.area_cor : undefined }} />
@@ -582,7 +587,7 @@ export default function CasoPage() {
           <RegrasCobranca
             contratoId={c.contrato_id}
             casoId={c.id}
-            vazioTexto="Sem regra própria, o caso segue as regras do contrato. Crie uma se este caso é cobrado de outro jeito (ex.: êxito, valor fixo do processo)."
+            vazioTexto={`Sem regra própria, o caso segue as regras do ${usaContrato ? "contrato" : "cliente"}. Crie uma se este caso é cobrado de outro jeito (ex.: êxito, valor fixo do processo).`}
           />
         </TabsContent>
       </Tabs>

@@ -117,7 +117,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("*", r"/relatorios(/|$)", LIVRE),  # cada fonte exige a permissão do seu dado (relatorios/fontes.py)
     ("GET", r"/cadastros/(cidades|cnpj)/", LIVRE),
     ("GET", r"/faturamento/(judiciario|profissionais)(/|$)", LIVRE),
-    ("GET", r"/faturamento/(areas|campos|tabelas)$", LIVRE),
+    ("GET", r"/faturamento/(areas|campos|tabelas|config)$", LIVRE),
     ("GET", r"/financeiro/(categorias|favorecidos|config)$", LIVRE),
     ("GET", r"/config/(cargos|identidade|ia)$", LIVRE),
     ("GET", r"/nfse/emissoras$", LIVRE),
@@ -130,6 +130,8 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     # cadastros
     ("POST", r"/nfse/tomadores/importar$", "clientes.importar"),
     ("*", r"/nfse/tomadores", "clientes.*"),
+    ("GET", r"/faturamento/clientes/\d+/contrato$", "casos.ver"),  # o contrato único do cliente (sem a figura do contrato)
+    ("POST", r"/faturamento/clientes/\d+/contrato$", "casos.editar"),
     ("POST", r"/faturamento/contratos/importar$", "contratos.importar"),
     ("POST", r"/faturamento/contratos/\d+/casos$", "casos.editar"),
     ("*", r"/faturamento/contratos/\d+/regras", "contratos.editar"),
@@ -172,7 +174,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("*", r"/faturamento/fluxo$", "faturas.ver"),
     ("POST", r"/faturamento/revisoes/\d+/aprovar$", "revisoes.aprovar"),
     ("*", r"/faturamento/revisoes", "revisoes.*e"),
-    ("*", r"/faturamento/(areas|campos|tabelas)", "cfg_faturamento.editar"),
+    ("*", r"/faturamento/(areas|campos|tabelas|config)", "cfg_faturamento.editar"),
     ("*", r"/nfse/faturas/\d+/baixa$", "faturas.baixar"),
     ("POST", r"/nfse/faturas/zip$", "faturas.ver"),
     ("*", r"/nfse/faturas", "faturas.*e"),

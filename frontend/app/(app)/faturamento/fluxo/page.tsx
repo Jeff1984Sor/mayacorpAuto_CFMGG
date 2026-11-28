@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import type { ColunaFluxo, FluxoCard, FluxoOut } from "@/lib/faturamento";
 import { data, moeda, numero } from "@/lib/format";
@@ -67,6 +68,7 @@ function detalhe(l: Linha) {
 }
 
 export default function FluxoPage() {
+  const usaContrato = useUsaContrato();
   const router = useRouter();
   const { pode } = useAuth();
   const podeEmitirNfse = pode("nfse_emissao.emitir");
@@ -167,7 +169,7 @@ export default function FluxoPage() {
 
       <TableCard>
         <Toolbar>
-          <SearchInput value={busca} onChange={setBusca} placeholder="Fatura, cliente, caso, contrato ou NFS-e" className="sm:w-80" />
+          <SearchInput value={busca} onChange={setBusca} placeholder={usaContrato ? "Fatura, cliente, caso, contrato ou NFS-e" : "Fatura, cliente, caso ou NFS-e"} className="sm:w-80" />
           <div className="flex flex-wrap items-center gap-2">
             <FiltroDocumento
               valor={tipo}
@@ -289,7 +291,7 @@ export default function FluxoPage() {
                             {l.caso}
                           </p>
                         )}
-                        {l.contrato && <p className="truncate text-[11px] text-muted-foreground">{l.contrato}</p>}
+                        {usaContrato && l.contrato && <p className="truncate text-[11px] text-muted-foreground">{l.contrato}</p>}
                       </td>
                       <td className="px-3 py-3">
                         <Pill tom={st.pill}>{st.l}</Pill>

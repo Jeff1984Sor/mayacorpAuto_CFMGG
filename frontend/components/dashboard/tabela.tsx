@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { csv, normalizarBusca, ROTULO_SITUACAO, type Nota } from "@/lib/dashboard";
+import { useUsaContrato } from "@/lib/contrato";
 import { data, documento, moeda, numero } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const COLS: { k: Campo; l: string; num?: boolean; classe?: string }[] = [
 ];
 
 export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
+  const usaContrato = useUsaContrato();
   const [q, setQ] = useState("");
   const [ordem, setOrdem] = useState<{ k: Campo; desc: boolean }>({ k: "emissao", desc: true });
   const [limite, setLimite] = useState(50);
@@ -97,7 +99,7 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
                 setQ(e.target.value);
                 setLimite(50);
               }}
-              placeholder="Fatura, NFS-e, cliente, contrato, CNPJ…"
+              placeholder={usaContrato ? "Fatura, NFS-e, cliente, contrato, CNPJ…" : "Fatura, NFS-e, cliente, CNPJ…"}
               className="h-9 w-full rounded-lg border bg-background pr-2 pl-8 text-sm outline-none focus:border-ring"
             />
           </div>
@@ -140,7 +142,7 @@ export function TabelaNotas({ notas, hoje }: { notas: Nota[]; hoje: string }) {
                     ) : (
                       <span className="text-xs text-muted-foreground">sem fatura</span>
                     )}
-                    {n.contrato !== "—" && <p className="max-w-44 truncate text-[11px] text-muted-foreground">{n.contrato}</p>}
+                    {usaContrato && n.contrato !== "—" && <p className="max-w-44 truncate text-[11px] text-muted-foreground">{n.contrato}</p>}
                   </td>
                   <td className="hidden px-3 py-2 md:table-cell">
                     {n.nf != null && n.nfse_id ? (

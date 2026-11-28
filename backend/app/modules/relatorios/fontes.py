@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import and_, func, or_, select
@@ -69,7 +69,12 @@ class Fonte:
     extra: dict = field(default_factory=dict)
 
     def colunas(self, ctx) -> list[Coluna]:
-        return [c for c in self._colunas(ctx) if not c.permissao or ctx.pode(c.permissao)]
+        from app.modules.faturamento.service import usa_contrato
+
+        cols = [c for c in self._colunas(ctx) if not c.permissao or ctx.pode(c.permissao)]
+        if not usa_contrato(ctx.db, ctx.tenant_id):  # só cliente e caso: nada de coluna de contrato
+            cols = [c for c in cols if not c.id.startswith("contrato")]
+        return cols
 
     def carregar(self, ctx, de: date | None = None, ate: date | None = None) -> list[dict]:
         return self._carregar(ctx, de, ate)
@@ -110,7 +115,7 @@ def _dia(dt: datetime | None) -> date | None:
     """Data (no horário de Brasília) de um carimbo de criação/alteração gravado em UTC."""
     if dt is None:
         return None
-    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(_BRT).date()
+    return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(_BRT).date()
 
 
 def _doc(v: str | None) -> str | None:
@@ -460,6 +465,9 @@ def _col_regras(ctx) -> list[Coluna]:
 
 
 def _carregar_regras(ctx, de, ate) -> list[dict]:
+    from app.modules.faturamento.service import usa_contrato
+
+    todo = "(contrato todo)" if usa_contrato(ctx.db, ctx.tenant_id) else "(todos os casos)"
     sel = (select(RegraCobranca, Contrato.nome.label("contrato"), Tomador.nome.label("cliente"), Caso.titulo.label("caso"),
                   TabelaPreco.nome.label("tabela"), Contrato.ativo.label("contrato_ativo"), Caso.status.label("caso_status"))
            .join(Contrato, RegraCobranca.contrato_id == Contrato.id).join(Tomador, Contrato.tomador_id == Tomador.id)
@@ -477,7 +485,7 @@ def _carregar_regras(ctx, de, ate) -> list[dict]:
         term = {"sem": "Sem término", "ocorrencias": f"Após {g.ocorrencias} parcelas",
                 "data": f"Em {g.data_fim:%d/%m/%Y}" if g.data_fim else "Em data"}.get(_v(g.termino))
         out.append({
-            "cliente": m["cliente"], "contrato": m["contrato"], "caso": m["caso"] or "(contrato todo)",
+            "cliente": m["cliente"], "contrato": m["contrato"], "caso": m["caso"] or todo,
             "tipo": TIPO_REGRA.get(_v(g.tipo)), "descricao": g.descricao, "valor": _num(g.valor), "frequencia": freq,
             "data_pagamento": g.data_pagamento, "inicio": g.data_inicio,
             "termino": term if _v(g.tipo) == "recorrente" else None, "tabela": m["tabela"], "ativo": bool(g.ativo),

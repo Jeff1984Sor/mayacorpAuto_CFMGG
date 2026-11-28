@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, BriefcaseBusiness, Check, Copy, Eye, Loader2, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BriefcaseBusiness, Check, ChevronRight, Copy, Eye, FileSignature, Loader2, MoreHorizontal, Pencil, Plus, Table2, Trash2, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { CHAVE_CONFIG_FATURAMENTO, type ConfigFaturamento, useUsaContrato } from "@/lib/contrato";
 import type { CargoOut, TabelaOut } from "@/lib/faturamento";
 import { moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -340,6 +341,7 @@ function TabelaDialog({
 }
 
 function Tabelas() {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const tabelas = useQuery({ queryKey: ["fat", "tabelas"], queryFn: () => api.get<TabelaOut[]>("/faturamento/tabelas") });
   const cargos = useQuery({ queryKey: ["cargos"], queryFn: () => api.get<CargoOut[]>("/config/cargos") });
@@ -370,7 +372,7 @@ function Tabelas() {
           <h2 id="tabelas-t" className="font-semibold">
             Tabelas de preço
           </h2>
-          <p className="text-sm text-muted-foreground">Valor/hora por cargo. O contrato escolhe a tabela, e o caso pode trocar.</p>
+          <p className="text-sm text-muted-foreground">Valor/hora por cargo. O {usaContrato ? "contrato" : "cliente"} escolhe a tabela, e o caso pode trocar.</p>
         </div>
         <div className="flex items-center gap-3">
           {todas.some((t) => !t.ativo) && (
@@ -484,6 +486,102 @@ function Tabelas() {
   );
 }
 
+// ---------------------------------------------------------------- com ou sem a figura do contrato
+const ESTRUTURAS: { usa: boolean; titulo: string; caminho: string[]; texto: string }[] = [
+  {
+    usa: true,
+    titulo: "Com contratos",
+    caminho: ["Cliente", "Contrato", "Caso"],
+    texto: "Cada cliente pode ter vários contratos, e as regras de cobrança ficam no contrato. Um caso pode ter regra própria.",
+  },
+  {
+    usa: false,
+    titulo: "Sem contratos",
+    caminho: ["Cliente", "Caso"],
+    texto: "Os casos ficam direto no cliente. As regras de cobrança, quem paga e a tabela de preço ficam na ficha do cliente, aba Cobrança.",
+  },
+];
+
+function UsoDeContratos() {
+  const qc = useQueryClient();
+  const cfg = useQuery({ queryKey: CHAVE_CONFIG_FATURAMENTO, queryFn: () => api.get<ConfigFaturamento>("/faturamento/config") });
+  const [trocar, setTrocar] = useState<boolean | null>(null);
+  const salvar = useMutation({
+    mutationFn: (usa: boolean) => api.put<ConfigFaturamento>("/faturamento/config", { usa_contrato: usa }),
+    onSuccess: (r) => {
+      toast.success(r.usa_contrato ? "O escritório voltou a trabalhar com contratos" : "O escritório passou a trabalhar só com cliente e caso");
+      qc.setQueryData(CHAVE_CONFIG_FATURAMENTO, r);
+      qc.invalidateQueries({ queryKey: ["fat"] });
+      qc.invalidateQueries({ queryKey: ["relatorios"] });
+    },
+    onSettled: () => setTrocar(null),
+  });
+  const atual = cfg.data?.usa_contrato ?? true;
+
+  return (
+    <section className="card-surface overflow-hidden" aria-labelledby="estrutura-t">
+      <header className="flex items-start gap-3 border-b p-4">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-info-ink">
+          <FileSignature className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="estrutura-t" className="font-semibold">
+            Contratos
+          </h2>
+          <p className="text-sm text-muted-foreground">Escolha se o escritório organiza os casos dentro de contratos ou direto no cliente.</p>
+        </div>
+      </header>
+      {cfg.isPending ? (
+        <Skeleton className="m-4 h-32 rounded-xl" />
+      ) : (
+        <div className="grid gap-3 p-4 sm:grid-cols-2" role="radiogroup" aria-label="Trabalhar com contratos">
+          {ESTRUTURAS.map((e) => {
+            const marcado = atual === e.usa;
+            return (
+              <button
+                key={e.titulo}
+                type="button"
+                role="radio"
+                aria-checked={marcado}
+                onClick={() => !marcado && setTrocar(e.usa)}
+                className={cn("rounded-xl border p-4 text-left transition", marcado ? "border-brand bg-brand/8 ring-1 ring-brand" : "hover:bg-muted/50")}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{e.titulo}</span>
+                  {e.usa && <Pill tom="neutral">padrão</Pill>}
+                  {marcado && <Check className="ml-auto size-4 text-info-ink" />}
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-1 text-xs font-medium text-info-ink">
+                  {e.caminho.map((p, i) => (
+                    <span key={p} className="flex items-center gap-1">
+                      {i > 0 && <ChevronRight className="size-3 text-muted-foreground" />}
+                      <span className="rounded-md bg-brand/10 px-1.5 py-0.5">{p}</span>
+                    </span>
+                  ))}
+                </span>
+                <span className="mt-2 block text-sm text-muted-foreground">{e.texto}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <ConfirmDialog
+        open={trocar !== null}
+        onOpenChange={(o) => !o && setTrocar(null)}
+        titulo={trocar ? "Voltar a trabalhar com contratos?" : "Trabalhar sem contratos?"}
+        descricao={
+          trocar
+            ? "O menu Contratos volta a aparecer. O que foi cadastrado em cada cliente continua valendo, como um contrato chamado “Geral”."
+            : "O menu Contratos some e as telas passam a mostrar só cliente e caso. Nada é apagado: as regras de cobrança de cada cliente continuam valendo, na aba Cobrança da ficha dele. Só é possível se nenhum cliente tiver mais de um contrato."
+        }
+        confirmar={trocar ? "Usar contratos" : "Trabalhar sem contratos"}
+        carregando={salvar.isPending}
+        onConfirm={() => trocar !== null && salvar.mutate(trocar)}
+      />
+    </section>
+  );
+}
+
 export default function ConfigFaturamentoPage() {
   const { pode } = useAuth();
   // consulta sem edição: os controles ficam desligados (cargos dependem de Profissionais)
@@ -501,6 +599,7 @@ export default function ConfigFaturamentoPage() {
         <TabsTrigger value="precos">Cargos e tabelas de preço</TabsTrigger>
         <TabsTrigger value="areas">Áreas de atuação</TabsTrigger>
         <TabsTrigger value="campos">Campos adicionais</TabsTrigger>
+        <TabsTrigger value="contratos">Contratos</TabsTrigger>
       </TabsList>
       <TabsContent value="precos">
         <div className="grid gap-5 xl:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] xl:items-start">
@@ -520,6 +619,11 @@ export default function ConfigFaturamentoPage() {
       <TabsContent value="campos" className="max-w-4xl">
         <fieldset disabled={fat} className="min-w-0">
           <CamposAdicionaisConfig />
+        </fieldset>
+      </TabsContent>
+      <TabsContent value="contratos" className="max-w-3xl">
+        <fieldset disabled={fat} className="min-w-0">
+          <UsoDeContratos />
         </fieldset>
       </TabsContent>
     </Tabs>

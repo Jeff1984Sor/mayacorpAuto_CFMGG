@@ -468,7 +468,7 @@ export function FuncionarioDialog({
             </Secao>
 
             {pode("cfg_profissionais.ver") && (
-              <Secao id="func-sec-comissao" icone={BadgePercent} titulo="Comissão" descricao="Percentual sobre o que o cliente pagou em honorários: geral ou por cliente, contrato ou caso.">
+              <Secao id="func-sec-comissao" icone={BadgePercent} titulo="Comissão" descricao="Percentual sobre o que o cliente pagou em honorários: geral ou por alcance (cliente, caso…).">
                 {usuario ? (
                   <RegrasComissao usuarioId={usuario.id} somenteLeitura={somenteLeitura} />
                 ) : (

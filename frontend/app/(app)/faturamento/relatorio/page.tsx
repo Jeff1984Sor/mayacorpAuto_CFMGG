@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { nomeEmissora, useEmissoras } from "@/hooks/use-nfse";
 import { api, baixar } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { data, moeda } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ const inicioAno = () => new Date(new Date().getFullYear(), 0, 1).toLocaleDateStr
 const horas = (h: number) => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
 
 export default function RelatorioFaturamentoPage() {
+  const usaContrato = useUsaContrato();
   const emissoras = useEmissoras();
   const [periodo, setPeriodo] = useState({ de: inicioAno(), ate: new Date().toLocaleDateString("sv-SE") });
   const [cliente, setCliente] = useState<ClienteEscolhido[]>([]);
@@ -266,7 +268,7 @@ export default function RelatorioFaturamentoPage() {
                 onChange={setAba}
                 opcoes={[
                   { value: "clientes", label: "Por cliente", contagem: r.por_cliente.length },
-                  { value: "contratos", label: "Por contrato", contagem: r.por_contrato.length },
+                  ...(usaContrato ? [{ value: "contratos" as Aba, label: "Por contrato", contagem: r.por_contrato.length }] : []),
                   { value: "horas", label: "Horas por profissional", contagem: r.horas_por_profissional.length },
                   { value: "faturas", label: "Faturas", contagem: r.faturas.length },
                 ]}

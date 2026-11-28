@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api, baixar, baixarBlob } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { salvarFaturasNaPasta } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, toNum } from "@/lib/format";
@@ -68,6 +69,7 @@ function PdfInline({ id, versao }: { id: number; versao: string }) {
 }
 
 export default function FaturaDetalhePage() {
+  const usaContrato = useUsaContrato();
   const { id } = useParams<{ id: string }>();
   const fid = Number(id);
   const qc = useQueryClient();
@@ -166,7 +168,7 @@ export default function FaturaDetalhePage() {
             {f.simulada && <Pill tom="warning">Simulação</Pill>}
           </span>
         }
-        descricao={`${f.tipo === "despesas" ? "Nota de Despesas" : "Nota de Honorários"} de ${f.tomador_nome}${f.nfse_numero ? ` · NFS-e ${f.nfse_numero}` : f.tipo === "honorarios" ? " · sem NFS-e" : ""}${f.contrato_nome ? ` · ${f.contrato_nome}` : ""}`}
+        descricao={`${f.tipo === "despesas" ? "Nota de Despesas" : "Nota de Honorários"} de ${f.tomador_nome}${f.nfse_numero ? ` · NFS-e ${f.nfse_numero}` : f.tipo === "honorarios" ? " · sem NFS-e" : ""}${usaContrato && f.contrato_nome ? ` · ${f.contrato_nome}` : ""}`}
         icone={ReceiptText}
         migalhas={[
           { label: "NFS-e", href: "/nfse" },
@@ -305,7 +307,7 @@ export default function FaturaDetalhePage() {
                   <CalendarClock className="size-4" /> Lote de origem
                 </Link>
               )}
-              {f.contrato_id && (
+              {usaContrato && f.contrato_id && (
                 <Link href={`/faturamento/contratos/${f.contrato_id}`} className="inline-flex items-center gap-2 text-info-ink hover:underline">
                   <FileSignature className="size-4" /> Contrato {f.contrato_nome}
                 </Link>

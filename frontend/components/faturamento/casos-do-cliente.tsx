@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { api, baixar } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import type { CampoOut } from "@/lib/faturamento";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +63,7 @@ export function CasosDoCliente({
   tomadorId: number;
   nomeCliente: string;
 }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const { isAdmin, administrador } = useAuth();
   const admin = isAdmin || administrador; // criar campo é de administrador (o backend confere)
@@ -414,7 +416,7 @@ export function CasosDoCliente({
               [
                 "contrato",
                 "Unificar em 1 nota",
-                "Todas as cobranças do contrato juntas.",
+                usaContrato ? "Todas as cobranças do contrato juntas." : "Todas as cobranças do cliente juntas.",
               ],
               [
                 "caso",
@@ -477,12 +479,12 @@ export function CasosDoCliente({
             valor={notaRegra}
             onChange={setNotaRegra}
           />
-          <OpcaoNota
+          {usaContrato && <OpcaoNota
             titulo="Nome do contrato"
             exemplo="ex.: Honorários advocatícios — Contencioso (Padrão = aparece)"
             valor={notaContrato}
             onChange={setNotaContrato}
-          />
+          />}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/30 px-3 py-2">
             <div>
               <p className="text-sm font-medium">Começar o texto com o campo</p>

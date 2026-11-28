@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import { ROTULO_TIPO_REGRA, type RegraOut, type TipoRegra } from "@/lib/faturamento";
 import { data, moeda } from "@/lib/format";
@@ -85,6 +86,7 @@ function CardRegra({ r, onEditar, onExcluir, podeEditar }: { r: RegraOut; onEdit
 
 /** Lista de regras de cobrança (do contrato ou de um caso) com criar/editar/excluir. */
 export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?: number; casoId?: number; vazioTexto?: string }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const { pode } = useAuth();
   const podeEditar = pode("contratos.editar");
@@ -125,7 +127,7 @@ export function RegrasCobranca({ contratoId, casoId, vazioTexto }: { contratoId?
           <EmptyState
             icone={Repeat}
             titulo="Nenhuma regra de cobrança"
-            descricao={vazioTexto ?? "Defina como este contrato é cobrado: valor fixo, mensalidade recorrente ou por hora."}
+            descricao={vazioTexto ?? `Defina como este ${usaContrato ? "contrato" : "cliente"} é cobrado: valor fixo, mensalidade recorrente ou por hora.`}
             acao={
               podeEditar && (
                 <Button onClick={() => setNova(true)}>

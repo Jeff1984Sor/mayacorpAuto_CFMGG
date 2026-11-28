@@ -50,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { abrirArquivo, api, ApiError } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { aposCriarFaturas } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import {
@@ -290,6 +291,7 @@ function AdicionarHorasDialog({ open, onOpenChange, rev, onFeito }: { open: bool
 }
 
 function LancamentoDialog({ open, onOpenChange, rev, onFeito }: { open: boolean; onOpenChange: (o: boolean) => void; rev: RevisaoOut; onFeito: (r: RevisaoOut) => void }) {
+  const usaContrato = useUsaContrato();
   const despesas = rev.aba === "despesas";
   const [f, setF] = useState({ data: hoje(), descricao: "", valor: "", caso_id: "", tipo_despesa: "outros" as TipoDespesa });
   /* eslint-disable react-hooks/set-state-in-effect -- reinicia ao abrir */
@@ -333,7 +335,7 @@ function LancamentoDialog({ open, onOpenChange, rev, onFeito }: { open: boolean;
         {(despesas || rev.casos.length > 0) && (
           <Field label="Caso" obrigatorio={despesas} htmlFor="rl-caso" className="sm:col-span-2">
             <NativeSelect id="rl-caso" value={f.caso_id} onChange={(e) => set("caso_id", e.target.value)}>
-              <option value="">{despesas ? "Escolha o caso…" : "Do contrato (sem caso)"}</option>
+              <option value="">{despesas ? "Escolha o caso…" : usaContrato ? "Do contrato (sem caso)" : "Do cliente (sem caso)"}</option>
               {rev.casos.map((c) => (
                 <option key={c.id} value={c.id}>
                   #{c.numero} {c.titulo}
@@ -371,6 +373,7 @@ function LancamentoDialog({ open, onOpenChange, rev, onFeito }: { open: boolean;
 }
 
 function IncluirPendentesDialog({ open, onOpenChange, rev, onFeito }: { open: boolean; onOpenChange: (o: boolean) => void; rev: RevisaoOut; onFeito: (r: RevisaoOut) => void }) {
+  const usaContrato = useUsaContrato();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const q = useQuery({
     queryKey: ["fat", "revisao", rev.id, "disponiveis"],
@@ -405,7 +408,7 @@ function IncluirPendentesDialog({ open, onOpenChange, rev, onFeito }: { open: bo
       open={open}
       onOpenChange={onOpenChange}
       titulo="Incluir itens pendentes"
-      descricao={`Itens do contrato #${rev.contrato_numero} que ainda não estão em nenhuma fatura.`}
+      descricao={usaContrato ? `Itens do contrato #${rev.contrato_numero} que ainda não estão em nenhuma fatura.` : "Itens deste cliente que ainda não estão em nenhuma fatura."}
       largura="xl"
       rotuloSalvar={sel.size ? `Incluir ${sel.size} · ${moeda(total)}` : "Incluir"}
       salvando={incluir.isPending}
@@ -418,7 +421,7 @@ function IncluirPendentesDialog({ open, onOpenChange, rev, onFeito }: { open: bo
       {q.isPending ? (
         <Skeleton className="h-40 rounded-xl" />
       ) : itens.length === 0 ? (
-        <EmptyState icone={ListPlus} titulo="Nada pendente neste contrato" descricao="Todas as parcelas, horas e despesas já estão nesta ou em outra fatura." />
+        <EmptyState icone={ListPlus} titulo={usaContrato ? "Nada pendente neste contrato" : "Nada pendente deste cliente"} descricao="Todas as parcelas, horas e despesas já estão nesta ou em outra fatura." />
       ) : (
         <div className="max-h-[55dvh] overflow-y-auto rounded-xl border">
           <table className="w-full text-sm">
@@ -767,6 +770,7 @@ function CampoTexto({ id, rotulo, dica, valor, desabilitado, onSalvar }: { id: s
 
 // ================================================================ página
 export default function RevisaoPage() {
+  const usaContrato = useUsaContrato();
   const { id } = useParams<{ id: string }>();
   const rid = Number(id);
   const qc = useQueryClient();
@@ -882,10 +886,14 @@ export default function RevisaoPage() {
               </div>
               <p className="mt-1.5 text-sm">
                 <span className="font-medium">{r.tomador_nome}</span>
-                <span className="text-muted-foreground"> · </span>
-                <Link href={`/faturamento/contratos/${r.contrato_id}`} className="text-muted-foreground hover:text-foreground hover:underline">
-                  #{r.contrato_numero} {r.contrato_nome}
-                </Link>
+                {usaContrato && (
+                  <>
+                    <span className="text-muted-foreground"> · </span>
+                    <Link href={`/faturamento/contratos/${r.contrato_id}`} className="text-muted-foreground hover:text-foreground hover:underline">
+                      #{r.contrato_numero} {r.contrato_nome}
+                    </Link>
+                  </>
+                )}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Período {data(r.de)} a {data(r.ate)} · aberta {dias === 0 ? "hoje" : `há ${dias} dia${dias === 1 ? "" : "s"}`}
@@ -939,7 +947,7 @@ export default function RevisaoPage() {
               {aberta && (
                 <>
                   {r.aba === "honorarios" && (
-                    <Button size="sm" variant="outline" onClick={() => setDlg("horas")} disabled={r.casos.length === 0} title={r.casos.length === 0 ? "O contrato não tem casos" : undefined}>
+                    <Button size="sm" variant="outline" onClick={() => setDlg("horas")} disabled={r.casos.length === 0} title={r.casos.length === 0 ? (usaContrato ? "O contrato não tem casos" : "O cliente não tem casos") : undefined}>
                       <Timer /> Adicionar horas
                     </Button>
                   )}
@@ -956,7 +964,7 @@ export default function RevisaoPage() {
               <EmptyState
                 icone={ListPlus}
                 titulo="Revisão sem itens"
-                descricao="Inclua itens pendentes do contrato ou adicione um lançamento."
+                descricao={`Inclua itens pendentes do ${usaContrato ? "contrato" : "cliente"} ou adicione um lançamento.`}
                 acao={
                   aberta && (
                     <Button onClick={() => setDlg("pend")}>

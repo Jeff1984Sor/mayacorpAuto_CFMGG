@@ -50,6 +50,7 @@ import { TrocarSenhaDialog } from "./trocar-senha-dialog";
 import { UserAvatar } from "./user-avatar";
 import { ativo, itemDaRota, navPara, type NavItem } from "./nav";
 import { SemAcesso } from "./sem-acesso";
+import { useUsaContrato } from "@/lib/contrato";
 
 const PERFIL_LABEL = { admin: "Administrador", operador: "Operador", visualizador: "Visualizador" } as const;
 const nomePerfil = (u: { perfil_acesso_nome: string | null; perfil: keyof typeof PERFIL_LABEL }) => u.perfil_acesso_nome ?? PERFIL_LABEL[u.perfil];
@@ -201,9 +202,10 @@ function useGruposRecolhidos() {
 
 function SidebarConteudo({ recolhido, onNavigate, onRecolher }: { recolhido: boolean; onNavigate?: () => void; onRecolher?: () => void }) {
   const { usuario, pode } = useAuth();
+  const usaContrato = useUsaContrato();
   const { nome_exibicao } = useBrand();
   const pathname = usePathname();
-  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp, usuario?.robos ?? null);
+  const grupos = navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp, usuario?.robos ?? null, usaContrato);
   const { fechados, alternar } = useGruposRecolhidos();
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">

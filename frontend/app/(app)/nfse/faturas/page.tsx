@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaginado } from "@/hooks/use-paginado";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { salvarNaRede } from "@/lib/salvar-na-rede";
 import { useAuth } from "@/lib/auth";
 import { data, documento, moeda, numero, toNum } from "@/lib/format";
@@ -39,6 +40,7 @@ const CARDS: { s: SituacaoFatura; l: string; i: React.ComponentType<{ className?
 ];
 
 export default function FaturasPage() {
+  const usaContrato = useUsaContrato();
   const router = useRouter();
   const lista = usePaginado<FaturaOut>("faturas", "/nfse/faturas", {}, 25);
 
@@ -242,7 +244,7 @@ export default function FaturasPage() {
                       )}
                       <p className="truncate text-[11px] text-muted-foreground">
                         <span className="num">{documento(f.tomador_doc)}</span>
-                        {f.contrato_nome && ` · ${f.contrato_nome}`}
+                        {usaContrato && f.contrato_nome && ` · ${f.contrato_nome}`}
                       </p>
                     </td>
                     <td className="hidden px-3 py-3 text-muted-foreground lg:table-cell">

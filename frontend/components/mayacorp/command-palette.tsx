@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
+import { useUsaContrato } from "@/lib/contrato";
+
 import {
   CommandDialog,
   CommandEmpty,
@@ -34,6 +36,7 @@ export function CommandPalette() {
   const busca = useDebounce(q, 250);
   const router = useRouter();
   const { usuario, pode } = useAuth();
+  const usaContrato = useUsaContrato();
   const { setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export function CommandPalette() {
             </CommandGroup>
           )}
           {!ativo &&
-            navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp, usuario?.robos ?? null).map((g) => (
+            navPara(usuario && pode, usuario?.equipe_mayacorp, usuario?.painel_mayacorp, usuario?.robos ?? null, usaContrato).map((g) => (
               <CommandGroup key={g.titulo} heading={g.titulo}>
                 {g.itens
                   .filter((i) => !i.emBreve)

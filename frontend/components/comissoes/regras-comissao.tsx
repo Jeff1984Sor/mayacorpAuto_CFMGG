@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { type AlcanceComissao, type AlvoComissao, pctFmt, type RegraComissaoIn, type RegraComissaoOut, ROTULO_ALCANCE } from "@/lib/comissoes";
 import { data } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -130,6 +131,7 @@ function AlvoCombo({ alcance, valor, onChange, id }: { alcance: Exclude<AlcanceC
  * Cada regra é salva na hora (não depende do botão Salvar da ficha).
  */
 export function RegrasComissao({ usuarioId, somenteLeitura }: { usuarioId: number; somenteLeitura?: boolean }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const chave = ["usuarios", usuarioId, "comissoes"];
   const base = `/config/usuarios/${usuarioId}/comissoes`;
@@ -196,7 +198,7 @@ export function RegrasComissao({ usuarioId, somenteLeitura }: { usuarioId: numbe
     <div className="space-y-3">
       {regras.length === 0 && !f && (
         <p className="rounded-xl border border-dashed bg-background/60 px-3 py-4 text-center text-sm text-muted-foreground">
-          Este profissional ainda não tem comissão. Cadastre um percentual geral ou por cliente, contrato ou caso.
+          Este profissional ainda não tem comissão. Cadastre um percentual geral ou por {usaContrato ? "cliente, contrato ou caso" : "cliente ou caso"}.
         </p>
       )}
       {regras.length > 0 && (
@@ -237,7 +239,7 @@ export function RegrasComissao({ usuarioId, somenteLeitura }: { usuarioId: numbe
           <div className="grid gap-3 sm:grid-cols-6">
             <Field label="Sobre o quê" htmlFor="com-alcance" className="sm:col-span-2" dica={ALCANCES.find((a) => a.v === f.alcance)?.dica}>
               <NativeSelect id="com-alcance" value={f.alcance} onChange={(e) => setF({ ...f, alcance: e.target.value as AlcanceComissao, alvo: null })}>
-                {ALCANCES.map((a) => (
+                {ALCANCES.filter((a) => usaContrato || a.v !== "contrato" || f.alcance === "contrato").map((a) => (
                   <option key={a.v} value={a.v}>
                     {ROTULO_ALCANCE[a.v]}
                   </option>
@@ -300,7 +302,7 @@ export function RegrasComissao({ usuarioId, somenteLeitura }: { usuarioId: numbe
       )}
       <p className="text-[11px] text-muted-foreground">
         A comissão é um percentual sobre o que o cliente efetivamente pagou em honorários (reembolso de despesas não entra). Se mais de uma regra alcançar o mesmo
-        recebimento, vale a mais específica: caso, depois contrato, depois cliente, depois a geral.
+        recebimento, vale a mais específica: {usaContrato ? "caso, depois contrato, depois cliente" : "caso, depois cliente"}, depois a geral.
       </p>
 
       <ConfirmDialog

@@ -46,6 +46,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { abrirArquivo, api } from "@/lib/api";
+import { garantirContratoDoCliente, useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import type { ContratoOut } from "@/lib/faturamento";
 import { data, dataHora, documento, moeda, numero, relativo, tamanhoArquivo } from "@/lib/format";
@@ -421,6 +422,7 @@ function Partes({ p, onVincular }: { p: ProcessoDetalhe; onVincular: (parteId: n
 
 // ================================================================ cliente e caso
 function CriarCasoDialog({ p, open, onOpenChange }: { p: ProcessoDetalhe; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const router = useRouter();
   const clientes = [...new Map(p.vinculos.filter((v) => v.status === "automatico" || v.status === "confirmado").map((v) => [v.cliente_id, v.cliente_nome ?? `Cliente ${v.cliente_id}`])).entries()];
@@ -435,7 +437,11 @@ function CriarCasoDialog({ p, open, onOpenChange }: { p: ProcessoDetalhe; open: 
   });
   const contratoId = contrato || (contratos.data?.[0] ? String(contratos.data[0].id) : "");
   const criar = useMutation({
-    mutationFn: () => api.post<{ caso_id: number; caso_numero: number; processo: ProcessoDetalhe }>(`/tribunais/processos/${p.id}/caso`, { contrato_id: Number(contratoId), titulo: titulo.trim() || null }),
+    mutationFn: async () => {
+      // sem a figura do contrato: o caso entra no contrato único do cliente (criado por trás na primeira vez)
+      const id = usaContrato ? Number(contratoId) : (await garantirContratoDoCliente(Number(clienteId))).id;
+      return api.post<{ caso_id: number; caso_numero: number; processo: ProcessoDetalhe }>(`/tribunais/processos/${p.id}/caso`, { contrato_id: id, titulo: titulo.trim() || null });
+    },
     onSuccess: (r) => {
       qc.setQueryData([CHAVE, "processo", p.id], r.processo);
       qc.invalidateQueries({ queryKey: [CHAVE] });
@@ -453,12 +459,13 @@ function CriarCasoDialog({ p, open, onOpenChange }: { p: ProcessoDetalhe; open: 
       salvando={criar.isPending}
       onSubmit={(e) => {
         e.preventDefault();
-        if (!contratoId) return toast.error("Escolha o contrato.");
+        if (usaContrato && !contratoId) return toast.error("Escolha o contrato.");
+        if (!clienteId) return toast.error("Escolha o cliente.");
         criar.mutate();
       }}
     >
       {clientes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Vincule (ou confirme) o cliente deste processo primeiro: o caso fica dentro de um contrato do cliente.</p>
+        <p className="text-sm text-muted-foreground">Vincule (ou confirme) o cliente deste processo primeiro: o caso fica {usaContrato ? "dentro de um contrato do cliente" : "ligado ao cliente"}.</p>
       ) : (
         <div className="grid gap-4">
           <Field label="Cliente" htmlFor="cc-cli">
@@ -477,7 +484,7 @@ function CriarCasoDialog({ p, open, onOpenChange }: { p: ProcessoDetalhe; open: 
               ))}
             </NativeSelect>
           </Field>
-          <Field
+          {usaContrato && <Field
             label="Contrato"
             obrigatorio
             htmlFor="cc-contrato"
@@ -499,7 +506,7 @@ function CriarCasoDialog({ p, open, onOpenChange }: { p: ProcessoDetalhe; open: 
                 </option>
               ))}
             </NativeSelect>
-          </Field>
+          </Field>}
           <Field label="Título do caso" htmlFor="cc-titulo" dica="Vazio: classe e número do processo.">
             <Input id="cc-titulo" value={titulo} maxLength={250} onChange={(e) => setTitulo(e.target.value)} placeholder={`${p.classe_nome ?? "Processo"} — ${p.numero_formatado}`} />
           </Field>

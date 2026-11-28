@@ -79,6 +79,16 @@ class TabelaPrecoItem(Base):
     __table_args__ = (UniqueConstraint("tabela_id", "cargo_id", name="uq_fat_tabela_item"),)
 
 
+class ConfigFaturamento(Base, Timestamped):
+    """Preferências do faturamento (por escritório). Configurações › Faturamento."""
+
+    __tablename__ = "fat_config"
+
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), primary_key=True)
+    # False = o escritório trabalha só com Cliente → Caso: cada cliente tem um contrato único, criado por trás
+    usa_contrato: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class Contrato(Base, Timestamped):
     __tablename__ = "fat_contrato"
 

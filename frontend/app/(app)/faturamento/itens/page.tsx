@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { abrirArquivo, api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { aposCriarFaturas } from "@/lib/pasta-faturas";
 import { useAuth } from "@/lib/auth";
 import {
@@ -73,14 +74,16 @@ function Tri({ itens, sel, onChange, rotulo }: { itens: ItemPendente[]; sel: Set
 }
 
 /** Para onde ir para corrigir o aviso do item. */
-function linkAviso(aviso: string, contratoId: number, casoId: number | null) {
-  if (/tabela de pre[cç]o no contrato/i.test(aviso))
-    return casoId ? { href: `/faturamento/casos/${casoId}`, rotulo: "Escolher no caso" } : { href: `/faturamento/contratos/${contratoId}`, rotulo: "Escolher no contrato" };
+function linkAviso(aviso: string, contratoId: number, casoId: number | null, clienteId?: number) {
+  // sem a figura do contrato (clienteId informado), a cobrança fica na ficha do cliente
+  const dono = clienteId ? `/cadastros/clientes?id=${clienteId}` : `/faturamento/contratos/${contratoId}`;
+  if (/tabela de pre[cç]o no (contrato|cliente)/i.test(aviso))
+    return casoId ? { href: `/faturamento/casos/${casoId}`, rotulo: "Escolher no caso" } : { href: dono, rotulo: clienteId ? "Escolher no cliente" : "Escolher no contrato" };
   if (/sem cargo/i.test(aviso)) return { href: "/configuracoes/faturamento", rotulo: "Ajustar cargo ou tabela" };
-  return { href: `/faturamento/contratos/${contratoId}`, rotulo: "Abrir contrato" };
+  return { href: dono, rotulo: clienteId ? "Abrir cliente" : "Abrir contrato" };
 }
 
-function LinhaItem({ i, sel, onToggle, contratoId }: { i: ItemPendente; sel: boolean; onToggle: (v: boolean) => void; contratoId: number }) {
+function LinhaItem({ i, sel, onToggle, contratoId, clienteId }: { i: ItemPendente; sel: boolean; onToggle: (v: boolean) => void; contratoId: number; clienteId?: number }) {
   const aviso = !!i.aviso;
   return (
     <tr className={cn("text-sm transition-colors", aviso ? "bg-warning/6" : sel ? "bg-brand/[0.04]" : "hover:bg-accent/30")}>
@@ -94,7 +97,7 @@ function LinhaItem({ i, sel, onToggle, contratoId }: { i: ItemPendente; sel: boo
             <span className="font-mono">#{i.caso_numero}</span> <span className="text-muted-foreground">{i.caso_titulo}</span>
           </Link>
         ) : (
-          <span className="text-muted-foreground">Contrato</span>
+          <span className="text-muted-foreground">{clienteId ? "Todos os casos" : "Contrato"}</span>
         )}
       </td>
       <td className="min-w-56 px-2 py-2">
@@ -105,9 +108,9 @@ function LinhaItem({ i, sel, onToggle, contratoId }: { i: ItemPendente; sel: boo
         {i.detalhe && <p className="mt-1 text-xs text-muted-foreground">{i.detalhe}</p>}
         {aviso && (
           <p className="mt-1 flex items-center gap-1 text-xs font-medium text-warning-ink">
-            <AlertTriangle className="size-3.5 shrink-0" /> {i.aviso}
+            <AlertTriangle className="size-3.5 shrink-0" /> {clienteId ? i.aviso?.replace("no contrato", "no cliente") : i.aviso}
             {(() => {
-              const l = linkAviso(i.aviso!, contratoId, i.caso_id);
+              const l = linkAviso(i.aviso!, contratoId, i.caso_id, clienteId);
               return (
                 <Link href={l.href} className="ml-1 underline underline-offset-2 hover:no-underline">
                   {l.rotulo}
@@ -144,6 +147,7 @@ function ResultadoDialog({
   faturas: FaturarOut | null;
   revisoes: RevisaoResumo[] | null;
 }) {
+  const usaContrato = useUsaContrato();
   return (
     <Dialog open={aberto} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -168,7 +172,7 @@ function ResultadoDialog({
                 </Link>
                 <p className="truncate text-xs text-muted-foreground">
                   {f.tomador_nome}
-                  {f.contrato_nome && ` · ${f.contrato_nome}`} · vence {data(f.data_vencimento)}
+                  {usaContrato && f.contrato_nome && ` · ${f.contrato_nome}`} · vence {data(f.data_vencimento)}
                 </p>
               </div>
               <span className="font-mono text-sm tabular-nums">{moeda(f.valor)}</span>
@@ -185,7 +189,7 @@ function ResultadoDialog({
                   Revisão #{r.numero}
                 </Link>
                 <p className="truncate text-xs text-muted-foreground">
-                  {r.tomador_nome} · #{r.contrato_numero} {r.contrato_nome} · {r.qtd_itens} itens
+                  {r.tomador_nome}{usaContrato && ` · #${r.contrato_numero} ${r.contrato_nome}`} · {r.qtd_itens} itens
                 </p>
               </div>
               <span className="font-mono text-sm tabular-nums">{moeda(r.total)}</span>
@@ -212,6 +216,7 @@ const semAcento = (x: string) =>
     .toLowerCase();
 
 export default function ItensAFaturarPage() {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const router = useRouter();
   const { pode } = useAuth();
@@ -416,10 +421,10 @@ export default function ItensAFaturarPage() {
           <EmptyState
             icone={ListChecks}
             titulo="Nada a faturar no período"
-            descricao="Confira se os contratos têm regras de cobrança e se as horas e despesas foram lançadas nos casos."
+            descricao={`Confira se os ${usaContrato ? "contratos" : "clientes"} têm regras de cobrança e se as horas e despesas foram lançadas nos casos.`}
             acao={
-              <Button variant="outline" render={<Link href="/faturamento/contratos" />}>
-                Ver contratos
+              <Button variant="outline" render={<Link href={usaContrato ? "/faturamento/contratos" : "/cadastros/clientes"} />}>
+                {usaContrato ? "Ver contratos" : "Ver clientes"}
               </Button>
             }
           />
@@ -499,14 +504,18 @@ export default function ItensAFaturarPage() {
                         {aberto &&
                           c.contratos.map((k) => (
                             <Fragment key={k.contrato_id}>
-                              <tr className="border-b bg-muted/20">
+                              <tr className={cn("border-b bg-muted/20", !usaContrato && !textoPagadores(k.pagadores) && "hidden")}>
                                 <td className="py-2 pl-8">
                                   <Tri itens={k.itens} sel={sel} onChange={(v) => marcar(k.itens, v)} rotulo={`Selecionar contrato ${k.contrato_nome}`} />
                                 </td>
                                 <td colSpan={2} className="px-2 py-2 text-sm">
-                                  <Link href={`/faturamento/contratos/${k.contrato_id}`} className="font-medium hover:underline">
-                                    <span className="font-mono text-muted-foreground">#{k.contrato_numero}</span> {k.contrato_nome}
-                                  </Link>
+                                  {usaContrato ? (
+                                    <Link href={`/faturamento/contratos/${k.contrato_id}`} className="font-medium hover:underline">
+                                      <span className="font-mono text-muted-foreground">#{k.contrato_numero}</span> {k.contrato_nome}
+                                    </Link>
+                                  ) : (
+                                    <span className="font-medium">Quem paga</span>
+                                  )}
                                   {textoPagadores(k.pagadores) && (
                                     <span className="ml-2 text-xs text-info-ink">{textoPagadores(k.pagadores)}</span>
                                   )}
@@ -531,7 +540,7 @@ export default function ItensAFaturarPage() {
                                       </thead>
                                       <tbody className="divide-y">
                                         {k.itens.map((i) => (
-                                          <LinhaItem key={i.chave} i={i} contratoId={k.contrato_id} sel={sel.has(i.chave)} onToggle={(v) => marcar([i], v)} />
+                                          <LinhaItem key={i.chave} i={i} contratoId={k.contrato_id} clienteId={usaContrato ? undefined : c.tomador_id} sel={sel.has(i.chave)} onToggle={(v) => marcar([i], v)} />
                                         ))}
                                       </tbody>
                                     </table>

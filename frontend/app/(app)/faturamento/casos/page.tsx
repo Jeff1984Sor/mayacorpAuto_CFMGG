@@ -22,12 +22,14 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import { type CasoOut, ROTULO_TIPO_CASO, type TipoCaso } from "@/lib/faturamento";
 import { data, moeda } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export default function CasosPage() {
+  const usaContrato = useUsaContrato();
   const router = useRouter();
   const qc = useQueryClient();
   const { pode } = useAuth();
@@ -128,7 +130,7 @@ export default function CasosPage() {
           <EmptyState
             icone={Briefcase}
             titulo={filtrando ? "Nenhum caso encontrado" : "Nenhum caso ainda"}
-            descricao={filtrando ? "Troque a busca, o cliente ou a situação." : "Cada caso pertence a um contrato e recebe horas e despesas."}
+            descricao={filtrando ? "Troque a busca, o cliente ou a situação." : usaContrato ? "Cada caso pertence a um contrato e recebe horas e despesas." : "Cada caso pertence a um cliente e recebe horas e despesas."}
             acao={
               podeEditar &&
               !filtrando && (
@@ -146,7 +148,7 @@ export default function CasosPage() {
                   <th className="px-4 py-2.5 font-medium">Nº</th>
                   <th className="px-3 py-2.5 font-medium">Caso</th>
                   <th className="px-3 py-2.5 font-medium">Área · Tipo · Instância</th>
-                  <th className="px-3 py-2.5 font-medium">Cliente · Contrato</th>
+                  <th className="px-3 py-2.5 font-medium">{usaContrato ? "Cliente · Contrato" : "Cliente"}</th>
                   <th className="px-3 py-2.5 font-medium">Responsável</th>
                   <th className="px-3 py-2.5 text-right font-medium">Horas a faturar</th>
                   <th className="px-3 py-2.5 text-right font-medium">Despesas a faturar</th>
@@ -184,9 +186,11 @@ export default function CasosPage() {
                     </td>
                     <td className="max-w-64 px-3 py-3">
                       <p className="truncate">{c.tomador_nome}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        #{c.contrato_numero} {c.contrato_nome}
-                      </p>
+                      {usaContrato && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          #{c.contrato_numero} {c.contrato_nome}
+                        </p>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-muted-foreground">{c.responsavel_nome ?? "—"}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{Number(c.horas_pendentes) ? `${String(c.horas_pendentes).replace(".", ",")} h` : "—"}</td>

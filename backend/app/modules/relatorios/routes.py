@@ -17,6 +17,7 @@ from sqlalchemy import or_, select
 
 from app.core.deps import Ctx
 from app.core.models import Usuario
+from app.modules.faturamento.service import usa_contrato
 from app.modules.relatorios import motor
 from app.modules.relatorios.fontes import NUMERICOS, disponiveis
 from app.modules.relatorios.models import RelatorioSalvo
@@ -47,12 +48,20 @@ def _salvos(ctx) -> list[dict]:
     return [_salvo_out(ctx, s, autores) for s in lista]
 
 
+def _sem_contrato(p: dict) -> dict:
+    cfg = p["config"]
+    return {**p, "config": {**cfg, "colunas": [c for c in cfg["colunas"] if c != "contrato"],
+                            "ordenar": [o for o in cfg["ordenar"] if o.get("coluna") != "contrato"]}}
+
+
 @router.get("/catalogo")
 def catalogo(ctx: Ctx):
     fontes = disponiveis(ctx)
     ok = {f.id for f in fontes}
     prontos = [p for p in PRONTOS
                if p["fonte"] in ok and (p["id"] not in PERMISSAO_EXTRA or ctx.pode(PERMISSAO_EXTRA[p["id"]]))]
+    if not usa_contrato(ctx.db, ctx.tenant_id):  # só cliente e caso: os prontos saem sem a coluna de contrato
+        prontos = [_sem_contrato(p) for p in prontos if (p["config"]["grafico"] or {}).get("dimensao") != "contrato"]
     return {"fontes": [_fonte_meta(ctx, f) for f in fontes], "prontos": prontos, "salvos": _salvos(ctx)}
 
 

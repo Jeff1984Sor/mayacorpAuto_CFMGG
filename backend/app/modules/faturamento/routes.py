@@ -278,6 +278,62 @@ def excluir_contrato(cid: int, ctx: Admin):
     return Mensagem(mensagem="Contrato excluído.")
 
 
+# ================================================================ com ou sem a figura do contrato
+class ConfigFaturamentoIO(BaseModel):
+    usa_contrato: bool = True
+
+
+@router.get("/config", response_model=ConfigFaturamentoIO)
+def ler_config(ctx: Ctx):
+    return ConfigFaturamentoIO(usa_contrato=service.usa_contrato(ctx.db, ctx.tenant_id))
+
+
+@router.put("/config", response_model=ConfigFaturamentoIO)
+def salvar_config(dados: ConfigFaturamentoIO, ctx: Admin):
+    from app.modules.faturamento.models import ConfigFaturamento
+
+    antes = service.usa_contrato(ctx.db, ctx.tenant_id)
+    if antes and not dados.usa_contrato:
+        varios = service.clientes_com_varios_contratos(ctx.db, ctx.tenant_id)
+        if varios:
+            nomes = ", ".join(varios[:5]) + (f" e mais {len(varios) - 5}" if len(varios) > 5 else "")
+            raise HTTPException(400, "Para trabalhar sem contratos, cada cliente pode ter um contrato só. "
+                                     f"Hoje {len(varios)} cliente(s) têm mais de um: {nomes}. "
+                                     "Junte os casos num contrato por cliente e exclua os outros.")
+    cfg = ctx.db.get(ConfigFaturamento, ctx.tenant_id)
+    if cfg is None:
+        cfg = ConfigFaturamento(tenant_id=ctx.tenant_id)
+        ctx.db.add(cfg)
+    cfg.usa_contrato = dados.usa_contrato
+    if antes != dados.usa_contrato:
+        ctx.auditar("faturamento.config.alterar", "fat_config", ctx.tenant_id,
+                    descricao="Contratos: " + ("usa" if dados.usa_contrato else "não usa (só cliente e caso)"),
+                    antes={"usa_contrato": antes}, depois={"usa_contrato": dados.usa_contrato})
+    ctx.db.commit()
+    return dados
+
+
+@router.get("/clientes/{tid}/contrato", response_model=ContratoOut | None)
+def contrato_do_cliente(tid: int, ctx: Ctx):
+    """Sem a figura do contrato: onde ficam as regras de cobrança, a emissora, a tabela e os pagadores do cliente."""
+    _get(ctx, Tomador, tid, "Cliente")
+    c = service.contrato_do_cliente(ctx.db, ctx.tenant_id, tid)
+    return _contrato_out(ctx, c) if c else None
+
+
+@router.post("/clientes/{tid}/contrato", response_model=ContratoOut)
+def garantir_contrato_do_cliente(tid: int, ctx: Operador):
+    """Devolve o contrato único do cliente, criando se ainda não existir (é nele que entram os casos e as regras)."""
+    t = _get(ctx, Tomador, tid, "Cliente")
+    existia = service.contrato_do_cliente(ctx.db, ctx.tenant_id, tid)
+    c = existia or service.contrato_do_cliente(ctx.db, ctx.tenant_id, tid, criar=True)
+    if not existia:
+        ctx.auditar("faturamento.contrato.criar", "fat_contrato", c.id, descricao=f"#{c.numero} {t.nome} (cobrança do cliente)")
+        ctx.db.commit()
+        ctx.db.refresh(c)
+    return _contrato_out(ctx, c)
+
+
 # ================================================================ casos
 def _caso_out(ctx, c: Caso) -> CasoOut:
     resp = ctx.db.get(Usuario, c.responsavel_id) if c.responsavel_id else None

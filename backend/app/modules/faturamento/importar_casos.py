@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.core.deps import Operador
-from app.modules.faturamento import titulo_caso
+from app.modules.faturamento import service, titulo_caso
 from app.modules.faturamento.models import CampoAdicional, Caso, Contrato, RegraCobranca, TipoRegra
 from app.modules.financas.planilhas import ler_data, ler_valor
 from app.modules.rpa_nfse.models import Tomador
@@ -571,6 +571,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
     if dados.campo_chave_id or not por_titulo:
         _campo_chave(ctx, dados.campo_chave_id or 0, tid)
     m = dados.mapa
+    com_contrato = service.usa_contrato(ctx.db, ctx.tenant_id)
     contratos = _contratos(ctx, tid)
     padrao = next((c for c in contratos if c.id == dados.contrato_padrao_id), None)
     if padrao is None and m.contrato is None:
@@ -644,7 +645,7 @@ def _planejar(ctx, tid: int, dados: AnalisarIn) -> dict:
             if c:
                 item["contrato"] = {"id": c.id, "nome": c.nome, "numero": c.numero}
             else:
-                item["contrato_novo"] = novo or f"{t.nome} — casos importados"
+                item["contrato_novo"] = novo or (f"{t.nome} — casos importados" if com_contrato else service.NOME_CONTRATO_UNICO)
         item["contrato_planilha"] = _texto(_pega(linha, m.contrato))
         # regra de cobrança
         desc = _texto(_pega(linha, m.descricao)) or (dados.descricao_padrao or "").strip()

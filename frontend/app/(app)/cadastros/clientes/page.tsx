@@ -40,7 +40,8 @@ import {
   type ListasCliente,
 } from "@/components/clientes/listas";
 import { CasosDoCliente } from "@/components/faturamento/casos-do-cliente";
-import { ContratosDoCliente } from "@/components/faturamento/contratos-cliente";
+import { CobrancaDoCliente, ContratosDoCliente } from "@/components/faturamento/contratos-cliente";
+import { useUsaContrato } from "@/lib/contrato";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import { Pagination, SearchInput, Segmented, TableCard, TableSkeleton, Toolbar, linhaClicavel } from "@/components/mayacorp/data-table";
 import { EmailChips } from "@/components/mayacorp/email-chips";
@@ -154,6 +155,7 @@ function Historico({ id }: { id: number }) {
 }
 
 function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; open: boolean; onClose: () => void }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const { pode } = useAuth();
   const podeEditar = pode("clientes.editar");
@@ -363,7 +365,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
       titulo={cliente ? cliente.nome : "Novo cliente"}
       formId="form-cliente"
       acaoCabecalho={podeEditar && <PreencherIA endpoint="/ia/preencher/cliente" aplicar={aplicarIA} />}
-      descricao={cliente ? "Dados, endereços, contatos, contratos e histórico de notas." : undefined}
+      descricao={cliente ? (usaContrato ? "Dados, endereços, contatos, contratos e histórico de notas." : "Dados, endereços, contatos, cobrança, casos e histórico de notas.") : undefined}
       largura="xl"
       salvando={salvar.isPending}
       rotuloSalvar={podeEditar ? "Salvar" : "Fechar"}
@@ -400,7 +402,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
                 {n > 0 && <span className="rounded-full bg-brand/12 px-1.5 text-[11px] font-semibold text-info-ink tabular-nums">{n}</span>}
               </TabsTrigger>
             ))}
-            {cliente && pode("contratos.ver") && <TabsTrigger value="contratos">Contratos</TabsTrigger>}
+            {cliente && pode("contratos.ver") && <TabsTrigger value="contratos">{usaContrato ? "Contratos" : "Cobrança"}</TabsTrigger>}
             {cliente && pode("contratos.ver") && <TabsTrigger value="casos">Casos</TabsTrigger>}
             {cliente && <TabsTrigger value="historico">Histórico</TabsTrigger>}
           </TabsList>
@@ -426,7 +428,7 @@ function ClienteForm({ cliente, open, onClose }: { cliente: TomadorOut | null; o
         {cliente && (
           <>
             <TabsContent value="contratos">
-              <ContratosDoCliente tomadorId={cliente.id} />
+              {usaContrato ? <ContratosDoCliente tomadorId={cliente.id} /> : <CobrancaDoCliente tomadorId={cliente.id} />}
             </TabsContent>
             <TabsContent value="casos">
               <CasosDoCliente tomadorId={cliente.id} nomeCliente={cliente.nome} />
@@ -455,6 +457,7 @@ interface Dependencias {
 
 export default function ClientesPage() {
   const { pode } = useAuth();
+  const usaContrato = useUsaContrato();
   const podeEditar = pode("clientes.editar");
   const qc = useQueryClient();
   const lista = usePaginado<TomadorOut>("tomadores", "/nfse/tomadores", { situacao: "ativos" });
@@ -516,7 +519,7 @@ export default function ClientesPage() {
   const d = deps.data;
   const ligados = d
     ? [
-        [d.contratos, "contrato(s)"],
+        ...(usaContrato ? [[d.contratos, "contrato(s)"]] : []),
         [d.casos, "caso(s)"],
         [d.horas, "lançamento(s) de horas"],
         [d.despesas, "despesa(s)"],

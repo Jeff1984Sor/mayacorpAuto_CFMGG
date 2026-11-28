@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { api, baixar } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { data as fmtData, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -160,6 +161,7 @@ export function ImportarCasosDialog({
   tomadorId: number;
   nomeCliente: string;
 }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const [passo, setPasso] = useState(0);
   const [lido, setLido] = useState<Lido | null>(null);
@@ -670,7 +672,8 @@ export function ImportarCasosDialog({
                         </span>
                       </label>
                     </div>
-                    {(mapa.contrato === null ||
+                    {usaContrato &&
+                      (mapa.contrato === null ||
                       mapa.contrato === undefined) && (
                       <Field
                         label="Contrato dos casos novos"
@@ -811,7 +814,7 @@ export function ImportarCasosDialog({
                     </p>
                   )}
                   {/* de-para: para qual contrato vai cada valor da coluna de contrato */}
-                  {plano.resumo.contratos_planilha.length > 0 && (
+                  {usaContrato && plano.resumo.contratos_planilha.length > 0 && (
                     <div className="overflow-hidden rounded-2xl border">
                       <div className="border-b bg-muted/40 px-4 py-2.5">
                         <p className="text-sm font-medium">
@@ -938,7 +941,7 @@ export function ImportarCasosDialog({
                             <th className="px-3 py-2 font-medium">Linha</th>
                             <th className="px-3 py-2 font-medium">Chave</th>
                             <th className="px-3 py-2 font-medium">Caso</th>
-                            <th className="px-3 py-2 font-medium">Contrato</th>
+                            <th className={cn("px-3 py-2 font-medium", !usaContrato && "hidden")}>Contrato</th>
                             <th className="px-3 py-2 font-medium">Cobrança</th>
                             <th className="px-3 py-2 text-right font-medium">
                               Valor
@@ -986,7 +989,7 @@ export function ImportarCasosDialog({
                                   <Chip tom="brand">novo</Chip>
                                 )}
                               </td>
-                              <td className="max-w-44 truncate px-3 py-2 text-xs">
+                              <td className={cn("max-w-44 truncate px-3 py-2 text-xs", !usaContrato && "hidden")}>
                                 {it.contrato ? (
                                   `#${it.contrato.numero} ${it.contrato.nome}`
                                 ) : it.contrato_novo ? (

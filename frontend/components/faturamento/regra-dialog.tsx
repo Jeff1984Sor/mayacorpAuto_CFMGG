@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api, ApiError } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import {
   type FaixaRegra,
   type FormaFaixa,
@@ -249,6 +250,7 @@ export function RegraDialog({
   regra?: RegraOut | null;
   onSalvo?: (r: RegraOut) => void;
 }) {
+  const usaContrato = useUsaContrato();
   const qc = useQueryClient();
   const [f, setF] = useState<RegraIn>(vazio);
   const tabelas = useQuery({ queryKey: ["fat", "tabelas"], queryFn: () => api.get<TabelaOut[]>("/faturamento/tabelas"), enabled: open });
@@ -289,7 +291,9 @@ export function RegraDialog({
           <div>
             <DialogTitle className="text-base">{regra ? "Editar regra de cobrança" : "Nova regra de cobrança"}</DialogTitle>
             <DialogDescription className="text-xs">
-              {casoId ? "Vale só para este caso e substitui a regra do contrato." : "Vale para todos os casos do contrato que não tiverem regra própria."}
+              {casoId
+                ? `Vale só para este caso e substitui a regra do ${usaContrato ? "contrato" : "cliente"}.`
+                : `Vale para todos os casos do ${usaContrato ? "contrato" : "cliente"} que não tiverem regra própria.`}
             </DialogDescription>
           </div>
         </div>
@@ -433,7 +437,7 @@ export function RegraDialog({
                     htmlFor="regra-tabela"
                     dica={
                       <>
-                        Vazio = usa a tabela do caso e, se não houver, a do contrato. O valor/hora vem do cargo de quem lançou.{" "}
+                        Vazio = usa a tabela do caso e, se não houver, a do {usaContrato ? "contrato" : "cliente"}. O valor/hora vem do cargo de quem lançou.{" "}
                         <Link href="/configuracoes/faturamento" className="text-info-ink hover:underline">
                           Gerenciar tabelas
                         </Link>
@@ -441,7 +445,7 @@ export function RegraDialog({
                     }
                   >
                     <NativeSelect id="regra-tabela" value={f.tabela_preco_id ?? ""} onChange={(e) => set("tabela_preco_id", e.target.value ? Number(e.target.value) : null)}>
-                      <option value="">A do caso ou do contrato</option>
+                      <option value="">{usaContrato ? "A do caso ou do contrato" : "A do caso ou do cliente"}</option>
                       {tabelas.data?.filter((t) => t.ativo || t.id === f.tabela_preco_id).map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.nome} ({t.itens.length} cargo{t.itens.length === 1 ? "" : "s"})
@@ -572,7 +576,7 @@ export function RegraDialog({
                         </Button>
                         <p className="text-xs text-muted-foreground">
                           Cada faixa começa onde a anterior termina e a última vale dali em diante. &quot;% da tabela padrão&quot; usa a tabela de preço acima (ou a do
-                          caso/contrato).
+                          {usaContrato ? "caso/contrato" : "caso/cliente"}).
                         </p>
                       </div>
                     )}

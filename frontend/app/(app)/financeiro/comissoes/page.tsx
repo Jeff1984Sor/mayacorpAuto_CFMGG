@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, baixar } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import { type ApuracaoComissoes, type GerarContaComissaoOut, type LinhaComissao, pctFmt, ROTULO_SITUACAO, type SituacaoComissao } from "@/lib/comissoes";
 import { data, moeda, moedaCompacta, numero } from "@/lib/format";
@@ -314,6 +315,7 @@ function GerarContaDialog({
 }
 
 export default function ComissoesPage() {
+  const usaContrato = useUsaContrato();
   const { pode } = useAuth();
   const podeGerar = pode("comissoes.editar");
   const [periodo, setPeriodo] = useState(mesAtual);
@@ -435,7 +437,7 @@ export default function ComissoesPage() {
           <Link href="/configuracoes/usuarios" className="text-info-ink hover:underline">
             Configurações › Profissionais
           </Link>
-          : geral, por cliente, por contrato ou por caso (vale a regra mais específica).
+          : geral, por cliente{usaContrato ? ", por contrato" : ""} ou por caso (vale a regra mais específica).
         </span>
       </p>
 

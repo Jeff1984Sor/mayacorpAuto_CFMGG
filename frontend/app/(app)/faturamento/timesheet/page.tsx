@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api, baixar } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { useAuth } from "@/lib/auth";
 import { hhmm } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
@@ -283,6 +284,7 @@ function EditarDialog({ linha, onClose }: { linha: Linha | null; onClose: () => 
 
 // ---------------------------------------------------------------- página
 function TimesheetCentral() {
+  const usaContrato = useUsaContrato();
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -450,7 +452,7 @@ function TimesheetCentral() {
           <option value="a_faturar">A faturar</option>
           <option value="faturadas">Faturadas</option>
         </NativeSelect>
-        <SearchInput value={busca} onChange={setBusca} placeholder="Descrição, caso ou contrato" className="sm:w-60" />
+        <SearchInput value={busca} onChange={setBusca} placeholder={usaContrato ? "Descrição, caso ou contrato" : "Descrição ou caso"} className="sm:w-60" />
         {filtrando && (
           <Button
             variant="ghost"

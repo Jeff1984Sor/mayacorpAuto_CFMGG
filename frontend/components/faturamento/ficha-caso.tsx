@@ -16,6 +16,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import {
   type CasoOut,
   hhmm,
@@ -127,6 +128,7 @@ export function DetalhesCaso({
   irPara: (aba: string) => void;
   podeEditar: boolean;
 }) {
+  const usaContrato = useUsaContrato();
   const campos = useCampos();
   const ts = useQuery({
     queryKey: ["fat", "timesheet", caso.id],
@@ -286,23 +288,33 @@ export function DetalhesCaso({
           </Grupo>
         )}
 
-        <Grupo titulo="Contrato e cobrança" icone={FileSignature}>
-          <Item rotulo="Cliente">{caso.tomador_nome}</Item>
-          <Item rotulo="Contrato">
-            <Link
-              href={`/faturamento/contratos/${caso.contrato_id}`}
-              className="text-info-ink hover:underline"
-            >
-              #{caso.contrato_numero} {caso.contrato_nome}
-            </Link>
+        <Grupo titulo={usaContrato ? "Contrato e cobrança" : "Cliente e cobrança"} icone={FileSignature}>
+          <Item rotulo="Cliente">
+            {usaContrato ? (
+              caso.tomador_nome
+            ) : (
+              <Link href={`/cadastros/clientes?id=${caso.tomador_id}`} className="text-info-ink hover:underline">
+                {caso.tomador_nome}
+              </Link>
+            )}
           </Item>
+          {usaContrato && (
+            <Item rotulo="Contrato">
+              <Link
+                href={`/faturamento/contratos/${caso.contrato_id}`}
+                className="text-info-ink hover:underline"
+              >
+                #{caso.contrato_numero} {caso.contrato_nome}
+              </Link>
+            </Item>
+          )}
           <Item rotulo="Tabela de preço">
             {caso.tabela_preco_efetiva ? (
               <>
                 {caso.tabela_preco_efetiva}
                 <span className="text-xs text-muted-foreground">
                   {" "}
-                  {caso.tabela_preco_id ? "(do caso)" : "(do contrato)"}
+                  {caso.tabela_preco_id ? "(do caso)" : usaContrato ? "(do contrato)" : "(do cliente)"}
                 </span>
               </>
             ) : null}
@@ -315,7 +327,7 @@ export function DetalhesCaso({
             >
               {caso.tem_regra_propria
                 ? "Regra própria do caso"
-                : "Segue o contrato"}
+                : usaContrato ? "Segue o contrato" : "Segue o cliente"}
             </button>
           </Item>
         </Grupo>

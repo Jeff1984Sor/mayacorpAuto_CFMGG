@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill, StatusBadge } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useUsaContrato } from "@/lib/contrato";
 import { documentoDaAba, type RevisaoResumo, type StatusRevisao } from "@/lib/faturamento";
 import { data, moeda, toNum } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 type Filtro = StatusRevisao | "todas";
 
 export default function RevisoesPage() {
+  const usaContrato = useUsaContrato();
   const router = useRouter();
   const [status, setStatus] = useState<Filtro>("em_revisao");
   const [cliente, setCliente] = useState<ClienteEscolhido[]>([]);
@@ -64,7 +66,7 @@ export default function RevisoesPage() {
             <div className="sm:w-64">
               <ClientesMulti unico valor={cliente} onChange={setCliente} id="revisoes-cliente" />
             </div>
-            <SearchInput value={q} onChange={setQ} placeholder="Nº, cliente ou contrato" />
+            <SearchInput value={q} onChange={setQ} placeholder={usaContrato ? "Nº, cliente ou contrato" : "Nº ou cliente"} />
           </div>
           {itens.length > 0 && (
             <p className="text-sm whitespace-nowrap text-muted-foreground">
@@ -91,7 +93,7 @@ export default function RevisoesPage() {
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Nº</th>
-                  <th className="px-3 py-2.5 font-medium">Cliente / contrato</th>
+                  <th className="px-3 py-2.5 font-medium">{usaContrato ? "Cliente / contrato" : "Cliente"}</th>
                   <th className="px-3 py-2.5 font-medium">Doc.</th>
                   <th className="px-3 py-2.5 text-right font-medium">Itens</th>
                   <th className="px-3 py-2.5 text-right font-medium">Total</th>
@@ -116,7 +118,7 @@ export default function RevisoesPage() {
                       <td className="max-w-72 px-3 py-3">
                         <p className="truncate font-medium">{r.tomador_nome}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          #{r.contrato_numero} {r.contrato_nome} · {data(r.de)} a {data(r.ate)}
+                          {usaContrato && `#${r.contrato_numero} ${r.contrato_nome} · `}{data(r.de)} a {data(r.ate)}
                         </p>
                       </td>
                       <td className="px-3 py-3">
