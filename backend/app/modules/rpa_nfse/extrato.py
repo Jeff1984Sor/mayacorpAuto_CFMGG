@@ -1,6 +1,8 @@
 """Leitura de extrato bancário: OFX (padrão de todos os bancos), CSV e Excel.
 
-Só os créditos interessam: são os pagamentos que a Lello fez à CFME.
+`ler` devolve só os créditos (NFS-e › Recebimentos: os pagamentos que a Lello fez à CFME).
+`ler_movimentos` devolve tudo, créditos e débitos, e o saldo final quando o arquivo traz (Financeiro › Conciliação).
+Os dois usam a mesma leitura e a mesma chave por linha: um crédito tem a mesma identidade nas duas telas.
 """
 
 import csv
@@ -36,6 +38,38 @@ class ExtratoLido:
     banco: str | None
     creditos: list[Credito]
     debitos_ignorados: int
+
+
+@dataclass
+class Movimento:
+    """Linha do extrato com o sentido: `valor` é sempre positivo."""
+
+    data: date
+    tipo: str  # credito | debito
+    valor: Decimal
+    descricao: str
+    documento: str | None
+    chave: str
+
+
+@dataclass
+class ExtratoCompleto:
+    formato: str
+    banco: str | None
+    movimentos: list[Movimento]
+    saldo_final: Decimal | None = None  # só quando o arquivo traz
+    data_saldo: date | None = None
+
+
+@dataclass
+class _Bruto:
+    """O que a leitura do arquivo devolve antes de separar créditos e débitos (valor com sinal)."""
+
+    formato: str
+    banco: str | None
+    linhas: list[tuple[date, Decimal, str, str | None, str | None]]  # data, valor, descrição, documento, FITID
+    saldo_final: Decimal | None = None
+    data_saldo: date | None = None
 
 
 def _norm(txt: str) -> str:
@@ -79,11 +113,11 @@ def _data(txt) -> date | None:
 
 
 # ---------------------------------------------------------------- OFX
-def _ler_ofx(texto: str) -> ExtratoLido:
+def _ler_ofx(texto: str) -> _Bruto:
     banco = None
     if m := re.search(r"<ORG>([^<\r\n]+)", texto):
         banco = m.group(1).strip()
-    creditos, debitos = [], 0
+    linhas = []
     for bloco in re.findall(r"<STMTTRN>(.*?)(?:</STMTTRN>|(?=<STMTTRN>)|(?=</BANKTRANLIST>))", texto, re.S | re.I):
         def tag(nome: str, bloco: str = bloco) -> str | None:
             m = re.search(rf"<{nome}>([^<\r\n]*)", bloco, re.I)
@@ -93,14 +127,15 @@ def _ler_ofx(texto: str) -> ExtratoLido:
         quando = _data((tag("DTPOSTED") or "")[:8])
         if valor is None or quando is None:
             continue
-        if valor <= 0:
-            debitos += 1
-            continue
         descricao = " ".join(filter(None, [tag("NAME"), tag("MEMO")]))
-        fitid = tag("FITID")
-        creditos.append(Credito(quando, valor, descricao, tag("CHECKNUM") or tag("REFNUM"),
-                                f"ofx:{fitid}" if fitid else _chave(quando, valor, descricao, None)))
-    return ExtratoLido("ofx", banco, creditos, debitos)
+        linhas.append((quando, valor, descricao, tag("CHECKNUM") or tag("REFNUM"), tag("FITID")))
+    saldo = data_saldo = None
+    if m := re.search(r"<LEDGERBAL>(.*?)(?:</LEDGERBAL>|<AVAILBAL>|</STMTRS>|\Z)", texto, re.S | re.I):
+        if v := re.search(r"<BALAMT>([^<\r\n]*)", m.group(1), re.I):
+            saldo = _valor_br(v.group(1).strip().replace(",", "."))
+        if saldo is not None and (d := re.search(r"<DTASOF>([^<\r\n]*)", m.group(1), re.I)):
+            data_saldo = _data(d.group(1).strip()[:8])
+    return _Bruto("ofx", banco, linhas, saldo, data_saldo)
 
 
 # ---------------------------------------------------------------- CSV / Excel
@@ -111,6 +146,7 @@ COLUNAS = {
     "credito": ("credito", "entrada", "credito (r$)"),
     "debito": ("debito", "saida", "debito (r$)"),
     "documento": ("documento", "doc", "n documento", "numero documento", "num doc"),
+    "saldo": ("saldo",),
 }
 
 
@@ -124,7 +160,7 @@ def _mapear(cabecalho: list) -> dict[str, int]:
     return mapa
 
 
-def _ler_tabela(linhas: list[list], formato: str) -> ExtratoLido:
+def _ler_tabela(linhas: list[list], formato: str) -> _Bruto:
     inicio, mapa = None, {}
     for i, ln in enumerate(linhas[:30]):  # bancos colocam algumas linhas de título antes do cabeçalho
         m = _mapear(ln)
@@ -133,7 +169,7 @@ def _ler_tabela(linhas: list[list], formato: str) -> ExtratoLido:
             break
     if inicio is None:
         raise ExtratoInvalido("Não encontrei as colunas de data e valor. O extrato precisa ter cabeçalho (Data, Histórico, Valor).")
-    creditos, debitos = [], 0
+    saida, saldos = [], []
     for ln in linhas[inicio + 1:]:
         def col(campo, ln=ln):
             i = mapa.get(campo)
@@ -142,40 +178,81 @@ def _ler_tabela(linhas: list[list], formato: str) -> ExtratoLido:
         quando = _data(col("data"))
         if not quando:
             continue
-        valor = _valor_br(col("credito")) if "credito" in mapa else _valor_br(col("valor"))
-        if "credito" in mapa and not valor and "debito" in mapa and _valor_br(col("debito")):
-            debitos += 1
-            continue
-        if valor is None or valor <= 0:
-            debitos += 1 if valor else 0
+        if "saldo" in mapa and (saldo_linha := _valor_br(col("saldo"))) is not None:
+            saldos.append((quando, saldo_linha))
+        if "credito" in mapa:  # colunas separadas de entrada e saída
+            valor = _valor_br(col("credito"))
+            if not valor and "debito" in mapa and (saiu := _valor_br(col("debito"))):
+                valor = -abs(saiu)
+        else:
+            valor = _valor_br(col("valor"))
+        if not valor:
             continue
         desc = str(col("descricao") or "").strip()
         doc = str(col("documento") or "").strip() or None
-        creditos.append(Credito(quando, valor, desc, doc, _chave(quando, valor, desc, doc)))
-    return ExtratoLido(formato, None, creditos, debitos)
+        saida.append((quando, valor, desc, doc, None))
+    saldo = data_saldo = None
+    if saldos:  # o saldo da linha mais recente (o arquivo pode vir do mais novo para o mais antigo)
+        data_saldo, saldo = saldos[-1] if saldos[-1][0] >= saldos[0][0] else saldos[0]
+    return _Bruto(formato, None, saida, saldo, data_saldo)
 
 
-def ler(nome: str, conteudo: bytes) -> ExtratoLido:
+def _bruto(nome: str, conteudo: bytes) -> _Bruto:
     ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
     if ext in ("xlsx", "xlsm"):
         ws = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True).active
-        lido = _ler_tabela([list(r) for r in ws.iter_rows(values_only=True)], "xlsx")
-    else:
-        texto, _ = decodificar(conteudo)
-        if ext == "ofx" or "<OFX>" in texto.upper() or "OFXHEADER" in texto.upper():
-            lido = _ler_ofx(texto)
-        elif ext in ("csv", "txt"):
-            sep = ";" if texto.count(";") >= texto.count(",") else ","
-            lido = _ler_tabela(list(csv.reader(io.StringIO(texto), delimiter=sep)), "csv")
-        else:
-            raise ExtratoInvalido("Envie o extrato em OFX (recomendado), CSV ou Excel.")
-    if not lido.creditos:
+        return _ler_tabela([list(r) for r in ws.iter_rows(values_only=True)], "xlsx")
+    texto, _ = decodificar(conteudo)
+    if ext == "ofx" or "<OFX>" in texto.upper() or "OFXHEADER" in texto.upper():
+        return _ler_ofx(texto)
+    if ext in ("csv", "txt"):
+        sep = ";" if texto.count(";") >= texto.count(",") else ","
+        return _ler_tabela(list(csv.reader(io.StringIO(texto), delimiter=sep)), "csv")
+    raise ExtratoInvalido("Envie o extrato em OFX (recomendado), CSV ou Excel.")
+
+
+def _chave_da_linha(formato: str, quando: date, valor: Decimal, desc: str, doc: str | None, fitid: str | None) -> str:
+    if fitid:
+        return f"ofx:{fitid}"
+    return _chave(quando, valor, desc, None if formato == "ofx" else doc)
+
+
+def ler(nome: str, conteudo: bytes) -> ExtratoLido:
+    """Só os créditos (NFS-e › Recebimentos)."""
+    bruto = _bruto(nome, conteudo)
+    creditos = [Credito(quando, valor, desc, doc, _chave_da_linha(bruto.formato, quando, valor, desc, doc, fitid))
+                for quando, valor, desc, doc, fitid in bruto.linhas if valor > 0]
+    if not creditos:
         raise ExtratoInvalido("Nenhum crédito encontrado no extrato.")
     # o mesmo crédito repetido no arquivo (FITIDs iguais) conta uma vez
     vistos, unicos = set(), []
-    for c in lido.creditos:
+    for c in creditos:
         if c.chave not in vistos:
             vistos.add(c.chave)
             unicos.append(c)
-    lido.creditos = sorted(unicos, key=lambda c: c.data)
-    return lido
+    return ExtratoLido(bruto.formato, bruto.banco, sorted(unicos, key=lambda c: c.data),
+                       sum(1 for ln in bruto.linhas if ln[1] < 0))
+
+
+def ler_movimentos(nome: str, conteudo: bytes) -> ExtratoCompleto:
+    """Créditos e débitos, cada linha com uma chave estável (a mesma de `ler` para os créditos).
+
+    Sem FITID, duas linhas iguais no mesmo dia (duas tarifas de mesmo valor) são movimentos diferentes: a segunda
+    ganha "#2" na chave. Com FITID repetido é a mesma linha e conta uma vez.
+    """
+    bruto = _bruto(nome, conteudo)
+    movimentos, vistos = [], {}
+    for quando, valor, desc, doc, fitid in bruto.linhas:
+        if not valor:
+            continue
+        chave = _chave_da_linha(bruto.formato, quando, valor, desc, doc, fitid)
+        vistos[chave] = vistos.get(chave, 0) + 1
+        if vistos[chave] > 1:
+            if fitid:
+                continue
+            chave = f"{chave}#{vistos[chave]}"
+        movimentos.append(Movimento(quando, "credito" if valor > 0 else "debito", abs(valor), desc, doc, chave))
+    if not movimentos:
+        raise ExtratoInvalido("Nenhum lançamento encontrado no extrato.")
+    movimentos.sort(key=lambda m: m.data)
+    return ExtratoCompleto(bruto.formato, bruto.banco, movimentos, bruto.saldo_final, bruto.data_saldo)

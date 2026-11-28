@@ -286,3 +286,114 @@ class ReceitaInformada(Base, Timestamped):
     observacao: Mapped[str | None] = mapped_column(String(300))
 
     __table_args__ = (UniqueConstraint("emissora_id", "mes", name="uq_fin_receita_informada"),)
+
+
+# ---------------------------------------------------------------- conciliação bancária
+class SituacaoLinha(enum.StrEnum):
+    conciliada = "conciliada"  # já havia lançamento igual no sistema: só foi vinculada
+    baixa_sugerida = "baixa_sugerida"  # há conta a pagar ou fatura em aberto que casa
+    sem_correspondencia = "sem_correspondencia"  # nada no sistema: sugere o lançamento a criar
+    feita = "feita"  # o usuário confirmou e a conciliação criou ou deu a baixa
+    ignorada = "ignorada"  # o usuário decidiu não lançar
+
+
+class Conciliacao(Base, Timestamped):
+    """Um extrato do banco subido para uma conta bancária."""
+
+    __tablename__ = "fin_conciliacao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    conta_id: Mapped[int] = mapped_column(ForeignKey("fin_conta.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    arquivo_nome: Mapped[str] = mapped_column(String(255))
+    arquivo_path: Mapped[str | None] = mapped_column(String(500))
+    formato: Mapped[str] = mapped_column(String(10))  # ofx | csv | xlsx
+    banco: Mapped[str | None] = mapped_column(String(120))
+    periodo_de: Mapped[date] = mapped_column(Date)
+    periodo_ate: Mapped[date] = mapped_column(Date)
+    saldo_final: Mapped[Decimal | None] = mapped_column(Dinheiro)  # o que o ARQUIVO diz (o do sistema é sempre calculado)
+    data_saldo: Mapped[date | None] = mapped_column(Date)
+    qtd_linhas: Mapped[int] = mapped_column(Integer, default=0)  # linhas novas guardadas
+    qtd_repetidas: Mapped[int] = mapped_column(Integer, default=0)  # já tinham vindo em outro arquivo da conta
+
+    conta: Mapped[ContaBancaria] = relationship()
+    linhas: Mapped[list["ConciliacaoLinha"]] = relationship(back_populates="conciliacao", cascade="all, delete-orphan",
+                                                            order_by="ConciliacaoLinha.data, ConciliacaoLinha.id")
+
+
+class ConciliacaoLinha(Base, Timestamped):
+    """Linha do extrato do banco. A chave é única por conta: a mesma linha nunca entra duas vezes."""
+
+    __tablename__ = "fin_conciliacao_linha"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    conciliacao_id: Mapped[int] = mapped_column(ForeignKey("fin_conciliacao.id", ondelete="CASCADE"), index=True)
+    conta_id: Mapped[int] = mapped_column(ForeignKey("fin_conta.id", ondelete="CASCADE"), index=True)
+    data: Mapped[date] = mapped_column(Date, index=True)
+    tipo: Mapped[TipoLancamento] = mapped_column(_enum(TipoLancamento))
+    valor: Mapped[Decimal] = mapped_column(Dinheiro)
+    descricao: Mapped[str] = mapped_column(String(500), default="")
+    documento: Mapped[str | None] = mapped_column(String(80))
+    chave: Mapped[str] = mapped_column(String(120))
+    situacao: Mapped[SituacaoLinha] = mapped_column(_enum(SituacaoLinha), default=SituacaoLinha.sem_correspondencia, index=True)
+    confianca: Mapped[str | None] = mapped_column(String(10))  # alta | media (baixa sugerida)
+    motivo: Mapped[str | None] = mapped_column(String(300))
+    # baixa sugerida: {"titulo": "conta_pagar"|"fatura", "ids": [...]}; sem correspondência: o lançamento pré-preenchido
+    sugestao: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    conciliacao: Mapped[Conciliacao] = relationship(back_populates="linhas")
+    vinculos: Mapped[list["ConciliacaoVinculo"]] = relationship(back_populates="linha", cascade="all, delete-orphan",
+                                                                order_by="ConciliacaoVinculo.id")
+
+    __table_args__ = (UniqueConstraint("conta_id", "chave", name="uq_fin_conciliacao_linha_conta_chave"),)
+
+
+class ConciliacaoVinculo(Base, Timestamped):
+    """O que responde por uma linha do extrato: o lançamento que já existia (`vinculo`) ou o que a conciliação fez.
+
+    As duas travas contra lançamento em dobro: a mesma linha não repete o mesmo alvo, e um lançamento do sistema
+    responde por uma linha só.
+    """
+
+    __tablename__ = "fin_conciliacao_vinculo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    linha_id: Mapped[int] = mapped_column(ForeignKey("fin_conciliacao_linha.id", ondelete="CASCADE"), index=True)
+    # vinculo | conta_criada | receita_avulsa | baixa_conta | baixa_fatura
+    tipo: Mapped[str] = mapped_column(String(15))
+    alvo: Mapped[str] = mapped_column(String(30))  # "novo", "lanc:<id>", "cp:<id>" ou "fat:<id>"
+    lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("fin_lancamento.id", ondelete="SET NULL"), unique=True)
+    conta_pagar_id: Mapped[int | None] = mapped_column(ForeignKey("fin_conta_pagar.id", ondelete="SET NULL"))
+    fatura_id: Mapped[int | None] = mapped_column(ForeignKey("fatura.id", ondelete="SET NULL"))
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+
+    linha: Mapped[ConciliacaoLinha] = relationship(back_populates="vinculos")
+
+    __table_args__ = (UniqueConstraint("linha_id", "alvo", name="uq_fin_conciliacao_vinculo_linha_alvo"),)
+
+
+class ConciliacaoRegra(Base, Timestamped):
+    """O que o escritório ensinou: descrição parecida → categoria, subcategoria e favorecido."""
+
+    __tablename__ = "fin_conciliacao_regra"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    tipo: Mapped[TipoLancamento] = mapped_column(_enum(TipoLancamento))
+    padrao: Mapped[str] = mapped_column(String(200))  # descrição sem acento, sem datas e sem números que mudam
+    exemplo: Mapped[str | None] = mapped_column(String(255))  # a descrição original que ensinou
+    natureza: Mapped[str | None] = mapped_column(String(15))  # tarifa | imposto | folha | rendimento | outro
+    categoria_id: Mapped[int | None] = mapped_column(ForeignKey("fin_categoria.id", ondelete="SET NULL"))
+    subcategoria_id: Mapped[int | None] = mapped_column(ForeignKey("fin_subcategoria.id", ondelete="SET NULL"))
+    fornecedor_id: Mapped[int | None] = mapped_column(ForeignKey("fin_fornecedor.id", ondelete="SET NULL"))
+    funcionario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id", ondelete="SET NULL"))
+    favorecido: Mapped[str | None] = mapped_column(String(200))
+    usos: Mapped[int] = mapped_column(Integer, default=1)
+
+    categoria: Mapped["CategoriaFinanceira | None"] = relationship()
+    subcategoria: Mapped["Subcategoria | None"] = relationship()
+
+    __table_args__ = (UniqueConstraint("tenant_id", "tipo", "padrao", name="uq_fin_conciliacao_regra"),)

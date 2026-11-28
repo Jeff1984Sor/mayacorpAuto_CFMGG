@@ -151,6 +151,14 @@ def transferir(db: Session, tenant_id: int, usuario: Usuario, *, origem: ContaBa
     return deb, cred
 
 
+def lancar(db: Session, tenant_id: int, usuario: Usuario, conta: ContaBancaria, dados: dict) -> Lancamento:
+    """Lançamento avulso no extrato (tela da conta e Conciliação): entrada ou saída que não é fatura nem conta a pagar."""
+    lc = Lancamento(tenant_id=tenant_id, conta_id=conta.id, criado_por_id=usuario.id, origem="manual", **dados)
+    db.add(lc)
+    db.flush()
+    return lc
+
+
 def excluir_lancamento(db: Session, lc: Lancamento) -> None:
     if lc.origem == "conta_pagar":
         raise RegraFinanceiro("Este débito é o pagamento de uma conta: reabra a conta em Contas a pagar.")

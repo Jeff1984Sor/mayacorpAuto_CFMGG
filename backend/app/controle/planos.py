@@ -15,6 +15,7 @@ RECURSOS: dict[str, str] = {
     "relatorios": "Relatórios com gráficos, gerador de relatórios e Excel",
     "partes": "Tipos de caso (contencioso, consultivo, administrativo) e cadastro único de partes e advogados",
     "comissoes": "Comissões dos profissionais (regras por cliente, contrato ou caso e conta a pagar)",
+    "conciliacao": "Conciliação bancária (extrato do banco × contas a pagar e faturas, com revisão em lote)",
     "claude": "Conector do Claude (MCP): consultar e operar o sistema conversando",
 }
 
@@ -27,9 +28,9 @@ ROBOS: dict[str, str] = {
 PADRAO = [
     # nome, mensal, anual (2 meses grátis), usuários, notas/mês, recursos
     ("Solo", "119", "1190", 1, 20, ["gestao", "partes", "relatorios", "claude"]),
-    ("Escritório", "279", "2790", 5, 100, ["gestao", "partes", "boletos", "relatorios", "comissoes", "claude"]),
-    ("Pro", "549", "5490", 15, 500, ["gestao", "partes", "automacoes", "contador", "boletos", "relatorios", "comissoes", "claude"]),
-    ("Ilimitado", "990", "9900", 30, None, ["gestao", "partes", "automacoes", "contador", "boletos", "relatorios", "comissoes", "claude"]),
+    ("Escritório", "279", "2790", 5, 100, ["gestao", "partes", "boletos", "relatorios", "comissoes", "conciliacao", "claude"]),
+    ("Pro", "549", "5490", 15, 500, ["gestao", "partes", "automacoes", "contador", "boletos", "relatorios", "comissoes", "conciliacao", "claude"]),
+    ("Ilimitado", "990", "9900", 30, None, ["gestao", "partes", "automacoes", "contador", "boletos", "relatorios", "comissoes", "conciliacao", "claude"]),
 ]
 
 

@@ -101,6 +101,44 @@ def espelhar_no_financeiro(db: Session, fat: Fatura, conta_id: int | None = None
     espelhar_recebimento(db, fat, conta_id)
 
 
+class BaixaInvalida(ValueError):
+    pass
+
+
+def dar_baixa(db: Session, fat: Fatura, data: date, *, valor: Decimal | None = None, conta_bancaria_id: int | None = None,
+              origem: str = "manual") -> None:
+    """Baixa da fatura (tela de Faturas e Financeiro › Conciliação): dá baixa também na NFS-e, que é o mesmo
+    recebimento, e lança UM crédito na conta bancária (`espelhar_recebimento` reaproveita o que já existir)."""
+    if fat.status != StatusFatura.aberta:
+        raise BaixaInvalida("Esta fatura não está em aberto.")
+    n = fat.nfse
+    if not n:  # ND ou NH ainda sem nota
+        fat.status, fat.pago_em = StatusFatura.paga, data
+        salvar_pdf(db, fat, service.config_nfse(db, fat.tenant_id))
+        espelhar_no_financeiro(db, fat, conta_bancaria_id)
+        return
+    n.pago_em, n.valor_pago, n.baixa_origem = data, valor or fat.total, origem
+    sincronizar(db, n)
+    if conta_bancaria_id:
+        espelhar_no_financeiro(db, fat, conta_bancaria_id)
+
+
+def desfazer_baixa(db: Session, fat: Fatura) -> None:
+    """Fatura paga volta a ficar em aberto e o crédito sai da conta bancária."""
+    if fat.status != StatusFatura.paga:
+        raise BaixaInvalida("Esta fatura não está paga.")
+    n = fat.nfse
+    if not n:
+        fat.status, fat.pago_em = StatusFatura.aberta, None
+        salvar_pdf(db, fat, service.config_nfse(db, fat.tenant_id))
+        espelhar_no_financeiro(db, fat)
+        return
+    if n.lancamento_id:
+        raise BaixaInvalida("Esta baixa veio do extrato: desfaça pela tela de Recebimentos.")
+    n.pago_em = n.valor_pago = n.baixa_origem = None
+    sincronizar(db, n)
+
+
 # ordem em que os tributos retidos aparecem na fatura
 ROTULO_RETENCAO = {"ret_ir": "IR", "ret_csll": "CSLL", "ret_pis": "PIS", "ret_cofins": "COFINS", "ret_inss": "INSS"}
 
