@@ -153,6 +153,14 @@ def test_admin_mayacorp(multi):
     assert c.post("/api/auth/login", json={"email": "carla@souzalima.adv.br", "senha": "Carla@2026x"}).status_code == 401
     c.post("/api/auth/reset", json={"token": r.json()["link"].split("token=")[1], "senha": "Carla@2027x"})
     carla = _entrar(c, "carla@souzalima.adv.br", "Carla@2027x")
+    # a MayaCorp digita a senha do usuário (o Beto ainda estava com o convite pendente): entra na hora, sem e-mail
+    bid = next(u["id"] for u in usuarios if u["email"] == "beto@souzalima.adv.br")
+    assert c.post(f"/api/admin/clientes/{cid}/usuarios/{bid}/senha", headers=adm, json={"senha": "curta1"}).status_code == 400
+    assert c.post(f"/api/admin/clientes/{cid}/usuarios/{bid}/senha", headers=adm, json={"senha": "12345678"}).status_code == 400
+    r = c.post(f"/api/admin/clientes/{cid}/usuarios/{bid}/senha", headers=adm, json={"senha": "Beto@2027x"})
+    assert r.status_code == 200 and r.json()["convite_pendente"] is False, r.text
+    _entrar(c, "beto@souzalima.adv.br", "Beto@2027x")
+    assert c.post(f"/api/admin/clientes/{cid}/usuarios/{bid}/senha", headers=carla, json={"senha": "Outra@2027x"}).status_code == 404  # fora do painel MayaCorp a rota nem existe
     uso = c.get(f"/api/admin/clientes/{cid}/uso", headers=adm).json()
     assert uso["usuarios"] == 2 and uso["limite_usuarios"] == 15 and uso["notas_mes"] == 0
 

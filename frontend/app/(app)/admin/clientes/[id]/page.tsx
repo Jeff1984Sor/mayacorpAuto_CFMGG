@@ -6,6 +6,7 @@ import {
   FileText,
   Globe,
   KeyRound,
+  LockKeyhole,
   Mail,
   Pencil,
   Plus,
@@ -366,7 +367,9 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
   const qc = useQueryClient();
   const [novo, setNovo] = useState(false);
   const [zerar, setZerar] = useState<UsuarioCliente | null>(null);
-  const [f, setF] = useState({ nome: "", email: "", perfil: "Administrador" });
+  const [definir, setDefinir] = useState<UsuarioCliente | null>(null);
+  const [senha, setSenha] = useState("");
+  const [f, setF] = useState({ nome: "", email: "", perfil: "Administrador", senha: "" });
   const chave = ["admin", "usuarios", cli.id];
   const lista = useQuery({
     queryKey: chave,
@@ -375,11 +378,21 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
   });
   const criar = useMutation({
     mutationFn: () =>
-      api.post<UsuarioCliente>(`/admin/clientes/${cli.id}/usuarios`, f),
+      api.post<UsuarioCliente>(`/admin/clientes/${cli.id}/usuarios`, { ...f, senha: f.senha.trim() || null }),
     onSuccess: (u) => {
-      toast.success(`Convite enviado para ${u.email}`);
+      toast.success(f.senha.trim() ? `${u.nome} criado. Já dá para entrar com a senha digitada.` : `Convite enviado para ${u.email}`);
       setNovo(false);
-      setF({ nome: "", email: "", perfil: "Administrador" });
+      setF({ nome: "", email: "", perfil: "Administrador", senha: "" });
+      qc.invalidateQueries({ queryKey: chave });
+    },
+  });
+  const definirSenha = useMutation({
+    mutationFn: (u: UsuarioCliente) =>
+      api.post<{ mensagem: string }>(`/admin/clientes/${cli.id}/usuarios/${u.id}/senha`, { senha }),
+    onSuccess: (r) => {
+      toast.success(r.mensagem);
+      setDefinir(null);
+      setSenha("");
       qc.invalidateQueries({ queryKey: chave });
     },
   });
@@ -478,7 +491,17 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
                       aria-label={`Ativo: ${u.nome}`}
                     />
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td className="px-3 py-3 text-right whitespace-nowrap">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSenha("");
+                        setDefinir(u);
+                      }}
+                    >
+                      <LockKeyhole /> Definir senha
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -497,9 +520,9 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
         open={novo}
         onOpenChange={setNovo}
         titulo="Novo usuário do cliente"
-        descricao="A pessoa recebe um convite por e-mail para criar a senha."
+        descricao="Digite a senha aqui, ou deixe em branco para a pessoa receber um convite por e-mail e criar a dela."
         salvando={criar.isPending}
-        rotuloSalvar="Enviar convite"
+        rotuloSalvar={f.senha.trim() ? "Criar usuário" : "Enviar convite"}
         onSubmit={(e) => {
           e.preventDefault();
           criar.mutate();
@@ -533,7 +556,52 @@ function AbaUsuarios({ cli }: { cli: ClienteSaaS }) {
               <option>Visualizador</option>
             </NativeSelect>
           </Field>
+          <Field
+            label="Senha"
+            htmlFor="usu-senha"
+            dica="Opcional. Pelo menos 8 caracteres, com letras e números. Em branco, vai o convite por e-mail."
+          >
+            <Input
+              id="usu-senha"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono"
+              value={f.senha}
+              onChange={(e) => setF({ ...f, senha: e.target.value })}
+            />
+          </Field>
         </div>
+      </FormDialog>
+      <FormDialog
+        open={!!definir}
+        onOpenChange={(o) => !o && setDefinir(null)}
+        titulo={definir ? `Definir a senha de ${definir.nome}` : ""}
+        descricao={
+          definir
+            ? `${definir.email} passa a entrar com a senha que você digitar. A senha anterior deixa de valer na hora e nenhum e-mail é enviado.`
+            : undefined
+        }
+        salvando={definirSenha.isPending}
+        rotuloSalvar="Definir senha"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (senha.trim().length < 8) return toast.error("A senha precisa ter pelo menos 8 caracteres.");
+          if (definir) definirSenha.mutate(definir);
+        }}
+      >
+        <Field label="Nova senha" obrigatorio htmlFor="usu-nova-senha" dica="Pelo menos 8 caracteres, com letras e números. Fica visível para você conferir o que digitou.">
+          <Input
+            id="usu-nova-senha"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+            autoFocus
+          />
+        </Field>
       </FormDialog>
       <ConfirmDialog
         open={!!zerar}

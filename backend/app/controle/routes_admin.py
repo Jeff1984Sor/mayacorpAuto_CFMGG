@@ -127,6 +127,11 @@ class UsuarioClienteIn(BaseModel):
     nome: str = Field(min_length=2, max_length=150)
     email: EmailStr
     perfil: str = Field(default="Administrador", pattern="^(Administrador|Operador|Visualizador)$")
+    senha: str | None = Field(default=None, max_length=200)  # digitada no admin; vazia = convite por e-mail
+
+
+class SenhaUsuarioIn(BaseModel):
+    senha: str = Field(min_length=1, max_length=200)
 
 
 class AtivoIn(BaseModel):
@@ -657,8 +662,12 @@ def _link_senha(u) -> str:
 def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
     from app.core import perfis
     from app.core.models import Tenant, Usuario
+    from app.core.security import hash_senha, validar_politica_senha
 
     email = str(dados.email).lower()
+    senha = (dados.senha or "").strip() or None
+    if senha and (erro := validar_politica_senha(senha)):
+        raise HTTPException(400, erro)
     with SessaoControle() as db:
         c = _escritorio(db, cid)
         esc, nome_cliente = _esc_do(c), c.nome
@@ -669,18 +678,49 @@ def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
             raise HTTPException(409, "Já existe um usuário com este e-mail neste cliente.")
         tenant = db.scalar(select(Tenant).order_by(Tenant.id))
         padrao = perfis.garantir_padrao(db, tenant.id)
-        u = Usuario(tenant_id=tenant.id, nome=dados.nome, email=email, convite_pendente=True)
+        u = Usuario(tenant_id=tenant.id, nome=dados.nome, email=email, convite_pendente=not senha)
+        if senha:
+            u.senha_hash = hash_senha(senha)
         perfis.aplicar(u, padrao[dados.perfil])
         db.add(u)
         db.commit()
-        link = _link_senha(u)
+        link = None if senha else _link_senha(u)
         out = _usuario_out(u)
+    if senha:  # a senha foi digitada no admin: nada de convite, e a senha nunca vai por e-mail nem para a auditoria
+        ctx.auditar("admin.usuario.criar", "controle_cliente", cid, descricao=f"{nome_cliente}: {email} (senha definida no admin)")
+        ctx.db.commit()
+        return {**out, "convite": None}
     service.enviar_email([email], f"Convite para o MayaJus — {nome_cliente}",
                 f"Olá, {dados.nome}.\n\nVocê foi convidado(a) para o MayaJus do {nome_cliente}. Para criar sua senha, "
                 f"acesse:\n{link}\n\nO link vale por 2 horas.")
     ctx.auditar("admin.usuario.criar", "controle_cliente", cid, descricao=f"{nome_cliente}: {email}")
     ctx.db.commit()
     return {**out, "convite": link}
+
+
+@router.post("/clientes/{cid}/usuarios/{uid}/senha")
+def definir_senha(cid: int, uid: int, dados: SenhaUsuarioIn, ctx: Painel):
+    """A MayaCorp digita a senha do usuário (sem depender do e-mail de convite). A senha antiga deixa de valer, o
+    bloqueio por tentativas é zerado e o convite pendente some. A senha não é gravada na auditoria nem enviada por e-mail."""
+    from app.core.models import Usuario
+    from app.core.security import hash_senha, validar_politica_senha
+
+    senha = dados.senha.strip()
+    if erro := validar_politica_senha(senha):
+        raise HTTPException(400, erro)
+    with SessaoControle() as db:
+        c = _escritorio(db, cid)
+        esc, nome_cliente = _esc_do(c), c.nome
+    with tenancy.usando(esc), SessionLocal() as db:
+        u = db.get(Usuario, uid)
+        if not u:
+            raise HTTPException(404, "Usuário não encontrado.")
+        u.senha_hash, u.tentativas_falhas, u.bloqueado_ate, u.convite_pendente = hash_senha(senha), 0, None, False
+        db.commit()
+        email, nome, out = u.email, u.nome, _usuario_out(u)
+    ctx.auditar("admin.usuario.definir_senha", "controle_cliente", cid, descricao=f"{nome_cliente}: {email}")
+    ctx.db.commit()
+    return {**out, "mensagem": f"Senha de {nome} definida. Já dá para entrar com ela."}
 
 
 @router.post("/clientes/{cid}/usuarios/{uid}/zerar-senha")
