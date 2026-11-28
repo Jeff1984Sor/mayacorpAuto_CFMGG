@@ -1,7 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Search } from "lucide-react";
+import {
+  ArrowLeft,
+  Building2,
+  ChevronRight,
+  HandCoins,
+  Loader2,
+  Search,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -10,6 +17,13 @@ import { Field, NativeSelect } from "@/components/mayacorp/form";
 import { FormDialog } from "@/components/mayacorp/form-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -19,6 +33,7 @@ import {
   fichaDe,
   type PlanoOut,
   type Rotulo,
+  type TipoCliente,
 } from "@/lib/admin";
 import { api } from "@/lib/api";
 import { moeda } from "@/lib/format";
@@ -52,7 +67,30 @@ export function usePlanos() {
   });
 }
 
-/** Novo cliente (cria o ambiente e envia o convite) ou edição da ficha comercial. */
+/** As duas formas de ser cliente da MayaCorp: a primeira escolha do "Novo cliente". */
+const TIPOS: {
+  tipo: TipoCliente;
+  icone: typeof Building2;
+  titulo: string;
+  texto: string;
+}[] = [
+  {
+    tipo: "escritorio",
+    icone: Building2,
+    titulo: "Usa o MayaJus",
+    texto:
+      "Escritório com acesso ao sistema: ganha o ambiente, plano, teste grátis e as boas-vindas por e-mail.",
+  },
+  {
+    tipo: "externo",
+    icone: HandCoins,
+    titulo: "Só cobrança, sem acesso ao sistema",
+    texto:
+      "Cliente de outro serviço da MayaCorp: só a ficha, para cobrar e emitir a nota. Não cria ambiente nem login.",
+  },
+];
+
+/** Novo cliente (com acesso: cria o ambiente e envia o convite; sem acesso: só a ficha) ou edição da ficha. */
 export function ClienteDialog({
   open,
   onOpenChange,
@@ -72,6 +110,9 @@ export function ClienteDialog({
     enabled: open,
   });
   const [f, setF] = useState<ClienteNovoIn>(vazio);
+  // cliente novo começa pela escolha do tipo (null); na edição o tipo é o do cliente
+  const [tipo, setTipo] = useState<TipoCliente | null>(null);
+  const externo = tipo === "externo";
   const [dominio, setDominio] = useState("");
   const [colado, setColado] = useState("");
   const [buscando, setBuscando] = useState(false);
@@ -82,6 +123,7 @@ export function ClienteDialog({
     setF(
       cliente ? { ...vazio(), ...fichaDe(cliente), dias_teste: null } : vazio(),
     );
+    setTipo(cliente ? cliente.tipo : null);
     setDominio("");
     setColado("");
   }, [open, cliente]);
@@ -107,6 +149,15 @@ export function ClienteDialog({
         indicado_por_id: f.indicado_por_id,
         robos: f.robos ?? [],
       };
+      if (externo && !cliente)
+        return api.post<ClienteSaaS>("/admin/clientes/externo", {
+          nome: ficha.nome,
+          documento: ficha.documento,
+          responsavel: ficha.responsavel,
+          email_financeiro: ficha.email_financeiro,
+          telefone: ficha.telefone,
+          observacao: ficha.observacao,
+        });
       return cliente
         ? api.put<ClienteSaaS>(`/admin/clientes/${cliente.id}`, ficha)
         : api.post<ClienteSaaS>("/admin/clientes", {
@@ -120,6 +171,11 @@ export function ClienteDialog({
     },
     onSuccess: (c) => {
       if (cliente) toast.success("Ficha atualizada");
+      else if (externo)
+        toast.success(`${c.nome} cadastrado, sem acesso ao sistema.`, {
+          description:
+            "Para cobrar, crie uma cobrança recorrente ou avulsa na aba Cobranças.",
+        });
       else
         toast.success(`Ambiente de ${c.nome} criado. Boas-vindas enviadas.`, {
           duration: 20000,
@@ -143,7 +199,10 @@ export function ClienteDialog({
     queryFn: () => api.get<Rotulo[]>("/admin/robos"),
     enabled: open,
   });
-  const outros = (clientes.data ?? []).filter((c) => c.id !== cliente?.id);
+  // quem pode ter indicado: só outro cliente que usa o MayaJus
+  const outros = (clientes.data ?? []).filter(
+    (c) => c.id !== cliente?.id && c.tipo === "escritorio",
+  );
 
   const buscarCnpj = async () => {
     const dig = (f.documento ?? "").replace(/\D/g, "");
@@ -170,24 +229,82 @@ export function ClienteDialog({
     }
   };
 
+  if (!cliente && tipo === null)
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Novo cliente</DialogTitle>
+            <DialogDescription>
+              Este cliente vai usar o MayaJus ou só precisa ser cobrado?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {TIPOS.map((t) => (
+              <button
+                key={t.tipo}
+                type="button"
+                onClick={() => setTipo(t.tipo)}
+                className="group flex flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors hover:border-brand hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="flex size-10 items-center justify-center rounded-lg bg-brand/12 text-info-ink">
+                  <t.icone className="size-5" />
+                </span>
+                <span className="flex items-center gap-1 font-medium">
+                  {t.titulo}
+                  <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <span className="text-sm text-muted-foreground">{t.texto}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Dá para mudar depois: na ficha, “Dar acesso ao sistema” ou “Tirar o
+            acesso”.
+          </p>
+        </DialogContent>
+      </Dialog>
+    );
+
   return (
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      titulo={cliente ? `Ficha de ${cliente.nome}` : "Novo cliente MayaJus"}
-      descricao={
+      titulo={
         cliente
-          ? "Dados comerciais, plano e contrato."
-          : "Cria o ambiente (com o usuário Suporte) e envia as boas-vindas: o cliente cria o próprio usuário master pelo link."
+          ? `Ficha de ${cliente.nome}`
+          : externo
+            ? "Novo cliente sem acesso ao sistema"
+            : "Novo cliente MayaJus"
+      }
+      descricao={
+        externo
+          ? "Só a ficha: o necessário para cobrar e emitir a nota. Não cria ambiente, login nem período de teste."
+          : cliente
+            ? "Dados comerciais, plano e contrato."
+            : "Cria o ambiente (com o usuário Suporte) e envia as boas-vindas: o cliente cria o próprio usuário master pelo link."
       }
       largura="lg"
       salvando={salvar.isPending}
-      rotuloSalvar={cliente ? "Salvar" : "Criar ambiente"}
+      rotuloSalvar={
+        cliente ? "Salvar" : externo ? "Cadastrar cliente" : "Criar ambiente"
+      }
+      rodapeExtra={
+        !cliente && (
+          <Button type="button" variant="ghost" onClick={() => setTipo(null)}>
+            <ArrowLeft /> Trocar o tipo
+          </Button>
+        )
+      }
       onSubmit={(e) => {
         e.preventDefault();
         if (f.nome.trim().length < 2)
-          return toast.error("Informe o nome do escritório.");
-        if (!cliente && !f.admin_email.trim())
+          return toast.error(
+            externo
+              ? "Informe o nome ou a razão social."
+              : "Informe o nome do escritório.",
+          );
+        if (!cliente && !externo && !f.admin_email.trim())
           return toast.error("Informe o e-mail que recebe as boas-vindas.");
         salvar.mutate();
       }}
@@ -216,7 +333,7 @@ export function ClienteDialog({
           />
         </div>
         <Field
-          label="Escritório"
+          label={externo ? "Nome ou razão social" : "Escritório"}
           obrigatorio
           htmlFor="cli-nome"
           className="sm:col-span-2"
@@ -257,7 +374,11 @@ export function ClienteDialog({
         <Field
           label="E-mail do financeiro"
           htmlFor="cli-email"
-          dica="Recebe contratos e cobranças."
+          dica={
+            externo
+              ? "Recebe as cobranças e a nota. Sem ele a cobrança é gerada, mas não é enviada."
+              : "Recebe contratos e cobranças."
+          }
         >
           <Input
             id="cli-email"
@@ -274,6 +395,8 @@ export function ClienteDialog({
           />
         </Field>
 
+        {!externo && (
+          <>
         <Field
           label="Plano"
           htmlFor="cli-plano"
@@ -400,8 +523,10 @@ export function ClienteDialog({
             todos.
           </p>
         </div>
+          </>
+        )}
 
-        {!cliente && (
+        {!cliente && !externo && (
           <>
             <p className="text-[13px] font-medium text-foreground/80 sm:col-span-2">
               Boas-vindas e acesso

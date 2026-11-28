@@ -33,8 +33,10 @@ export function InicioMayaCorp() {
   const resumo = useQuery({ queryKey: ["admin", "resumo"], queryFn: () => api.get<ResumoAdmin>("/admin/resumo") });
   const clientes = useQuery({ queryKey: ["admin", "clientes", "", "todos"], queryFn: () => api.get<ClienteSaaS[]>("/admin/clientes") });
   const r = resumo.data;
-  // quem pede atenção: teste grátis acabando, suspensos e sem plano
-  const atencao = (clientes.data ?? []).filter((c) => c.status === "teste" || c.status === "suspenso" || !c.plano);
+  // quem pede atenção: teste grátis acabando, suspensos e sem plano (só quem usa o MayaJus: cliente sem acesso não tem plano)
+  const atencao = (clientes.data ?? []).filter(
+    (c) => c.tipo === "escritorio" && (c.status === "teste" || c.status === "suspenso" || !c.plano),
+  );
 
   return (
     <div>

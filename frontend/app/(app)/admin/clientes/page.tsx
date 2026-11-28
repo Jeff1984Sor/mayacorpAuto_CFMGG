@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/mayacorp/page-header";
 import { Pill } from "@/components/mayacorp/status-badge";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
-import { type ClienteSaaS, type ResumoAdmin, ROTULO_STATUS, type StatusCliente, TOM_STATUS } from "@/lib/admin";
+import { type ClienteSaaS, type ResumoAdmin, ROTULO_STATUS, type StatusCliente, type TipoCliente, TOM_STATUS } from "@/lib/admin";
 import { api } from "@/lib/api";
 import { data, documento, moeda, toNum } from "@/lib/format";
 
@@ -22,11 +22,17 @@ export default function ClientesMayaJusPage() {
   const [q, setQ] = useState("");
   const busca = useDebounce(q, 300);
   const [status, setStatus] = useState<StatusCliente | "todos">("todos");
+  const [tipo, setTipo] = useState<TipoCliente | "todos">("todos");
   const [novo, setNovo] = useState(false);
   const resumo = useQuery({ queryKey: ["admin", "resumo"], queryFn: () => api.get<ResumoAdmin>("/admin/resumo") });
   const lista = useQuery({
-    queryKey: ["admin", "clientes", busca, status],
-    queryFn: () => api.get<ClienteSaaS[]>("/admin/clientes", { q: busca || undefined, status: status === "todos" ? undefined : status }),
+    queryKey: ["admin", "clientes", busca, status, tipo],
+    queryFn: () =>
+      api.get<ClienteSaaS[]>("/admin/clientes", {
+        q: busca || undefined,
+        status: status === "todos" ? undefined : status,
+        tipo: tipo === "todos" ? undefined : tipo,
+      }),
   });
   const itens = lista.data ?? [];
   const r = resumo.data;
@@ -53,7 +59,16 @@ export default function ClientesMayaJusPage() {
 
       <TableCard>
         <Toolbar>
-          <SearchInput value={q} onChange={setQ} placeholder="Escritório, identificador ou CNPJ" className="sm:w-80" />
+          <SearchInput value={q} onChange={setQ} placeholder="Nome, identificador ou CNPJ" className="sm:w-72" />
+          <Segmented
+            value={tipo}
+            onChange={setTipo}
+            opcoes={[
+              { value: "todos", label: "Todos" },
+              { value: "escritorio", label: "Usam o MayaJus" },
+              { value: "externo", label: "Sem acesso", contagem: r?.sem_acesso || undefined },
+            ]}
+          />
           <Segmented
             value={status}
             onChange={setStatus}
@@ -71,8 +86,8 @@ export default function ClientesMayaJusPage() {
         ) : itens.length === 0 ? (
           <EmptyState
             icone={Building2}
-            titulo={busca || status !== "todos" ? "Nenhum cliente encontrado" : "Nenhum cliente ainda"}
-            descricao="Cada cliente ganha um banco próprio, o administrador recebe o convite e já pode usar."
+            titulo={busca || status !== "todos" || tipo !== "todos" ? "Nenhum cliente encontrado" : "Nenhum cliente ainda"}
+            descricao="Quem usa o MayaJus ganha um banco próprio e o convite por e-mail. Quem só precisa ser cobrado fica sem acesso ao sistema, só com a ficha e as cobranças."
             acao={
               <Button onClick={() => setNovo(true)}>
                 <Plus /> Novo cliente
@@ -84,7 +99,7 @@ export default function ClientesMayaJusPage() {
             <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Escritório</th>
+                  <th className="px-4 py-2.5 font-medium">Cliente</th>
                   <th className="px-3 py-2.5 font-medium">Plano</th>
                   <th className="px-3 py-2.5 text-right font-medium">Valor</th>
                   <th className="px-3 py-2.5 font-medium">Início do contrato</th>
@@ -96,7 +111,10 @@ export default function ClientesMayaJusPage() {
                 {itens.map((c) => (
                   <tr key={c.id} className={linhaClicavel} onClick={() => router.push(`/admin/clientes/${c.id}`)}>
                     <td className="max-w-72 px-4 py-3">
-                      <p className="truncate font-medium">{c.nome}</p>
+                      <p className="flex items-center gap-2 font-medium">
+                        <span className="truncate">{c.nome}</span>
+                        {c.tipo === "externo" && <Pill className="shrink-0">Sem acesso</Pill>}
+                      </p>
                       <p className="truncate font-mono text-[11px] text-muted-foreground">
                         {c.slug}
                         {c.documento && ` · ${documento(c.documento)}`}
@@ -120,7 +138,7 @@ export default function ClientesMayaJusPage() {
                     <td className="px-3 py-3 text-xs">{c.inicio_contrato ? data(c.inicio_contrato) : "—"}</td>
                     <td className="max-w-48 truncate px-3 py-3 font-mono text-xs">{c.dominios[0]?.host ?? "—"}</td>
                     <td className="px-3 py-3">
-                      <Pill tom={TOM_STATUS[c.status]}>{ROTULO_STATUS[c.status]}</Pill>
+                      <Pill tom={TOM_STATUS[c.status]}>{c.tipo === "externo" ? c.status_rotulo : ROTULO_STATUS[c.status]}</Pill>
                       {c.status === "teste" && c.teste_ate && <p className="mt-0.5 text-[11px] text-muted-foreground">até {data(c.teste_ate)}</p>}
                     </td>
                   </tr>

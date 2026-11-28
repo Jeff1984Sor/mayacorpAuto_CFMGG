@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, CreditCard, HandCoins, Plus } from "lucide-react";
+import { Copy, CreditCard, HandCoins, MailWarning, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -17,6 +17,7 @@ import {
   type Cobranca,
   type PagamentoCliente,
   ROTULO_ASSINATURA,
+  ROTULO_TIPO_COBRANCA,
   TOM_COBRANCA,
 } from "@/lib/admin";
 import { api } from "@/lib/api";
@@ -167,14 +168,34 @@ export function AvulsaDialog({
   );
 }
 
-/** Aba da ficha do cliente: como ele paga (link mensal ou cartão recorrente) e as cobranças dele. */
-export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
+/** Selo da cobrança em aberto cujo e-mail não saiu (ex.: falta o e-mail do financeiro na ficha). */
+export function NaoEnviada({ k }: { k: Cobranca }) {
+  if (!k.envio_erro) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-warning/12 px-1.5 py-0.5 text-[11px] font-medium text-warning-ink">
+      <MailWarning className="size-3 shrink-0" />
+      Não enviada: {k.envio_erro}
+    </span>
+  );
+}
+
+/** Aba da ficha do cliente: como ele paga (link ou cartão recorrente), as recorrências e as cobranças dele. */
+export function AbaCobrancas({
+  cli,
+  recorrencias,
+}: {
+  cli: ClienteSaaS;
+  /** seção "Cobranças recorrentes", entre a forma de pagamento e a lista */
+  recorrencias?: React.ReactNode;
+}) {
   const qc = useQueryClient();
   const [avulsa, setAvulsa] = useState(false);
+  const externo = cli.tipo === "externo";
   const pag = useQuery({
     queryKey: ["admin", "pagamento", cli.id],
     queryFn: () =>
       api.get<PagamentoCliente>(`/admin/clientes/${cli.id}/pagamento`),
+    enabled: !externo,
   });
   const lista = useQuery({
     queryKey: ["admin", "cobrancas", "cliente", cli.id],
@@ -202,6 +223,18 @@ export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
   const p = pag.data;
   return (
     <div className="space-y-4">
+      {externo ? (
+        <div className="card-surface space-y-1 p-4">
+          <p className="font-medium">Forma de pagamento</p>
+          <p className="text-sm">
+            Link do Mercado Pago em cada cobrança (Pix, cartão ou boleto).
+          </p>
+          <p className="text-xs text-muted-foreground">
+            O link vai por e-mail para o financeiro do cliente quando a cobrança
+            é gerada, e os lembretes seguem a régua de e-mails.
+          </p>
+        </div>
+      ) : (
       <div className="card-surface space-y-3 p-4">
         <p className="font-medium">Forma de pagamento</p>
         <div className="flex flex-wrap items-center gap-3">
@@ -244,6 +277,8 @@ export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
           mês saem como link à parte.
         </p>
       </div>
+      )}
+      {recorrencias}
       <div className="flex items-center justify-between">
         <p className="font-medium">Cobranças</p>
         <Button size="sm" onClick={() => setAvulsa(true)}>
@@ -254,7 +289,11 @@ export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
         <EmptyState
           icone={HandCoins}
           titulo="Nenhuma cobrança"
-          descricao="As mensalidades aparecem aqui assim que forem geradas."
+          descricao={
+            externo
+              ? "As cobranças das recorrências e as avulsas aparecem aqui assim que forem geradas."
+              : "As mensalidades aparecem aqui assim que forem geradas."
+          }
         />
       ) : (
         <div className="card-surface divide-y">
@@ -263,13 +302,14 @@ export function AbaCobrancas({ cli }: { cli: ClienteSaaS }) {
               key={k.id}
               className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm"
             >
-              <div className="flex-1">
+              <div className="min-w-48 flex-1">
                 <p className="font-medium">{k.descricao}</p>
                 <p className="text-xs text-muted-foreground">
-                  vence {data(k.vencimento)}
+                  {ROTULO_TIPO_COBRANCA[k.tipo]} · vence {data(k.vencimento)}
                   {k.status === "paga" &&
                     ` · paga em ${data(k.pago_em)} (${k.forma_paga})`}
                 </p>
+                <NaoEnviada k={k} />
               </div>
               <span className="font-mono tabular-nums">{moeda(k.valor)}</span>
               <Pill tom={TOM_COBRANCA[k.status]}>{k.status_rotulo}</Pill>

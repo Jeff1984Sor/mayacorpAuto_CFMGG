@@ -19,6 +19,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { BotaoAcesso } from "@/components/admin/acesso";
 import { ClienteDialog } from "@/components/admin/cliente-dialog";
 import { BotaoIAAdmin } from "@/components/admin/ia";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
@@ -33,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { AbaCobrancas } from "@/components/admin/cobranca";
 import { AbaIA } from "@/components/admin/ia-liberacao";
+import { Recorrencias } from "@/components/admin/recorrencia";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -40,6 +42,7 @@ import {
   type ContratoCliente,
   type ModeloContrato,
   ROTULO_STATUS,
+  ROTULO_STATUS_EXTERNO,
   type StatusCliente,
   TOM_STATUS,
   type UsoCliente,
@@ -52,7 +55,7 @@ import { data, dataHora, documento, moeda, toNum } from "@/lib/format";
 export default function FichaClientePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const abaInicial = useSearchParams().get("aba") ?? "uso";
+  const abaPedida = useSearchParams().get("aba");
   const qc = useQueryClient();
   const [editar, setEditar] = useState(false);
   const [mudar, setMudar] = useState<StatusCliente | null>(null);
@@ -64,7 +67,7 @@ export default function FichaClientePage() {
     mutationFn: (s: StatusCliente) =>
       api.post<ClienteSaaS>(`/admin/clientes/${id}/status`, { status: s }),
     onSuccess: (r) => {
-      toast.success(`${r.nome}: ${ROTULO_STATUS[r.status]}`);
+      toast.success(`${r.nome}: ${r.status_rotulo}`);
       setMudar(null);
       qc.invalidateQueries({ queryKey: ["admin"] });
     },
@@ -73,6 +76,15 @@ export default function FichaClientePage() {
   if (c.isPending) return <Skeleton className="h-72 rounded-2xl" />;
   if (!c.data) return null;
   const cli = c.data;
+  // sem acesso ao sistema: só ficha, contratos e cobranças (nada de uso, usuários, domínios ou IA)
+  const externo = cli.tipo === "externo";
+  const rotulos: Partial<Record<StatusCliente, string>> = externo
+    ? ROTULO_STATUS_EXTERNO
+    : ROTULO_STATUS;
+  const abas = externo
+    ? ["dados", "contratos", "cobrancas"]
+    : ["uso", "usuarios", "dominios", "contratos", "cobrancas", "ia"];
+  const abaInicial = abaPedida && abas.includes(abaPedida) ? abaPedida : abas[0];
 
   return (
     <div>
@@ -90,14 +102,22 @@ export default function FichaClientePage() {
                 {cli.nome}
               </h1>
               <Pill tom={TOM_STATUS[cli.status]}>
-                {ROTULO_STATUS[cli.status]}
+                {rotulos[cli.status] ?? cli.status_rotulo}
               </Pill>
+              {externo && <Pill>Sem acesso ao sistema</Pill>}
             </div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
               {cli.slug}
               {cli.documento && ` · ${documento(cli.documento)}`}
               {cli.banco_principal && " · banco principal"}
             </p>
+            {externo ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Cliente só de cobrança: não entra no MayaJus e não tem plano.
+                {cli.ambiente_guardado &&
+                  " O ambiente de quando tinha acesso continua guardado."}
+              </p>
+            ) : (
             <p className="mt-2 text-sm">
               {cli.plano ? (
                 <>
@@ -130,7 +150,8 @@ export default function FichaClientePage() {
                 </span>
               )}
             </p>
-            {cli.indicado_por && (
+            )}
+            {!externo && cli.indicado_por && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Indicado por {cli.indicado_por.nome}
               </p>
@@ -149,21 +170,26 @@ export default function FichaClientePage() {
               className="h-8 w-44"
             >
               <option value="">Mudar situação…</option>
-              {(Object.keys(ROTULO_STATUS) as StatusCliente[])
+              {(Object.keys(rotulos) as StatusCliente[])
                 .filter((s) => s !== cli.status)
                 .map((s) => (
                   <option key={s} value={s}>
-                    {ROTULO_STATUS[s]}
+                    {rotulos[s]}
                   </option>
                 ))}
             </NativeSelect>
+            <BotaoAcesso cli={cli} />
             {cli.status === "inativo" && !cli.banco_principal && (
               <BotaoExcluir
                 url={`/admin/clientes/${cli.id}`}
                 titulo={`Excluir ${cli.nome} de vez?`}
-                descricao="Apaga o banco do escritório com tudo dentro (usuários, clientes, notas, faturas), os domínios, contratos e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
+                descricao={
+                  externo && !cli.ambiente_guardado
+                    ? "Apaga a ficha, os contratos, as recorrências e as cobranças deste cliente. Não tem volta."
+                    : "Apaga o banco do escritório com tudo dentro (usuários, clientes, notas, faturas), os domínios, contratos e cobranças. Não tem volta. Os arquivos ficam guardados no servidor."
+                }
                 digitar={cli.slug}
-                rotulo="Excluir escritório"
+                rotulo={externo ? "Excluir cliente" : "Excluir escritório"}
                 onFeito={() => router.push("/admin/clientes")}
               />
             )}
@@ -171,42 +197,62 @@ export default function FichaClientePage() {
         </div>
       </div>
 
-      <Tabs defaultValue={abaInicial}>
+      <Tabs key={cli.tipo} defaultValue={abaInicial}>
         <TabsList>
-          <TabsTrigger value="uso">Uso e dados</TabsTrigger>
-          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
-          <TabsTrigger value="dominios">Domínios</TabsTrigger>
+          {externo ? (
+            <TabsTrigger value="dados">Dados</TabsTrigger>
+          ) : (
+            <>
+              <TabsTrigger value="uso">Uso e dados</TabsTrigger>
+              <TabsTrigger value="usuarios">Usuários</TabsTrigger>
+              <TabsTrigger value="dominios">Domínios</TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="contratos">Contratos</TabsTrigger>
           <TabsTrigger value="cobrancas">Cobranças</TabsTrigger>
-          <TabsTrigger value="ia">IA</TabsTrigger>
+          {!externo && <TabsTrigger value="ia">IA</TabsTrigger>}
         </TabsList>
-        <TabsContent value="uso">
-          <AbaUso cli={cli} />
-        </TabsContent>
-        <TabsContent value="usuarios">
-          <AbaUsuarios cli={cli} />
-        </TabsContent>
-        <TabsContent value="dominios">
-          <AbaDominios cli={cli} />
-        </TabsContent>
+        {externo ? (
+          <TabsContent value="dados">
+            <DadosDoCliente cli={cli} />
+          </TabsContent>
+        ) : (
+          <>
+            <TabsContent value="uso">
+              <AbaUso cli={cli} />
+            </TabsContent>
+            <TabsContent value="usuarios">
+              <AbaUsuarios cli={cli} />
+            </TabsContent>
+            <TabsContent value="dominios">
+              <AbaDominios cli={cli} />
+            </TabsContent>
+          </>
+        )}
         <TabsContent value="contratos">
           <AbaContratos cli={cli} />
         </TabsContent>
         <TabsContent value="cobrancas">
-          <AbaCobrancas cli={cli} />
+          <AbaCobrancas cli={cli} recorrencias={<Recorrencias cli={cli} />} />
         </TabsContent>
-        <TabsContent value="ia">
-          <AbaIA cid={cli.id} />
-        </TabsContent>
+        {!externo && (
+          <TabsContent value="ia">
+            <AbaIA cid={cli.id} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ClienteDialog open={editar} onOpenChange={setEditar} cliente={cli} />
       <ConfirmDialog
         open={!!mudar}
         onOpenChange={(o) => !o && setMudar(null)}
-        titulo={mudar ? `Mudar para "${ROTULO_STATUS[mudar]}"?` : ""}
+        titulo={mudar ? `Mudar para "${rotulos[mudar] ?? ROTULO_STATUS[mudar]}"?` : ""}
         descricao={
-          mudar === "inativo"
+          externo
+            ? mudar === "inativo"
+              ? "As cobranças recorrentes deixam de ser geradas enquanto ele estiver inativo. As cobranças já geradas continuam em aberto."
+              : "As cobranças recorrentes ativas voltam a ser geradas na data de cada uma."
+            : mudar === "inativo"
             ? "Ninguém do escritório consegue entrar enquanto estiver inativo. Os dados são mantidos."
             : mudar === "suspenso"
               ? "O escritório continua entrando normalmente; serve para marcar quem está com pagamento em atraso."
@@ -307,6 +353,43 @@ function AbaUso({ cli }: { cli: ClienteSaaS }) {
         <div className="col-span-2">
           <Info rotulo="Observação" valor={cli.observacao} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Aba "Dados" de quem não tem acesso ao sistema: a ficha usada para cobrar e emitir a nota. */
+function DadosDoCliente({ cli }: { cli: ClienteSaaS }) {
+  return (
+    <div className="card-surface grid max-w-3xl grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+      <Info rotulo="Nome ou razão social" valor={cli.nome} />
+      <Info
+        rotulo="CNPJ / CPF"
+        valor={
+          cli.documento ? (
+            <span className="font-mono">{documento(cli.documento)}</span>
+          ) : (
+            <span className="text-warning-ink">
+              Não informado: sem ele a nota fiscal não sai.
+            </span>
+          )
+        }
+      />
+      <Info rotulo="Responsável" valor={cli.responsavel} />
+      <Info
+        rotulo="E-mail do financeiro"
+        valor={
+          cli.email_financeiro ?? (
+            <span className="text-warning-ink">
+              Não informado: as cobranças são geradas, mas não enviadas.
+            </span>
+          )
+        }
+      />
+      <Info rotulo="Telefone" valor={cli.telefone} />
+      <Info rotulo="Cliente desde" valor={data(cli.criado_em)} />
+      <div className="sm:col-span-2">
+        <Info rotulo="Observação" valor={cli.observacao} />
       </div>
     </div>
   );

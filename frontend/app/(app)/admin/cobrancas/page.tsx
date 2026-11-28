@@ -11,6 +11,7 @@ import {
   Link2,
   Plus,
   ReceiptText,
+  Repeat,
   Send,
   Settings2,
   Wallet,
@@ -20,7 +21,11 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { AvulsaDialog, copiarLink } from "@/components/admin/cobranca";
+import {
+  AvulsaDialog,
+  copiarLink,
+  NaoEnviada,
+} from "@/components/admin/cobranca";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
 import {
   Segmented,
@@ -43,6 +48,7 @@ import {
   type ConfigCobranca,
   passoRegua,
   type ResumoCobranca,
+  ROTULO_TIPO_COBRANCA,
   type StatusCobranca,
   TOM_COBRANCA,
 } from "@/lib/admin";
@@ -50,15 +56,12 @@ import { abrirArquivo, api } from "@/lib/api";
 import { useEmissoras } from "@/hooks/use-nfse";
 import { data, moeda } from "@/lib/format";
 
-const TIPO: Record<Cobranca["tipo"], string> = {
-  mensalidade: "Mensalidade",
-  avulsa: "Avulsa",
-  cartao: "Cartão (assinatura)",
-};
+const TIPO = ROTULO_TIPO_COBRANCA;
 
 export default function CobrancasPage() {
   const qc = useQueryClient();
   const [status, setStatus] = useState<StatusCobranca | "todas">("todas");
+  const [tipo, setTipo] = useState<Cobranca["tipo"] | "todos">("todos");
   const [avulsa, setAvulsa] = useState(false);
   const [gerar, setGerar] = useState(false);
   const [mp, setMp] = useState(false);
@@ -75,10 +78,11 @@ export default function CobrancasPage() {
     queryFn: () => api.get<ResumoCobranca>("/admin/cobrancas/resumo"),
   });
   const lista = useQuery({
-    queryKey: ["admin", "cobrancas", status],
+    queryKey: ["admin", "cobrancas", status, tipo],
     queryFn: () =>
       api.get<Cobranca[]>("/admin/cobrancas", {
         status: status === "todas" ? undefined : status,
+        tipo: tipo === "todos" ? undefined : tipo,
       }),
   });
   const atualizar = () => qc.invalidateQueries({ queryKey: ["admin"] });
@@ -108,7 +112,7 @@ export default function CobrancasPage() {
   const nota = useMutation({
     mutationFn: (k: Cobranca) => api.post<Cobranca>(`/admin/cobrancas/${k.id}/nfse`),
     onSuccess: (k) => {
-      toast.success(`NFS-e nº ${k.nfse_numero} emitida e enviada ao escritório`);
+      toast.success(`NFS-e nº ${k.nfse_numero} emitida e enviada ao cliente`);
       atualizar();
     },
     onError: () => atualizar(),
@@ -154,35 +158,62 @@ export default function CobrancasPage() {
         </div>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <KpiCard
+          titulo="Receita recorrente"
+          icone={Repeat}
+          carregando={!r}
+          valor={r ? moeda(r.receita_recorrente) : "—"}
+        />
         <KpiCard
           titulo="Recebido no mês"
           icone={CheckCircle2}
+          indice={1}
           carregando={!r}
           valor={r ? moeda(r.recebido_mes) : "—"}
         />
         <KpiCard
           titulo="Em aberto (a vencer)"
           icone={Wallet}
-          indice={1}
+          indice={2}
           carregando={!r}
           valor={r ? moeda(r.em_aberto) : "—"}
         />
         <KpiCard
           titulo="Vencido"
           icone={AlertTriangle}
-          indice={2}
+          indice={3}
           carregando={!r}
           valor={r ? moeda(r.vencido) : "—"}
         />
         <KpiCard
           titulo="Clientes em atraso"
           icone={ReceiptText}
-          indice={3}
+          indice={4}
           carregando={!r}
           valor={r ? String(r.inadimplentes) : "—"}
         />
       </div>
+      {r && (
+        <p className="-mt-3 mb-5 text-xs text-muted-foreground">
+          Receita recorrente prevista por mês: {moeda(r.receita_planos)} de mensalidades
+          de plano + {moeda(r.receita_recorrencias)} de cobranças recorrentes
+          ativas (as anuais, semestrais etc. entram divididas pelo número de
+          meses).
+        </p>
+      )}
+      {r && r.nao_enviadas > 0 && (
+        <p className="mb-5 flex items-start gap-2 rounded-lg bg-warning/12 px-3 py-2 text-sm text-warning-ink">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {r.nao_enviadas === 1
+              ? "1 cobrança em aberto não foi enviada"
+              : `${r.nao_enviadas} cobranças em aberto não foram enviadas`}
+            . Elas estão marcadas na lista: confira o e-mail do financeiro na
+            ficha do cliente e use “Enviar por e-mail”.
+          </span>
+        </p>
+      )}
 
       <TableCard>
         <Toolbar>
@@ -197,6 +228,21 @@ export default function CobrancasPage() {
               { value: "cancelada", label: "Canceladas" },
             ]}
           />
+          <NativeSelect
+            aria-label="Tipo de cobrança"
+            value={tipo}
+            onChange={(e) =>
+              setTipo(e.target.value as Cobranca["tipo"] | "todos")
+            }
+            className="h-9 w-48"
+          >
+            <option value="todos">Todos os tipos</option>
+            {(Object.keys(TIPO) as Cobranca["tipo"][]).map((t) => (
+              <option key={t} value={t}>
+                {TIPO[t]}
+              </option>
+            ))}
+          </NativeSelect>
         </Toolbar>
         {lista.isPending ? (
           <TableSkeleton colunas={6} />
@@ -204,7 +250,7 @@ export default function CobrancasPage() {
           <EmptyState
             icone={HandCoins}
             titulo="Nenhuma cobrança"
-            descricao="As mensalidades saem sozinhas todo dia 1 (com o Mercado Pago conectado). Você também pode gerar agora ou criar uma cobrança avulsa."
+            descricao="As mensalidades saem sozinhas todo dia 1 e as recorrentes, na data de cada uma (com o Mercado Pago conectado). Você também pode gerar agora ou criar uma cobrança avulsa."
           />
         ) : (
           <div className="overflow-x-auto">
@@ -223,7 +269,14 @@ export default function CobrancasPage() {
               <tbody className="divide-y">
                 {lista.data.map((k) => (
                   <tr key={k.id}>
-                    <td className="px-4 py-3 font-medium">{k.cliente_nome}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {k.cliente_nome}
+                      {k.cliente_tipo === "externo" && (
+                        <div className="text-[11px] font-normal text-muted-foreground">
+                          sem acesso ao sistema
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-3">
                       {k.descricao}
                       <div className="text-xs text-muted-foreground">
@@ -231,6 +284,7 @@ export default function CobrancasPage() {
                         {k.itens.length > 1 &&
                           ` · ${k.itens.map((i) => i.descricao).join(" · ")}`}
                       </div>
+                      <NaoEnviada k={k} />
                     </td>
                     <td className="px-3 py-3 text-right font-mono tabular-nums">
                       {moeda(k.valor)}
