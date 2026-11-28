@@ -112,6 +112,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("POST", r"/auth/usuarios/\d+/foto$", "cfg_profissionais.editar"),
     ("DELETE", r"/auth/usuarios/\d+/foto$", "cfg_profissionais.editar"),
     ("*", r"/(auth|public|health|hub)(/|$)", LIVRE),
+    ("*", r"/mcp(/|$)", LIVRE),  # conector do Claude: cada chamada volta à API com o usuário da conexão
     ("*", r"/relatorios(/|$)", LIVRE),  # cada fonte exige a permissão do seu dado (relatorios/fontes.py)
     ("GET", r"/cadastros/(cidades|cnpj)/", LIVRE),
     ("GET", r"/faturamento/(judiciario|profissionais)(/|$)", LIVRE),

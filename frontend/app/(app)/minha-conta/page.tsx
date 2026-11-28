@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 
 import { Mono } from "@/components/mayacorp/brand";
+import { ClaudeConector } from "@/components/mayacorp/claude-conector";
 import { Field } from "@/components/mayacorp/form";
 import { PageHeader } from "@/components/mayacorp/page-header";
 import { SenhaInput } from "@/components/mayacorp/senha-input";
@@ -101,7 +102,7 @@ export default function MinhaContaPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader titulo="Minha conta" descricao="Sua foto, seus dados de acesso e sua senha." icone={CircleUserRound} />
+      <PageHeader titulo="Minha conta" descricao="Sua foto, seus dados de acesso, sua senha e a conexão com o Claude." icone={CircleUserRound} />
       <div className="space-y-5">
         <div className="card-surface relative overflow-hidden">
           <div className="brand-gradient h-24" />
@@ -153,6 +154,7 @@ export default function MinhaContaPage() {
         </div>
 
         <TrocarSenha />
+        <ClaudeConector />
       </div>
     </div>
   );
