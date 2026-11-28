@@ -27,6 +27,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -383,6 +384,25 @@ class Pessoa(Base, Timestamped):
     enderecos: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # seção 6.3
     representante_legal_id: Mapped[int | None] = mapped_column(ForeignKey("trb_pessoa.id"))
     ente_publico: Mapped[bool] = mapped_column(Boolean, default=False)
+    # --- cadastro único de pessoas (Cadastros › Pessoas, app/modules/pessoas). "É cliente" não é coluna: vem de
+    # `tomador.pessoa_id` (1:1). tipo_pessoa também aceita ente_publico | estrangeiro | sem_documento.
+    documento_estrangeiro: Mapped[str | None] = mapped_column(String(40))
+    rg: Mapped[str | None] = mapped_column(String(20))
+    rg_orgao_emissor: Mapped[str | None] = mapped_column(String(20))
+    rg_uf: Mapped[str | None] = mapped_column(String(2))
+    data_fundacao: Mapped[date | None] = mapped_column(Date)
+    regime_bens: Mapped[str | None] = mapped_column(String(30))
+    pis_nit: Mapped[str | None] = mapped_column(String(20))
+    ctps: Mapped[str | None] = mapped_column(String(30))
+    inscricao_estadual: Mapped[str | None] = mapped_column(String(20))
+    inscricao_municipal: Mapped[str | None] = mapped_column(String(20))
+    cnae_principal: Mapped[str | None] = mapped_column(String(10))
+    contatos: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=list)  # [{tipo, valor, descricao, principal, aceita_comunicacao}]
+    observacoes: Mapped[str | None] = mapped_column(Text)
+    consentimento_lgpd: Mapped[bool | None] = mapped_column(Boolean)
+    base_legal_lgpd: Mapped[str | None] = mapped_column(String(100))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    mesclada_em_id: Mapped[int | None] = mapped_column(ForeignKey("trb_pessoa.id"))  # duplicada que foi juntada em outra
 
 
 class Parte(Base):

@@ -48,8 +48,21 @@ parte importada de tribunal.
    `fat_lista_item` (lista, nome, ordem, ativo, sistema), com seed. Item em uso nunca é apagado, só desativado.
 5. **Cadastro único de pessoas.** A tabela `trb_pessoa` vira o cadastro único (menu Cadastros › Pessoas) e ganha os
    campos que faltam. Endereços, contatos e telefones continuam em listas JSON, como no cadastro de clientes.
-   O cliente (`tomador`) ganha `pessoa_id`: todo cliente tem a sua Pessoa, criada na migração e ao cadastrar.
    Documento único por escritório quando preenchido.
+   **O cliente é uma parte** (confirmado pelo dono do produto em 28/11/2026):
+   - Cada cliente (`tomador`) tem exatamente uma Pessoa, e essa Pessoa só existe uma vez no banco. O vínculo é 1:1:
+     `tomador.pessoa_id` é único (nunca duas pessoas para o mesmo cliente, nunca dois clientes para a mesma pessoa).
+   - A Pessoa que é cliente é reconhecida pelo código do cliente: toda saída de Pessoa (lista, detalhe, busca,
+     envolvimentos) traz `cliente_id` (o id do tomador) e `eh_cliente`, que vem de existir o vínculo e não é um campo
+     gravado que possa divergir.
+   - Sem duplicar: ao criar ou alterar um cliente, se já existe Pessoa do escritório com o mesmo CPF/CNPJ, o cliente é
+     ligado a ela em vez de nascer outra; ao cadastrar Pessoa (ou parte de um caso) com o documento de um cliente, a
+     resposta é a Pessoa do cliente. Nome, documento e tipo vão do cliente para a Pessoa: a fonte é o cadastro de
+     clientes, que emite fatura e NFS-e (pela tela de Pessoas esses três campos não mudam quando a pessoa é cliente).
+   - Mesclar: a Pessoa de um cliente nunca é desativada; se uma das duas é de cliente, ela é a principal. Duas pessoas
+     de clientes diferentes não se mesclam.
+   - Tudo isso acontece num ponto só: antes de todo flush com cliente novo ou alterado (`rpa_nfse/models.py` chama
+     `pessoas.service.sincronizar_clientes`), valendo para telas, importações e robôs.
 6. **Advogados.** Tabelas novas `pes_advogado` (1:1 com a pessoa) e `pes_advogado_oab`. O advogado interno aponta para
    o usuário.
 7. **Envolvimento.** Tabelas novas `fat_env_categoria`, `fat_env_qualificacao`, `fat_envolvimento` e
@@ -68,10 +81,13 @@ Comando `uv run python -m app.modules.faturamento.migrar_partes [--dry-run] [--e
 
 1. **Tipo.** Caso com tipo judicial ou com número de processo vira contencioso (a justiça vem do tipo antigo ou do
    dígito J do CNJ); tipo administrativo vira administrativo; o resto vira consultivo. Sai um CSV para revisão.
-2. **Clientes.** Cada `tomador` ganha a sua Pessoa (agrupando por documento) e, em cada caso, o envolvimento
-   "é cliente" na categoria do lado do cliente (polo do caso; sem polo, lado ativo).
+2. **Clientes.** Cada `tomador` ganha a sua Pessoa (uma por cliente; com o mesmo CPF/CNPJ já no cadastro de pessoas,
+   o cliente é ligado a ela) e, em cada caso, o envolvimento "é cliente" na categoria do lado do cliente (polo do
+   caso; sem polo, lado ativo, marcado "pendente de reclassificação" no contencioso para o polo não ser inventado).
 3. **Parte contrária em texto.** Vira Pessoa sem documento (uma por nome idêntico normalizado) e envolvimento no polo
-   oposto ao do cliente; sem polo conhecido, categoria Outros com "pendente de reclassificação".
+   oposto ao do cliente; sem polo conhecido, categoria Outros com "pendente de reclassificação". Nome idêntico ao de
+   um cliente NÃO é fundido sozinho com a Pessoa do cliente (não há documento para confirmar): a parte ganha a sua
+   Pessoa e a dupla entra como possível duplicado no CSV, para o administrador mesclar se for o caso.
 4. **Processo importado ligado ao caso.** As partes de `trb_parte` viram envolvimentos (polo e qualificação pelo tipo
    de participação) e os advogados de `trb_advogado_parte` viram Advogado + OAB + advogado do envolvimento.
 5. Nada é apagado: `parte_contraria`, `polo` e `tipo` continuam nas tabelas.

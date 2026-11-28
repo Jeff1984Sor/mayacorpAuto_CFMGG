@@ -169,6 +169,7 @@ class TomadorOut(Schema):
     enderecos: list[dict[str, Any]] = []
     contatos: list[dict[str, Any]] = []
     telefones: list[dict[str, Any]] = []
+    pessoa_id: int | None = None  # a Pessoa do cliente no cadastro único (1:1)
     incompleto: bool = False
     qtd_notas: int = 0
     valor_acumulado: Decimal = Decimal(0)

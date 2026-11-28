@@ -22,6 +22,7 @@ CATALOGO: list[dict] = [
     ]},
     {"grupo": "Cadastros", "recursos": [
         {"id": "clientes", "nome": "Clientes", "acoes": ["ver", "editar", "excluir", "importar"]},
+        {"id": "pessoas", "nome": "Pessoas (cadastro único de partes e advogados)", "acoes": ["ver", "editar", "excluir"]},
         {"id": "contratos", "nome": "Contratos e regras de cobrança", "acoes": ["ver", "editar", "excluir", "importar"]},
         {"id": "casos", "nome": "Casos (ficha, andamentos, despesas, anexos)", "acoes": ["ver", "editar", "excluir", "importar"]},
         {"id": "tarefas", "nome": "Tarefas", "acoes": ["ver", "editar", "excluir", "ver_todas", "reabrir"]},
@@ -77,7 +78,7 @@ def _todas_de(*recursos: str, acoes: tuple[str, ...] | None = None) -> set[str]:
     return {p for p in TODAS if p.split(".")[0] in recursos and (acoes is None or p.split(".")[1] in acoes)}
 
 
-_CADASTROS = ("clientes", "contratos", "casos", "tarefas", "timesheet")
+_CADASTROS = ("clientes", "pessoas", "contratos", "casos", "tarefas", "timesheet")
 _FATURAMENTO = ("itens_faturar", "revisoes", "faturas", "relatorio_faturamento", "impostos", "dashboard")
 _FINANCEIRO = ("contas_bancarias", "contas_pagar", "categorias_fin", "fornecedores", "relatorios_fin", "boletos", "comissoes")
 _NFSE = ("nfse_emissao", "nfse_notas", "nfse_recebimentos")
@@ -93,7 +94,7 @@ PERFIS_PADRAO: list[dict] = [
                                             - {"auditoria.ver", "tarefas.reabrir", "trib_processos.ver_sigilosos"})},
     {"nome": "Advogado", "descricao": "Casos, tarefas e timesheet; sem financeiro.", "cor": "#1A8F5E", "administrador": False,
      "sistema": False, "permissoes": sorted(
-         _todas_de(*_CADASTROS) - {"clientes.excluir", "contratos.excluir", "casos.excluir", "tarefas.ver_todas", "timesheet.ver_todos",
+         _todas_de(*_CADASTROS) - {"clientes.excluir", "pessoas.excluir", "contratos.excluir", "casos.excluir", "tarefas.ver_todas", "timesheet.ver_todos",
                                    "tarefas.reabrir"}
          | _todas_de(*_TRIBUNAIS) - {"trib_processos.excluir", "trib_processos.ver_sigilosos"}
          | {"comunicador.usar", "ia.usar", "clientes.ver", "contratos.ver"})},
@@ -131,6 +132,8 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     # cadastros
     ("POST", r"/nfse/tomadores/importar$", "clientes.importar"),
     ("*", r"/nfse/tomadores", "clientes.*"),
+    ("POST", r"/pessoas/\d+/mesclar$", "pessoas.editar"),  # + administrador na rota
+    ("*", r"/(pessoas|advogados)(/|$)", "pessoas.*"),
     ("GET", r"/faturamento/clientes/\d+/contrato$", "casos.ver"),  # o contrato único do cliente (sem a figura do contrato)
     ("POST", r"/faturamento/clientes/\d+/contrato$", "casos.editar"),
     ("POST", r"/faturamento/contratos/importar$", "contratos.importar"),

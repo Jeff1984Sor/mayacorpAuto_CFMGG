@@ -371,7 +371,7 @@ def _aplicar_capa(db: Session, p: Processo, capa: dict, tribunal: Tribunal) -> b
 def _pessoa(db: Session, tenant_id: int, dados: dict) -> Pessoa:
     doc = re.sub(r"\D", "", dados.get("documento") or "")
     nome = (dados.get("nome") or "").strip()[:300] or "Parte sem nome"
-    q = select(Pessoa).where(Pessoa.tenant_id == tenant_id)
+    q = select(Pessoa).where(Pessoa.tenant_id == tenant_id, Pessoa.mesclada_em_id.is_(None))
     existente = None
     if len(doc) == 11:
         existente = db.scalar(q.where(Pessoa.cpf == doc))

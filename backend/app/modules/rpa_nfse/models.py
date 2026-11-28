@@ -16,10 +16,11 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     false,
     true,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.core.db import Base, Timestamped, UtcDateTime, agora
 
@@ -184,8 +185,12 @@ class Tomador(Base, Timestamped):
     # Ao faturar: contrato (tudo numa fatura/nota, o padrão) | caso (uma por caso) | cobranca (uma por cobrança)
     fatura_agrupamento: Mapped[str | None] = mapped_column(String(10))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # inativo: some das listas de escolha
+    # O cliente é uma parte: a Pessoa dele no cadastro único (1:1). Preenchido sozinho antes de todo flush (abaixo);
+    # o id do cliente é o "código do cliente" que aparece na Pessoa.
+    pessoa_id: Mapped[int | None] = mapped_column(ForeignKey("trb_pessoa.id"))
 
-    __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "cpf_cnpj", name="uq_tomador_tenant_doc"),
+                      UniqueConstraint("pessoa_id", name="uq_tomador_pessoa_id"))
 
 
 class ParametroFiscal(Base, Timestamped):
@@ -447,3 +452,14 @@ class Fatura(Base, Timestamped):
     @property
     def total(self) -> Decimal:
         return self.valor - (self.desconto or 0) + (self.juros or 0)
+
+
+@event.listens_for(Session, "before_flush")
+def _cliente_tem_pessoa(session, _contexto, _instancias) -> None:
+    """Ponto único: todo cliente criado ou alterado, por qualquer tela ou importação, sai do flush com a sua Pessoa
+    no cadastro único (ligada pelo CPF/CNPJ se ela já existir) e com nome, documento e tipo iguais aos do cliente."""
+    alvo = [o for o in (*session.new, *session.dirty) if isinstance(o, Tomador)]
+    if alvo:
+        from app.modules.pessoas import service
+
+        service.sincronizar_clientes(session, alvo)
