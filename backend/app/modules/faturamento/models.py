@@ -562,4 +562,10 @@ class RevisaoItem(Base):
         return (self.faixa or {}).get("texto")
 
 
-from app.modules.faturamento.tipos_caso import CasoEquipe, CasoLista  # noqa: E402, F401  (tabelas que acompanham o caso)
+from app.modules.faturamento.tipos_caso import (  # noqa: E402, F401  (tabelas que acompanham o caso)
+    CasoAdministrativo,
+    CasoConsultivo,
+    CasoContencioso,
+    CasoEquipe,
+    CasoLista,
+)

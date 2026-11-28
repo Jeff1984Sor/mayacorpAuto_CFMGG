@@ -336,7 +336,7 @@ def garantir_contrato_do_cliente(tid: int, ctx: Operador):
 
 
 # ================================================================ casos
-def _caso_out(ctx, c: Caso) -> CasoOut:
+def _caso_out(ctx, c: Caso, ficha: bool = True) -> CasoOut:
     resp = ctx.db.get(Usuario, c.responsavel_id) if c.responsavel_id else None
     min_pend = ctx.db.scalar(select(func.coalesce(func.sum(Timesheet.minutos), 0)).where(
         Timesheet.caso_id == c.id, Timesheet.faturavel, Timesheet.fatura_item_id.is_(None))) or 0
@@ -358,7 +358,7 @@ def _caso_out(ctx, c: Caso) -> CasoOut:
         data_abertura=c.data_abertura, data_encerramento=c.data_encerramento,
         tem_regra_propria=any(r.ativo for r in c.regras),
         horas_pendentes=(Decimal(min_pend) / 60).quantize(Decimal("0.01")), despesas_pendentes=Decimal(desp),
-        **regras_caso.saida(ctx, c))
+        **regras_caso.saida(ctx, c, ficha=ficha))
 
 
 def _validar_caso(ctx, dados: CasoIn, contrato: Contrato) -> None:
@@ -432,7 +432,8 @@ def casos(ctx: Ctx, contrato_id: int | None = None, tomador_id: int | None = Non
         if q.strip().isdigit():
             conds.append(Caso.numero == int(q))
         sel = sel.where(or_(*conds))
-    return [_caso_out(ctx, c) for c in ctx.db.scalars(sel.order_by(Caso.numero.desc()).limit(500)) if regras_caso.pode_ver(ctx, c)]
+    return [_caso_out(ctx, c, ficha=False) for c in ctx.db.scalars(sel.order_by(Caso.numero.desc()).limit(500))
+            if regras_caso.pode_ver(ctx, c)]
 
 
 @router.post("/contratos/{cid}/casos", response_model=CasoOut, status_code=201)
@@ -487,7 +488,7 @@ def _buscar_no_tribunal(ctx, c: Caso):
     """Caso com número CNJ válido: capa, andamentos e autos vêm do tribunal por trás (fila). Devolve o disparo."""
     from app.modules.tribunais import cnj, jobs
 
-    if not (c.numero_processo and cnj.valido(c.numero_processo)):
+    if not (c.numero_processo and cnj.valido(c.numero_processo)) or not regras_caso.monitora(ctx.db, c):
         return None
     jobs.enfileirar(ctx.db, ctx.tenant_id, "importar_caso", c.id, criado_por_id=ctx.usuario.id, max_tentativas=8)
     return jobs.disparar

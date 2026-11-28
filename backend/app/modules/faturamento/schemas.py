@@ -208,11 +208,144 @@ class CasoIn(BaseModel):
     tipo_vinculo: TipoVinculo | None = None
     sigiloso: bool | None = None
     observacoes: str | None = None
+    # dados só do tipo do caso (mande o bloco do tipo; os outros ficam vazios)
+    contencioso: "ContenciosoDados | None" = None
+    consultivo: "ConsultivoDados | None" = None
+    administrativo: "AdministrativoDados | None" = None
 
 
 class ItemNome(BaseModel):
     id: int
     nome: str
+
+
+def _opcoes(obj, *campos: str) -> None:
+    """Listas fixas do sistema: confere o valor contra tipos_caso.ROTULOS (as opções saem em /faturamento/casos/opcoes)."""
+    from app.modules.faturamento.tipos_caso import ROTULOS
+
+    for campo in campos:
+        v = getattr(obj, campo)
+        if v is not None and v not in ROTULOS[campo]:
+            raise ValueError(f"{campo}: use uma destas opções: {', '.join(ROTULOS[campo])}.")
+
+
+_Valor = Field(default=None, ge=0)
+
+
+class ContenciosoDados(BaseModel):
+    """Dados do processo que não ficam no caso (entra e sai igual). Número CNJ, tribunal, vara, comarca, instância,
+    valor da causa, distribuição e polo continuam nos campos de sempre do caso. Os *_nome são só de leitura."""
+
+    pre_ajuizamento: bool = False  # ainda sem número CNJ
+    numero_antigo: str | None = Field(default=None, max_length=40)
+    justica: str | None = None  # preenchida pelo número CNJ
+    uf: str | None = Field(default=None, pattern="^[A-Za-z]{2}$")
+    codigo_orgao: str | None = Field(default=None, max_length=4)
+    juiz_relator: str | None = Field(default=None, max_length=150)
+    sistema_tribunal: str | None = None
+    classe_id: int | None = None  # lista "classe"
+    classe_nome: str | None = None
+    assunto_id: int | None = None  # lista "assunto"
+    assunto_nome: str | None = None
+    assuntos_secundarios_ids: list[int] = []
+    assuntos_secundarios: list[ItemNome] = []
+    rito: str | None = None
+    fase_processual: str | None = None
+    data_citacao: date | None = None
+    data_transito_julgado: date | None = None
+    valor_condenacao: Decimal | None = _Valor
+    valor_acordo: Decimal | None = _Valor
+    prognostico: str | None = None
+    valor_provisionado: Decimal | None = _Valor
+    valor_risco: Decimal | None = _Valor
+    deposito_judicial: Decimal | None = _Valor
+    justica_gratuita: bool = False
+    segredo_justica: bool = False
+    tutela_liminar: str | None = None
+    resultado: str | None = None
+    monitorar_andamentos: bool = True
+
+    @model_validator(mode="after")
+    def _listas(self):
+        _opcoes(self, "justica", "sistema_tribunal", "rito", "fase_processual", "prognostico", "tutela_liminar", "resultado")
+        return self
+
+
+class ConsultivoDados(BaseModel):
+    tipo_demanda_id: int | None = None  # lista "tipo_demanda" (obrigatório)
+    tipo_demanda_nome: str | None = None
+    solicitante_id: int | None = None  # Pessoa do cadastro único
+    solicitante_nome: str | None = None
+    departamento_solicitante: str | None = Field(default=None, max_length=100)
+    data_solicitacao: date | None = None  # vazio = data de abertura
+    prazo_entrega: date | None = None
+    sla_dias: int | None = Field(default=None, ge=0, le=3650)
+    prioridade: str = "media"
+    complexidade: str | None = None
+    etapa: str = "recebido"
+    horas_estimadas: Decimal | None = Field(default=None, ge=0, le=99999)
+    horas_realizadas: Decimal | None = None  # leitura: soma do timesheet
+    valor_envolvido: Decimal | None = _Valor
+    contrato_vigencia_inicio: date | None = None
+    contrato_vigencia_fim: date | None = None
+    renovacao_automatica: bool = False
+    data_entrega: date | None = None  # obrigatória quando a etapa é entregue ou concluído
+    documento_entregue_id: int | None = None  # anexo do caso
+    risco_identificado: str | None = None
+    recomendacao_resumo: str | None = None
+    gerou_contencioso_id: int | None = None  # caso judicial que nasceu daqui
+    gerou_contencioso_titulo: str | None = None
+
+    @model_validator(mode="after")
+    def _listas(self):
+        _opcoes(self, "prioridade", "complexidade", "etapa", "risco_identificado")
+        return self
+
+
+class AdministrativoDados(BaseModel):
+    esfera: str | None = None  # obrigatória
+    orgao_id: int | None = None  # lista "orgao" (obrigatório)
+    orgao_nome: str | None = None
+    unidade_orgao: str | None = Field(default=None, max_length=150)
+    uf: str | None = Field(default=None, pattern="^[A-Za-z]{2}$")
+    municipio: str | None = Field(default=None, max_length=80)
+    tipo_procedimento_id: int | None = None  # lista "tipo_procedimento" (obrigatório)
+    tipo_procedimento_nome: str | None = None
+    numero_processo_adm: str | None = Field(default=None, max_length=60)  # este ou o protocolo, depois de protocolado
+    numero_protocolo: str | None = Field(default=None, max_length=60)
+    numero_auto_infracao: str | None = Field(default=None, max_length=60)
+    numero_nb: str | None = Field(default=None, max_length=30)
+    instancia_adm: str | None = None  # vazio = primeira
+    fase_adm: str | None = None  # vazio = pré-protocolo (sem número) ou protocolado
+    data_ciencia: date | None = None
+    prazo_defesa: date | None = None
+    data_protocolo: date | None = None
+    valor_autuado: Decimal | None = _Valor
+    valor_multa: Decimal | None = _Valor
+    valor_juros: Decimal | None = _Valor
+    valor_atualizado: Decimal | None = _Valor
+    data_atualizacao_valor: date | None = None
+    exigibilidade_suspensa: bool = False
+    garantia: str | None = None
+    prognostico: str | None = None
+    decisao: str | None = None
+    data_decisao: date | None = None
+    cabe_judicializacao: bool = False
+    prazo_judicializacao: date | None = None
+    caso_judicial_id: int | None = None  # contencioso que nasceu daqui
+    caso_judicial_titulo: str | None = None
+    link_sistema_orgao: str | None = Field(default=None, max_length=300, pattern="^https?://")
+
+    @model_validator(mode="after")
+    def _listas(self):
+        _opcoes(self, "esfera", "instancia_adm", "fase_adm", "garantia", "prognostico", "decisao")
+        return self
+
+
+class CasoRef(BaseModel):
+    caso_id: int
+    numero: int
+    titulo: str
 
 
 class CasoOut(Schema):
@@ -274,6 +407,10 @@ class CasoOut(Schema):
     tipo_vinculo: TipoVinculo | None = None
     sigiloso: bool = False
     observacoes: str | None = None
+    contencioso: ContenciosoDados | None = None  # só o bloco do tipo do caso vem preenchido
+    consultivo: ConsultivoDados | None = None
+    administrativo: AdministrativoDados | None = None
+    aviso_cnj_duplicado: CasoRef | None = None  # outro caso do escritório com o mesmo número CNJ (aviso, não bloqueia)
 
 
 # ---------- regras de cobrança
@@ -703,3 +840,6 @@ class TarefaOut(Schema):
 class TarefasListaOut(BaseModel):
     itens: list[TarefaOut]
     resumo: dict[str, int]
+
+
+CasoIn.model_rebuild()

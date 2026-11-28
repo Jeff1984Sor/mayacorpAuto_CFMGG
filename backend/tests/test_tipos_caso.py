@@ -158,3 +158,126 @@ def test_listas_configuraveis(cliente):  # noqa: F811
     ho = operador(c, h, "operador.listas@cfme.com.br")
     assert c.get("/api/faturamento/listas", headers=ho).status_code == 200
     assert c.post("/api/faturamento/listas", json={"lista": "origem", "nome": "Não pode"}, headers=ho).status_code == 403
+
+
+# ------------------------------------------------------------------------------------------- extensões por tipo
+def _dv_errado(numero: str) -> str:
+    return numero[:8] + ("11" if numero[8:10] != "11" else "12") + numero[10:]
+
+
+def test_numero_cnj_valida_e_preenche(cliente):  # noqa: F811
+    c, h = cliente, _login(cliente)
+    assert cnj.valido(CNJ_TJSP) and cnj.valido(cnj.so_digitos(CNJ_TJSP))  # com e sem máscara
+    assert not cnj.valido(_dv_errado(CNJ_TJSP))
+    for numero, justica, tribunal, tipo in ((CNJ_TJSP, "estadual", "TJSP", "judicial_estadual"),
+                                            (CNJ_TRT15, "trabalho", "TRT15", "judicial_trabalhista"),
+                                            (CNJ_TRF3, "federal", "TRF3", "judicial_federal")):
+        r = c.get("/api/faturamento/casos/cnj", params={"numero": cnj.so_digitos(numero)}, headers=h).json()
+        assert r["valido"] and r["numero_formatado"] == numero and r["ano"] == 2024
+        assert (r["justica"], r["tribunal"], r["tipo"]) == (justica, tribunal, tipo)
+    assert c.get("/api/faturamento/casos/cnj", params={"numero": _dv_errado(CNJ_TJSP)}, headers=h).json()["valido"] is False
+    assert "20 dígitos" in c.get("/api/faturamento/casos/cnj", params={"numero": "123"}, headers=h).json()["mensagem"]
+    op = c.get("/api/faturamento/casos/opcoes", headers=h).json()
+    assert {"valor": "provavel", "rotulo": "Provável"} in op["opcoes"]["prognostico"] and len(op["opcoes"]["fase_processual"]) == 11
+
+
+def test_contencioso_com_extensao(cliente):  # noqa: F811
+    c, h = cliente, _login(cliente)
+    k = contrato_novo(c, h, "Cliente Contencioso", 70610011)
+    url = f"/api/faturamento/contratos/{k['id']}/casos"
+    base = {"titulo": "Revisional", "tipo_caso": "contencioso"}
+    r = c.post(url, json={**base, "contencioso": {}}, headers=h)
+    assert r.status_code == 400 and "ainda não foi ajuizado" in r.json()["detail"]
+    r = c.post(url, json={**base, "numero_processo": "123/2019", "contencioso": {}}, headers=h)
+    assert r.status_code == 400 and "Número antigo" in r.json()["detail"]
+    r = c.post(url, json={**base, "numero_processo": _dv_errado(CNJ_TJSP), "contencioso": {}}, headers=h)
+    assert r.status_code == 400 and "dígito verificador" in r.json()["detail"]
+    r = c.post(url, json={**base, "contencioso": {"prognostico": "talvez"}}, headers=h)
+    assert r.status_code == 422 and "prognostico" in r.json()["detail"]
+    # pré-ajuizamento: sem número
+    pre = c.post(url, json={**base, "contencioso": {"pre_ajuizamento": True, "numero_antigo": "583.00.1999"}}, headers=h)
+    assert pre.status_code == 201, pre.text
+    assert pre.json()["contencioso"]["fase_processual"] == "pre_ajuizamento" and pre.json()["tipo"] is None
+    # número válido sem máscara: fica formatado e preenche justiça, tribunal, órgão e UF
+    itens = c.get("/api/faturamento/listas", headers=h).json()
+    classe = next(i for i in itens if i["lista"] == "classe" and i["nome"] == "Monitória")
+    assuntos = [i for i in itens if i["lista"] == "assunto"][:3]
+    corpo = {**base, "numero_processo": cnj.so_digitos(CNJ_TJSP), "valor_causa": "1000.00", "contencioso": {
+        "classe_id": classe["id"], "assunto_id": assuntos[0]["id"], "assuntos_secundarios_ids": [a["id"] for a in assuntos],
+        "prognostico": "possivel", "valor_provisionado": "500.00", "rito": "comum", "segredo_justica": True}}
+    r = c.post(url, json=corpo, headers=h)
+    assert r.status_code == 201, r.text
+    caso = r.json()
+    ext = caso["contencioso"]
+    assert caso["numero_processo"] == CNJ_TJSP and caso["tribunal"] == "TJSP" and caso["tipo"] == "judicial_estadual"
+    assert (ext["justica"], ext["codigo_orgao"], ext["uf"], ext["fase_processual"]) == ("estadual", "0100", "SP", "conhecimento")
+    assert ext["classe_nome"] == "Monitória" and ext["assuntos_secundarios_ids"] == [a["id"] for a in assuntos[1:]]
+    assert ext["valor_provisionado"] == "500.00" and ext["pre_ajuizamento"] is False and caso["consultivo"] is None
+    assert caso["aviso_cnj_duplicado"] is None
+    # o mesmo número em outro caso: avisa, não bloqueia
+    outro = c.post(url, json={**base, "numero_processo": CNJ_TJSP, "contencioso": {}}, headers=h)
+    assert outro.status_code == 201 and outro.json()["aviso_cnj_duplicado"]["caso_id"] == caso["id"]
+    dup = c.get("/api/faturamento/casos/cnj", params={"numero": CNJ_TJSP, "caso_id": caso["id"]}, headers=h).json()["duplicado"]
+    assert dup["caso_id"] == outro.json()["id"]
+    # dados de outro tipo não entram
+    r = c.put(f"/api/faturamento/casos/{caso['id']}", json={**corpo, "consultivo": {"tipo_demanda_id": 1}}, headers=h)
+    assert r.status_code == 400 and "não se aplicam" in r.json()["detail"]
+    # a tela antiga regrava sem o bloco: a extensão fica como estava
+    r = c.put(f"/api/faturamento/casos/{caso['id']}", json={"titulo": "Revisional", "numero_processo": CNJ_TJSP}, headers=h).json()
+    assert r["contencioso"]["prognostico"] == "possivel" and r["contencioso"]["classe_id"] == classe["id"]
+
+
+def test_consultivo_e_administrativo_com_extensao(cliente):  # noqa: F811
+    c, h = cliente, _login(cliente)
+    k = contrato_novo(c, h, "Cliente Consultivo Adm", 70610012)
+    url = f"/api/faturamento/contratos/{k['id']}/casos"
+    itens = c.get("/api/faturamento/listas", headers=h).json()
+    demanda = next(i for i in itens if i["lista"] == "tipo_demanda" and i["nome"] == "Parecer")
+    orgao = next(i for i in itens if i["lista"] == "orgao" and i["nome"] == "CARF")
+    proc = next(i for i in itens if i["lista"] == "tipo_procedimento" and i["nome"] == "Impugnação")
+    # chamada antiga: a extensão nasce com os padrões
+    antigo = caso_novo(c, h, k["id"])
+    assert antigo["consultivo"]["etapa"] == "recebido" and antigo["consultivo"]["prioridade"] == "media"
+    assert antigo["consultivo"]["data_solicitacao"] == antigo["data_abertura"] and antigo["contencioso"] is None
+    # consultivo
+    base = {"titulo": "Parecer societário", "tipo_caso": "consultivo"}
+    r = c.post(url, json={**base, "consultivo": {}}, headers=h)
+    assert r.status_code == 400 and "tipo de demanda" in r.json()["detail"]
+    r = c.post(url, json={**base, "consultivo": {"tipo_demanda_id": orgao["id"]}}, headers=h)
+    assert r.status_code == 400  # item de outra lista
+    r = c.post(url, json={**base, "consultivo": {"tipo_demanda_id": demanda["id"], "etapa": "entregue"}}, headers=h)
+    assert r.status_code == 400 and "data de entrega" in r.json()["detail"]
+    r = c.post(url, json={**base, "data_abertura": "2030-03-01", "consultivo": {
+        "tipo_demanda_id": demanda["id"], "etapa": "entregue", "data_entrega": "2030-03-10", "prioridade": "alta",
+        "horas_estimadas": "12.5", "risco_identificado": "medio"}}, headers=h)
+    assert r.status_code == 201, r.text
+    cons = r.json()["consultivo"]
+    assert cons["tipo_demanda_nome"] == "Parecer" and cons["data_solicitacao"] == "2030-03-01" and cons["horas_realizadas"] == "0.00"
+    # administrativo
+    base = {"titulo": "Auto de infração", "tipo_caso": "administrativo"}
+    bloco = {"esfera": "federal", "orgao_id": orgao["id"], "tipo_procedimento_id": proc["id"]}
+    r = c.post(url, json={**base, "administrativo": {"esfera": "federal"}}, headers=h)
+    assert r.status_code == 400 and "órgão" in r.json()["detail"]
+    r = c.post(url, json={**base, "administrativo": {**bloco, "fase_adm": "em_analise"}}, headers=h)
+    assert r.status_code == 400 and "número do processo administrativo" in r.json()["detail"]
+    r = c.post(url, json={**base, "administrativo": {**bloco, "numero_protocolo": "10880.123456/2030-11", "decisao": "favoravel"}},
+               headers=h)
+    assert r.status_code == 400 and "data da decisão" in r.json()["detail"]
+    r = c.post(url, json={**base, "administrativo": bloco}, headers=h)  # ainda não protocolado: sem número
+    assert r.status_code == 201 and r.json()["administrativo"]["fase_adm"] == "pre_protocolo"
+    r = c.post(url, json={**base, "administrativo": {
+        **bloco, "numero_processo_adm": "10880.123456/2030-11", "valor_autuado": "9000", "garantia": "deposito",
+        "link_sistema_orgao": "https://cav.receita.fazenda.gov.br"}}, headers=h)
+    assert r.status_code == 201, r.text
+    adm = r.json()
+    assert adm["tipo"] == "administrativo" and adm["administrativo"]["orgao_nome"] == "CARF"
+    assert adm["administrativo"]["fase_adm"] == "protocolado" and adm["administrativo"]["instancia_adm"] == "primeira"
+    # trocar o tipo (administrador): a extensão antiga fica guardada e a nova é criada
+    r = c.put(f"/api/faturamento/casos/{adm['id']}", json={"titulo": "Auto de infração", "tipo_caso": "contencioso"}, headers=h)
+    assert r.status_code == 200 and r.json()["administrativo"] is None and r.json()["contencioso"]["pre_ajuizamento"] is True
+    from app.core.db import SessionLocal
+    from app.modules.faturamento.tipos_caso import CasoAdministrativo, CasoContencioso
+
+    with SessionLocal() as db:
+        assert db.get(CasoAdministrativo, adm["id"]).numero_processo_adm == "10880.123456/2030-11"
+        assert db.get(CasoContencioso, adm["id"]) is not None

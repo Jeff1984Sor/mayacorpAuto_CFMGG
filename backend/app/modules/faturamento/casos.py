@@ -5,19 +5,32 @@ Chamadas antigas continuam valendo: quem manda só o `tipo` antigo (telas atuais
 `tipo_caso` deduzido dele; sem nenhum dos dois, caso com número de processo é contencioso e o resto é consultivo.
 """
 
+from datetime import date
+from decimal import Decimal
+
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.models import Usuario
 from app.modules.faturamento import listas
-from app.modules.faturamento.models import Caso, StatusCaso, TipoCaso
-from app.modules.faturamento.tipos_caso import ROTULOS, CasoEquipe, CasoLista, TipoDeCaso
+from app.modules.faturamento.models import AnexoCaso, Caso, StatusCaso, Timesheet, TipoCaso
+from app.modules.faturamento.tipos_caso import (
+    EXTENSAO,
+    ROTULOS,
+    CasoAdministrativo,
+    CasoConsultivo,
+    CasoContencioso,
+    CasoEquipe,
+    CasoLista,
+    TipoDeCaso,
+)
 from app.modules.tribunais import cnj
 
 # campos de CasoIn que não são coluna direta do caso (tratados em `aplicar`)
 CAMPOS_NOVOS = {"tipo", "tipo_caso", "equipe_ids", "etiqueta_ids", "motivo_encerramento_id", "origem_id", "centro_custo_id",
-                "valor_estimado", "caso_pai_id", "tipo_vinculo", "sigiloso", "observacoes"}
+                "valor_estimado", "caso_pai_id", "tipo_vinculo", "sigiloso", "observacoes", "contencioso", "consultivo",
+                "administrativo"}
 _DIRETOS = ("valor_estimado", "tipo_vinculo", "observacoes")
 
 JUSTICA_DO_TIPO = {TipoCaso.judicial_estadual: "estadual", TipoCaso.judicial_federal: "federal",
@@ -150,23 +163,252 @@ def _validar_situacao(c: Caso) -> None:
 
 
 def aplicar(ctx, c: Caso, dados, novo: bool) -> None:
-    """Depois de gravar os campos de sempre: tipo do caso, campos comuns novos e a coluna antiga `tipo`."""
+    """Depois de gravar os campos de sempre: tipo do caso, campos comuns novos, a extensão do tipo e a coluna antiga
+    `tipo`. Tudo na mesma transação do caso."""
     tipo, dica = _resolver_tipo(ctx, c, dados, novo)
+    trocou = bool(not novo and c.tipo_caso and c.tipo_caso != tipo)
     c.tipo_caso = tipo
     _aplicar_comuns(ctx, c, dados)
     _validar_situacao(c)
-    c.tipo = derivar_tipo(tipo, justica_do_numero(c.numero_processo) or dica, c.tipo)
+    for outro in EXTENSAO:
+        if outro != tipo and getattr(dados, outro) is not None and outro in dados.model_fields_set and not trocou:
+            raise HTTPException(400, f"Este caso é {ROTULOS['tipo_caso'][tipo].lower()}: os dados de "
+                                     f"{ROTULOS['tipo_caso'][outro].lower()} não se aplicam.")
+    if c.id is None:
+        ctx.db.flush()
+    ext = extensao(ctx.db, c)  # a extensão antiga (se trocou de tipo) fica guardada
+    bloco = getattr(dados, tipo)
+    if tipo == TipoDeCaso.contencioso:
+        _aplicar_contencioso(ctx, c, ext, bloco, dica)
+    elif tipo == TipoDeCaso.consultivo:
+        _aplicar_consultivo(ctx, c, ext, bloco)
+    else:
+        _aplicar_administrativo(ctx, c, ext, bloco)
+    sincronizar_tipo(c, ext)
 
 
 def ao_criar(db: Session, c: Caso) -> None:
-    """Caso criado fora da rota (importações, tribunais): classifica pelo que já tem."""
+    """Caso criado ou alterado fora da rota (importações, tribunais): classifica pelo que já tem e garante a extensão."""
     if not c.tipo_caso:
         c.tipo_caso = classificar(c.tipo, c.numero_processo)
-    c.tipo = derivar_tipo(c.tipo_caso, justica_do_numero(c.numero_processo), c.tipo)
+    if c.id is None:
+        db.flush()
+    ext = extensao(db, c)
+    if c.tipo_caso == TipoDeCaso.contencioso:
+        ext.justica = justica_do_numero(c.numero_processo) or JUSTICA_DO_TIPO.get(c.tipo) or ext.justica
+        _do_numero(c, ext)
+    sincronizar_tipo(c, ext)
 
 
-def saida(ctx, c: Caso) -> dict:
-    """Parte nova de CasoOut."""
+def sincronizar_tipo(c: Caso, ext=None) -> None:
+    """O ponto único que calcula a coluna antiga `tipo`."""
+    c.tipo = derivar_tipo(c.tipo_caso, getattr(ext, "justica", None), c.tipo)
+
+
+# ------------------------------------------------------------------------------------------- extensões por tipo
+def extensao(db: Session, c: Caso, criar: bool = True):
+    """A linha 1:1 do tipo do caso (criada com os padrões se ainda não existir)."""
+    tipo = tipo_caso_de(c)
+    modelo = EXTENSAO[tipo]
+    ext = db.get(modelo, c.id) if c.id else None
+    if ext is None and criar:
+        ext = modelo(caso_id=c.id)
+        if tipo == TipoDeCaso.contencioso:
+            ext.pre_ajuizamento = not (c.numero_processo or "").strip()
+            ext.fase_processual = "pre_ajuizamento" if ext.pre_ajuizamento else "conhecimento"
+            ext.monitorar_andamentos = True
+        elif tipo == TipoDeCaso.consultivo:
+            ext.prioridade, ext.etapa, ext.data_solicitacao = "media", "recebido", c.data_abertura or date.today()
+        else:
+            ext.numero_processo_adm = (c.numero_processo or "").strip()[:60] or None
+            ext.instancia_adm, ext.fase_adm = "primeira", "protocolado" if ext.numero_processo_adm else "pre_protocolo"
+        db.add(ext)
+    return ext
+
+
+def monitora(db: Session, c: Caso) -> bool:
+    """Busca capa e andamentos no tribunal? (contencioso com a opção ligada; caso antigo sem extensão: sim)"""
+    ext = db.get(CasoContencioso, c.id) if c.id else None
+    return ext.monitorar_andamentos if ext else True
+
+
+def _copiar(ext, bloco, pular: set[str]) -> None:
+    for campo, valor in bloco.model_dump().items():
+        if campo not in pular and hasattr(type(ext), campo):
+            setattr(ext, campo, valor)
+
+
+def _do_numero(c: Caso, ext: CasoContencioso) -> None:
+    """Com número CNJ válido: justiça, órgão e UF vêm dele; o tribunal é preenchido se estiver vazio."""
+    if not cnj.valido(c.numero_processo):
+        return
+    p = cnj.partes(c.numero_processo)
+    trib = cnj.tribunal_do_numero(c.numero_processo)
+    ext.justica = justica_do_numero(c.numero_processo) or ext.justica
+    ext.codigo_orgao = p["origem"]
+    ext.pre_ajuizamento = False
+    if trib:
+        c.tribunal = c.tribunal or trib["sigla"]
+        ext.uf = ext.uf or trib["uf"]
+
+
+def _aplicar_contencioso(ctx, c: Caso, ext: CasoContencioso, bloco, dica: str | None) -> None:
+    db, t = ctx.db, ctx.tenant_id
+    if bloco is None:  # chamada antiga: nada é exigido
+        ext.justica = dica or ext.justica
+        if (c.numero_processo or "").strip() and ext.pre_ajuizamento:
+            ext.pre_ajuizamento = False
+            if ext.fase_processual == "pre_ajuizamento":
+                ext.fase_processual = "conhecimento"
+        _do_numero(c, ext)
+        return
+    numero = (c.numero_processo or "").strip()
+    if not numero and not bloco.pre_ajuizamento:
+        raise HTTPException(400, "Informe o número do processo (CNJ) ou marque que o caso ainda não foi ajuizado.")
+    if numero:
+        if len(cnj.so_digitos(numero)) != 20:
+            raise HTTPException(400, "Número do processo fora do padrão CNJ (NNNNNNN-DD.AAAA.J.TR.OOOO). "
+                                     "Numeração anterior ao CNJ vai no campo Número antigo.")
+        if not cnj.valido(numero):
+            raise HTTPException(400, "Número CNJ inválido: confira os dígitos (o dígito verificador não bate).")
+        c.numero_processo = cnj.formatar(numero)
+    listas.item_da_lista(db, t, bloco.classe_id, "classe", "Classe processual")
+    listas.item_da_lista(db, t, bloco.assunto_id, "assunto", "Assunto principal")
+    _copiar(ext, bloco, {"classe_nome", "assunto_nome", "assuntos_secundarios", "assuntos_secundarios_ids"})
+    ext.uf = bloco.uf.upper() if bloco.uf else None
+    ext.justica = bloco.justica or dica or ext.justica
+    ext.pre_ajuizamento = bool(bloco.pre_ajuizamento and not numero)
+    ext.fase_processual = bloco.fase_processual or ("pre_ajuizamento" if ext.pre_ajuizamento else "conhecimento")
+    definir_itens(db, t, c, "assunto_secundario", "assunto",
+                  [i for i in bloco.assuntos_secundarios_ids if i != bloco.assunto_id], "Assunto")
+    _do_numero(c, ext)
+    if bloco.data_transito_julgado and c.data_distribuicao and bloco.data_transito_julgado < c.data_distribuicao:
+        raise HTTPException(400, "O trânsito em julgado não pode ser antes da distribuição.")
+
+
+def _outro_caso(ctx, c: Caso, caso_id: int | None, rotulo: str) -> None:
+    if not caso_id:
+        return
+    outro = ctx.db.get(Caso, caso_id)
+    if not outro or outro.tenant_id != ctx.tenant_id:
+        raise HTTPException(400, f"{rotulo}: caso não encontrado.")
+    if outro.id == c.id:
+        raise HTTPException(400, f"{rotulo}: escolha outro caso, não este mesmo.")
+
+
+def _aplicar_consultivo(ctx, c: Caso, ext: CasoConsultivo, bloco) -> None:
+    if bloco is None:
+        return
+    db, t = ctx.db, ctx.tenant_id
+    if not bloco.tipo_demanda_id:
+        raise HTTPException(400, "Escolha o tipo de demanda.")
+    listas.item_da_lista(db, t, bloco.tipo_demanda_id, "tipo_demanda", "Tipo de demanda")
+    if bloco.solicitante_id:
+        from app.modules.tribunais.models import Pessoa
+
+        p = db.get(Pessoa, bloco.solicitante_id)
+        if not p or p.tenant_id != t:
+            raise HTTPException(400, "Solicitante não encontrado no cadastro de pessoas.")
+    if bloco.etapa in ("entregue", "concluido") and not bloco.data_entrega:
+        raise HTTPException(400, f"Informe a data de entrega: a etapa é “{ROTULOS['etapa'][bloco.etapa]}”.")
+    if bloco.contrato_vigencia_inicio and bloco.contrato_vigencia_fim and bloco.contrato_vigencia_fim < bloco.contrato_vigencia_inicio:
+        raise HTTPException(400, "O fim da vigência do contrato não pode ser antes do início.")
+    if bloco.documento_entregue_id:
+        a = db.get(AnexoCaso, bloco.documento_entregue_id)
+        if not a or a.caso_id != c.id:
+            raise HTTPException(400, "Documento entregue: escolha um anexo deste caso.")
+    _outro_caso(ctx, c, bloco.gerou_contencioso_id, "Caso judicial gerado")
+    _copiar(ext, bloco, {"tipo_demanda_nome", "solicitante_nome", "horas_realizadas", "gerou_contencioso_titulo"})
+    ext.data_solicitacao = bloco.data_solicitacao or c.data_abertura or date.today()
+    if ext.data_entrega and ext.data_entrega < ext.data_solicitacao:
+        raise HTTPException(400, "A data de entrega não pode ser antes da solicitação.")
+
+
+def _aplicar_administrativo(ctx, c: Caso, ext: CasoAdministrativo, bloco) -> None:
+    if bloco is None:
+        return
+    db, t = ctx.db, ctx.tenant_id
+    if not bloco.esfera:
+        raise HTTPException(400, "Escolha a esfera (federal, estadual, municipal ou distrital).")
+    if not bloco.orgao_id:
+        raise HTTPException(400, "Escolha o órgão.")
+    if not bloco.tipo_procedimento_id:
+        raise HTTPException(400, "Escolha o tipo de procedimento.")
+    listas.item_da_lista(db, t, bloco.orgao_id, "orgao", "Órgão")
+    listas.item_da_lista(db, t, bloco.tipo_procedimento_id, "tipo_procedimento", "Tipo de procedimento")
+    tem_numero = bool((bloco.numero_processo_adm or "").strip() or (bloco.numero_protocolo or "").strip())
+    fase = bloco.fase_adm or ("protocolado" if tem_numero else "pre_protocolo")
+    if not tem_numero and fase != "pre_protocolo":
+        raise HTTPException(400, "Informe o número do processo administrativo ou o número do protocolo.")
+    if bloco.decisao and not bloco.data_decisao:
+        raise HTTPException(400, "Informe a data da decisão.")
+    if bloco.cabe_judicializacao is False and bloco.prazo_judicializacao:
+        raise HTTPException(400, "Marque que cabe judicialização para informar o prazo.")
+    _outro_caso(ctx, c, bloco.caso_judicial_id, "Caso judicial")
+    _copiar(ext, bloco, {"orgao_nome", "tipo_procedimento_nome", "caso_judicial_titulo"})
+    ext.uf = bloco.uf.upper() if bloco.uf else None
+    ext.fase_adm, ext.instancia_adm = fase, bloco.instancia_adm or "primeira"
+
+
+def cnj_duplicado(db: Session, tenant_id: int, numero: str | None, exceto_caso_id: int | None = None) -> dict | None:
+    """Outro caso do escritório com o mesmo número CNJ (aviso; nunca bloqueia)."""
+    if not cnj.valido(numero):
+        return None
+    sel = select(Caso).where(Caso.tenant_id == tenant_id,
+                             Caso.numero_processo.in_([cnj.formatar(numero), cnj.so_digitos(numero)]))
+    if exceto_caso_id:
+        sel = sel.where(Caso.id != exceto_caso_id)
+    outro = db.scalars(sel.order_by(Caso.id).limit(1)).first()
+    return {"caso_id": outro.id, "numero": outro.numero, "titulo": outro.titulo} if outro else None
+
+
+def ler_cnj(db: Session, tenant_id: int, numero: str, exceto_caso_id: int | None = None) -> dict:
+    digitos = cnj.so_digitos(numero)
+    if len(digitos) != 20:
+        return {"valido": False, "mensagem": "O número CNJ tem 20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO."}
+    if not cnj.valido(digitos):
+        return {"valido": False, "mensagem": "Número CNJ inválido: o dígito verificador não bate."}
+    p, trib = cnj.partes(digitos), cnj.tribunal_do_numero(digitos)
+    justica = justica_do_numero(digitos)
+    return {"valido": True, "mensagem": None, "numero_formatado": cnj.formatar(digitos), "ano": p["ano"],
+            "justica": justica, "justica_nome": ROTULOS["justica"].get(justica or ""),
+            "tribunal": trib["sigla"] if trib else None, "tribunal_nome": trib["nome"] if trib else None,
+            "uf": trib["uf"] if trib else None, "codigo_orgao": p["origem"],
+            "tipo": getattr(derivar_tipo(TipoDeCaso.contencioso, justica), "value", None),
+            "duplicado": cnj_duplicado(db, tenant_id, digitos, exceto_caso_id)}
+
+
+def _bloco(ctx, c: Caso, ext, tipo: str) -> dict:
+    from app.modules.faturamento import schemas
+
+    db = ctx.db
+    dados = {k: getattr(ext, k) for k in EXTENSAO[tipo].__table__.columns.keys() if k not in ("caso_id", "criado_em", "atualizado_em")}
+    if tipo == TipoDeCaso.contencioso:
+        sec = [x.item_id for x in c.itens_lista if x.papel == "assunto_secundario"]
+        nomes = listas.nomes(db, [ext.classe_id, ext.assunto_id, *sec])
+        dados.update(classe_nome=nomes.get(ext.classe_id), assunto_nome=nomes.get(ext.assunto_id), assuntos_secundarios_ids=sec,
+                     assuntos_secundarios=[{"id": i, "nome": nomes.get(i, "")} for i in sec])
+        return schemas.ContenciosoDados(**dados)
+    if tipo == TipoDeCaso.consultivo:
+        from app.modules.tribunais.models import Pessoa
+
+        sol = db.get(Pessoa, ext.solicitante_id) if ext.solicitante_id else None
+        gerou = db.get(Caso, ext.gerou_contencioso_id) if ext.gerou_contencioso_id else None
+        minutos = db.scalar(select(func.coalesce(func.sum(Timesheet.minutos), 0)).where(Timesheet.caso_id == c.id)) or 0
+        dados.update(tipo_demanda_nome=listas.nomes(db, [ext.tipo_demanda_id]).get(ext.tipo_demanda_id),
+                     solicitante_nome=sol.nome if sol else None,
+                     horas_realizadas=(Decimal(minutos) / 60).quantize(Decimal("0.01")),
+                     gerou_contencioso_titulo=f"#{gerou.numero} {gerou.titulo}" if gerou else None)
+        return schemas.ConsultivoDados(**dados)
+    nomes = listas.nomes(db, [ext.orgao_id, ext.tipo_procedimento_id])
+    judicial = db.get(Caso, ext.caso_judicial_id) if ext.caso_judicial_id else None
+    dados.update(orgao_nome=nomes.get(ext.orgao_id), tipo_procedimento_nome=nomes.get(ext.tipo_procedimento_id),
+                 caso_judicial_titulo=f"#{judicial.numero} {judicial.titulo}" if judicial else None)
+    return schemas.AdministrativoDados(**dados)
+
+
+def saida(ctx, c: Caso, ficha: bool = True) -> dict:
+    """Parte nova de CasoOut. Na lista (`ficha=False`) o aviso de CNJ repetido fica de fora."""
     db = ctx.db
     nomes = listas.nomes(db, [c.motivo_encerramento_id, c.origem_id, c.centro_custo_id, *(x.item_id for x in c.itens_lista)])
     equipe_ids = [e.usuario_id for e in c.equipe]
@@ -174,7 +416,10 @@ def saida(ctx, c: Caso) -> dict:
     etiquetas = [x.item_id for x in c.itens_lista if x.papel == "etiqueta"]
     pai = db.get(Caso, c.caso_pai_id) if c.caso_pai_id else None
     tipo = tipo_caso_de(c)
+    ext = extensao(db, c, criar=False)
     return {
+        tipo: _bloco(ctx, c, ext, tipo) if ext else None,
+        "aviso_cnj_duplicado": cnj_duplicado(db, c.tenant_id, c.numero_processo, c.id) if ficha and tipo == "contencioso" else None,
         "tipo_caso": tipo, "tipo_caso_nome": ROTULOS["tipo_caso"][tipo], "status_nome": ROTULOS["status"][c.status.value],
         "equipe_ids": equipe_ids, "equipe": [{"id": i, "nome": usuarios.get(i, "")} for i in equipe_ids],
         "etiqueta_ids": etiquetas, "etiquetas": [{"id": i, "nome": nomes.get(i, "")} for i in etiquetas],
