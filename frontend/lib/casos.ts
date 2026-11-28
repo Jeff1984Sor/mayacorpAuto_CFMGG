@@ -390,6 +390,8 @@ export interface PartesDoCaso {
   polo_cliente: string | null;
   polo_inconsistente: boolean;
   tem_cliente: boolean;
+  /** advogados que o diário listou no processo sem dizer de quem são e que ainda não estão em nenhuma parte do caso */
+  advogados_sem_parte: AdvogadoDoTribunal[];
 }
 
 /** Corpo do 409 de conflito de interesses. */
@@ -402,4 +404,139 @@ export interface RespostaConflito {
 export function conflitoDe(body: unknown): RespostaConflito | null {
   if (body && typeof body === "object" && (body as { conflito?: unknown }).conflito === true) return body as RespostaConflito;
   return null;
+}
+
+// ---------------------------------------------------------------- capa do tribunal (docs/capa_do_tribunal.md)
+/** Advogado como a capa devolve (de uma parte ou da lista sem dono). */
+export interface AdvogadoDaCapa {
+  nome: string;
+  oab_numero: string | null;
+  oab_uf: string | null;
+  /** já está no cadastro único (pela OAB) */
+  advogado_id: number | null;
+}
+
+export interface ParteDaCapa {
+  nome: string;
+  /** ativo | passivo | terceiro | fiscal_lei | vitima | testemunha | outro */
+  polo: string;
+  tipo_participacao: string | null;
+  documento: string | null;
+  /** documento que o tribunal mandou mascarado */
+  documento_parcial: string | null;
+  advogados: AdvogadoDaCapa[];
+  /** pessoa do cadastro único que será usada */
+  pessoa_id: number | null;
+  pessoa_criterio: "documento" | "nome" | null;
+  /** código do cliente, quando a pessoa é cliente do escritório */
+  cliente_id: number | null;
+  /** é o cliente do contrato informado na consulta */
+  cliente_do_caso: boolean;
+}
+
+export interface ItemDaCapa {
+  codigo: number | null;
+  nome: string;
+  /** item da lista do escritório com este nome; null = entra na lista ao importar o processo */
+  item_id: number | null;
+}
+
+/** Saída de GET /tribunais/capa (backend/app/modules/tribunais/caso.py · capa). Nada é gravado. */
+export interface CapaProcesso {
+  numero_cnj: string;
+  numero_formatado: string;
+  tribunal: string;
+  tribunal_nome: string;
+  tipo: "judicial_estadual" | "judicial_federal" | "judicial_trabalhista" | null;
+  instancia: string | null;
+  vara: string | null;
+  comarca: string | null;
+  classe: string | null;
+  assuntos: string[];
+  data_distribuicao: string | null;
+  sistema: string | null;
+  partes: ParteDaCapa[];
+  polo: "ativo" | "passivo" | null;
+  parte_contraria: string | null;
+  titulo: string | null;
+  movimentos: number;
+  encontrado: boolean;
+  avisos: string[];
+  processo_id: number | null;
+  // campos do contencioso: só o que a fonte informa (juiz, valor da causa e gratuidade só com certificado)
+  justica: string | null;
+  justica_nome: string | null;
+  uf: string | null;
+  codigo_orgao: string | null;
+  juiz_relator: string | null;
+  sistema_tribunal: string | null;
+  /** decimal com ponto ("50000.00") */
+  valor_causa: string | null;
+  segredo_justica: boolean | null;
+  justica_gratuita: boolean | null;
+  fase_processual: string | null;
+  classe_codigo: number | null;
+  classe_detalhe: ItemDaCapa | null;
+  assuntos_detalhe: (ItemDaCapa & { principal: boolean })[];
+  /** djen = diário de justiça; processo_importado = partes já guardadas no escritório; null = nenhuma parte */
+  fonte_partes: "djen" | "processo_importado" | null;
+  /** advogados que o diário listou sem dizer de quem são */
+  advogados: AdvogadoDaCapa[];
+}
+
+// ---------------------------------------------------------------- partes do tribunal no caso
+/** Advogado nas respostas de `partes-do-tribunal` e em `PartesDoCaso.advogados_sem_parte`. */
+export interface AdvogadoDoTribunal {
+  advogado_id: number;
+  pessoa_id: number;
+  nome: string;
+  oab_numero: string | null;
+  oab_uf: string | null;
+  /** "OAB/SP 123.456" */
+  oab: string | null;
+  eh_interno: boolean;
+  envolvimento_id: number | null;
+  /** nome da parte a que foi ligado */
+  parte: string | null;
+  /** em `advogados_ja_existiam`: o tribunal já tinha trazido e o usuário retirou da parte */
+  retirado?: boolean;
+}
+
+export interface ParteDoTribunal {
+  envolvimento_id: number;
+  pessoa_id: number;
+  nome: string;
+  documento: string | null;
+  cliente_id: number | null;
+  eh_cliente: boolean;
+  categoria_id: number;
+  categoria: string;
+  polo: "ativo" | "passivo" | "neutro";
+  qualificacao_id: number | null;
+  qualificacao: string | null;
+  ativo: boolean;
+  polo_tribunal: string;
+  tipo_participacao: string | null;
+  pessoa_criterio: "cliente" | "documento" | "nome";
+  /** em `ja_existiam`: o cliente recebeu o polo ou a qualificação do processo */
+  atualizada?: boolean;
+  saiu_de_pendente?: boolean;
+}
+
+/**
+ * POST /faturamento/casos/{id}/partes-do-tribunal. Não há botão: a ficha chama sozinha quando
+ * `CasoOut.buscar_partes_tribunal` vem ligado (caso antigo que nunca recebeu partes do tribunal).
+ */
+export interface PartesDoTribunal {
+  caso_id: number;
+  processo_id: number;
+  numero_processo: string;
+  fonte: "mni" | "djen" | null;
+  incluidas: ParteDoTribunal[];
+  ja_existiam: ParteDoTribunal[];
+  advogados_incluidos: AdvogadoDoTribunal[];
+  advogados_ja_existiam: AdvogadoDoTribunal[];
+  advogados_sem_parte: AdvogadoDoTribunal[];
+  campos_preenchidos: string[];
+  avisos: string[];
 }

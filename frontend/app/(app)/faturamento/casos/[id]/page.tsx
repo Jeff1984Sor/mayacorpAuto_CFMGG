@@ -12,7 +12,7 @@ import { AnexosCaso } from "@/components/faturamento/anexos";
 import { useAreas, useCampos } from "@/components/faturamento/campos-adicionais";
 import { CasoIAMenu, PreencherCasoDialog, ResumoCasoSheet } from "@/components/faturamento/caso-ia";
 import { CasoDialog } from "@/components/faturamento/caso/caso-dialog";
-import { PartesCaso } from "@/components/faturamento/caso/partes";
+import { PartesCaso, usePartesDoTribunal } from "@/components/faturamento/caso/partes";
 import { casoParaIn, normalizarCampos, useProfissionais } from "@/components/faturamento/dialogos";
 import { AreaBadge, DetalhesCaso } from "@/components/faturamento/ficha-caso";
 import { DespesaDialog, LancarRecibosDialog } from "@/components/faturamento/despesas-ia";
@@ -483,6 +483,8 @@ export default function CasoPage() {
   const [preencher, setPreencher] = useState(false);
   const [resumo, setResumo] = useState(false);
   const q = useQuery({ queryKey: ["fat", "caso", cid], queryFn: () => api.get<CasoOut>(`/faturamento/casos/${cid}`) });
+  // caso antigo com número CNJ que nunca recebeu as partes do tribunal: a ficha busca sozinha, uma vez
+  usePartesDoTribunal(q.data, podeEditar);
   const areas = useAreas();
   const campos = useCampos();
   const aplicarIA = useMutation({

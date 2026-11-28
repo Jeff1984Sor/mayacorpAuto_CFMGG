@@ -76,8 +76,6 @@ export function NumeroProcessoCnj({
   casoId?: number;
   contratoId: number | null | undefined;
 }) {
-  const tipoAntigo = tipoAntigoDaJustica(d.justica);
-
   // Número CNJ: confere o dígito e traz justiça, tribunal, UF e órgão; avisa se outro caso já usa o número.
   const numero = useDebounce(digitos(f.numero_processo), 400);
   const completo = numero.length === 20;
@@ -149,13 +147,11 @@ export function NumeroProcessoCnj({
         valor={f.numero_processo}
         onChange={(v) => setF((o) => ({ ...o, numero_processo: v }))}
         contratoId={contratoId}
-        form={{ ...f, tipo: tipoAntigo }}
-        onAplicar={(patch) => {
-          const { tipo, ...resto } = patch;
-          setF((o) => ({ ...o, ...resto }));
-          const justica = tipo ? JUSTICA_DO_TIPO_ANTIGO[tipo] : undefined;
-          if (justica) setD((o) => (o.justica ? o : { ...o, justica }));
-        }}
+        form={f}
+        onAplicar={(patch) => setF((o) => ({ ...o, ...patch }))}
+        contencioso={d}
+        onAplicarContencioso={(patch) => setD((o) => ({ ...o, ...patch }))}
+        casoNovo={!casoId}
         abaixo={avisoCnj}
       />
       {!digitos(f.numero_processo) && (

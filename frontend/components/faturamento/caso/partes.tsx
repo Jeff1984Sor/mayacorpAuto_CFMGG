@@ -8,6 +8,8 @@ import {
   ArrowUp,
   ExternalLink,
   GripVertical,
+  Info,
+  Landmark,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -50,16 +52,19 @@ import { api, ApiError } from "@/lib/api";
 import {
   type AdvogadoDaParte,
   type AdvogadoDaParteIn,
+  type AdvogadoDoTribunal,
   type CategoriaPartes,
   conflitoDe,
   type Envolvimento,
   type EnvolvimentoIn,
   type PartesDoCaso,
+  type PartesDoTribunal,
   type RespostaConflito,
 } from "@/lib/casos";
 import type { CasoOut } from "@/lib/faturamento";
 import { data } from "@/lib/format";
 import { type AdvogadoResumo, documentoMascarado, type PessoaResumo } from "@/lib/pessoas";
+import { CHAVE, JANELA_MS, msDesdeImportacaoDoCaso } from "@/lib/tribunais";
 import { cn } from "@/lib/utils";
 
 export function usePartes(casoId: number, inativos = false) {
@@ -67,6 +72,95 @@ export function usePartes(casoId: number, inativos = false) {
     queryKey: ["fat", "partes", casoId, inativos],
     queryFn: () => api.get<PartesDoCaso>(`/faturamento/casos/${casoId}/envolvimentos`, { inativos: inativos || undefined }),
   });
+}
+
+/**
+ * Caso que já existia (contencioso, com número CNJ) e nunca recebeu as partes do tribunal: a ficha busca sozinha, uma
+ * vez, sem botão. Quem decide é o servidor (`CasoOut.buscar_partes_tribunal`: guarda que já tentou e só deixa tentar
+ * de novo depois de um intervalo). Caso novo não passa por aqui: quem traz as partes é a importação ao salvar.
+ * A chave fica fora de "fat" para que recarregar as telas nunca repita a chamada.
+ */
+export function usePartesDoTribunal(caso: CasoOut | null | undefined, podeEditar: boolean) {
+  const qc = useQueryClient();
+  const id = caso?.id ?? 0;
+  return useQuery({
+    queryKey: ["partes-do-tribunal", id],
+    queryFn: async () => {
+      try {
+        const r = await api.post<PartesDoTribunal>(`/faturamento/casos/${id}/partes-do-tribunal`);
+        if (r.incluidas.length || r.advogados_incluidos.length || r.campos_preenchidos.length) {
+          qc.invalidateQueries({ queryKey: ["fat"] });
+          qc.invalidateQueries({ queryKey: [CHAVE] });
+        }
+        return r;
+      } finally {
+        // a ficha volta com o aviso desligado (o servidor anotou a tentativa)
+        qc.invalidateQueries({ queryKey: ["fat", "caso", id] });
+        qc.invalidateQueries({ queryKey: ["fat", "partes", id] });
+      }
+    },
+    enabled: id > 0 && podeEditar && !!caso?.buscar_partes_tribunal && msDesdeImportacaoDoCaso(id) >= JANELA_MS,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+    meta: { silencioso: true }, // o erro aparece numa linha da aba Partes
+  });
+}
+
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+
+/** Linhas informativas da aba Partes sobre o que veio do tribunal (nada para clicar). */
+function AvisoPartesDoTribunal({ busca, semParte }: { busca: ReturnType<typeof usePartesDoTribunal>; semParte: AdvogadoDoTribunal[] }) {
+  const r = busca.data;
+  const veio = r ? [r.incluidas.length ? plural(r.incluidas.length, "parte", "partes") : null, r.advogados_incluidos.length ? plural(r.advogados_incluidos.length, "advogado", "advogados") : null].filter(Boolean) : [];
+  const total = r ? r.incluidas.length + r.advogados_incluidos.length : 0;
+  return (
+    <>
+      {busca.isFetching && (
+        <p className="flex items-center gap-2 rounded-xl bg-brand/8 px-3 py-2 text-sm text-info-ink" role="status">
+          <Loader2 className="size-4 shrink-0 animate-spin" /> Buscando as partes no tribunal…
+        </p>
+      )}
+      {!busca.isFetching && busca.isError && (
+        <p className="flex items-start gap-2 rounded-xl border px-3 py-2 text-sm text-muted-foreground" role="status">
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <span>Não foi possível buscar as partes no tribunal agora. {busca.error instanceof Error ? busca.error.message.replace(/[.\s]*$/, ".") : ""} O sistema tenta de novo mais tarde.</span>
+        </p>
+      )}
+      {!busca.isFetching && r && (
+        <p className="flex items-start gap-2 rounded-xl border bg-brand/5 px-3 py-2 text-sm" role="status">
+          <Landmark className="mt-0.5 size-4 shrink-0 text-info-ink" />
+          <span>
+            {total > 0
+              ? `${veio.join(" e ")} ${total === 1 ? "veio" : "vieram"} do tribunal.`
+              : r.ja_existiam.length > 0
+                ? "As partes que o tribunal informa já estavam no caso."
+                : (r.avisos[0] ?? "O tribunal ainda não informou as partes deste processo.")}
+            {r.campos_preenchidos.length > 0 && ` ${plural(r.campos_preenchidos.length, "campo da ficha foi preenchido", "campos da ficha foram preenchidos")} com os dados do processo.`}
+          </span>
+        </p>
+      )}
+      {semParte.length > 0 && (
+        <p className="flex items-start gap-2 rounded-xl border px-3 py-2 text-sm text-muted-foreground" role="status">
+          <Scale className="mt-0.5 size-4 shrink-0" />
+          <span>
+            O tribunal informou {semParte.length === 1 ? "este advogado" : "estes advogados"} sem dizer de quem {semParte.length === 1 ? "é" : "são"}:{" "}
+            {semParte.map((a, i) => (
+              <span key={a.advogado_id}>
+                {i > 0 && "; "}
+                <span className="text-foreground">{a.nome}</span>
+                {a.oab && <span className="font-mono text-xs"> ({a.oab})</span>}
+              </span>
+            ))}
+            . {semParte.length === 1 ? "Ele já está" : "Eles já estão"} no cadastro: para incluir em uma parte, use “Editar parte e advogados”.
+          </span>
+        </p>
+      )}
+    </>
+  );
 }
 
 // ================================================================ conflito de interesses
@@ -675,6 +769,7 @@ export function PartesCaso({ caso, podeEditar, onTituloUsado }: { caso: CasoOut;
   const qc = useQueryClient();
   const [inativos, setInativos] = useState(false);
   const q = usePartes(caso.id, inativos);
+  const doTribunal = usePartesDoTribunal(caso, podeEditar);
   const conflito = useConflito();
   const [dlg, setDlg] = useState<{ categoria: CategoriaPartes; env: Envolvimento | null } | null>(null);
   const [retirar, setRetirar] = useState<Envolvimento | null>(null);
@@ -763,6 +858,8 @@ export function PartesCaso({ caso, podeEditar, onTituloUsado }: { caso: CasoOut;
           <Switch size="sm" checked={inativos} onCheckedChange={setInativos} aria-label="Mostrar partes retiradas" /> Mostrar partes retiradas
         </label>
       </div>
+
+      <AvisoPartesDoTribunal busca={doTribunal} semParte={p.advogados_sem_parte ?? []} />
 
       {p.pendentes_reclassificacao > 0 && (
         <p className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/8 px-3 py-2.5 text-sm">

@@ -31,17 +31,20 @@ export function ProcessoDoCaso({ casoId, numeroProcesso }: { casoId: number; num
   const ativo = janela && digitos.length === 20;
   const q = useProcessoDoCaso(casoId, true, (p) => (!p && ativo ? 5_000 : false));
   const aguardando = ativo && !q.data;
-  // quando o processo aparece, recarrega andamentos e anexos do caso
+  // quando o processo aparece, recarrega andamentos, anexos, partes e a ficha do caso (as partes e os campos do
+  // processo entram junto com ele). Dentro da janela vale também para o processo que já veio na primeira leitura:
+  // a importação pode ter terminado entre a leitura das partes e esta.
   const tinha = useRef<number | null | undefined>(undefined);
   useEffect(() => {
     const atual = q.data?.id ?? null;
-    if (tinha.current === null && atual) {
+    if (atual && (tinha.current === null || (tinha.current === undefined && ativo))) {
       qc.invalidateQueries({ queryKey: ["fat", "andamentos", casoId] });
       qc.invalidateQueries({ queryKey: ["fat", "anexos", casoId] });
+      qc.invalidateQueries({ queryKey: ["fat", "partes", casoId] });
       qc.invalidateQueries({ queryKey: ["fat", "caso", casoId] });
     }
     if (q.isSuccess) tinha.current = atual;
-  }, [q.data, q.isSuccess, qc, casoId]);
+  }, [q.data, q.isSuccess, qc, casoId, ativo]);
   const importar = useMutation({
     mutationFn: async () => {
       const p = await api.post<ProcessoDetalhe>("/tribunais/processos/importar", { numero_cnj: digitos });

@@ -432,8 +432,9 @@ export function CasoDialog({
                 </div>
               </DialogHeader>
               <div className="min-h-[50dvh] flex-1 overflow-y-auto p-5">
-                  {/* ------------------------------------------------ Geral */}
-                  <TabsContent value="geral" className="space-y-4">
+                  {/* ------------------------------------------------ Geral (fica montada: o cartão do tribunal e as
+                      diferenças para escolher continuam lá quando o usuário volta de outra aba) */}
+                  <TabsContent value="geral" keepMounted className="space-y-4">
                     {contencioso && (
                       <SecaoForm titulo="Número do processo">
                         <NumeroProcessoCnj f={f} setF={setF} d={cont} setD={setCont} casoId={caso?.id} contratoId={contratoId ?? contrato ?? caso?.contrato_id} />

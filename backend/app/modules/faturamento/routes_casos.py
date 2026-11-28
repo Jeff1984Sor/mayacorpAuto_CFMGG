@@ -51,7 +51,9 @@ def partes_do_tribunal(cid: int, ctx: Operador):
         # a ficha chama esta rota sozinha: fica anotado que tentou, para não repetir a cada abertura
         partes_tribunal.marcar_tentativa(ctx.db, ctx.db.get(Caso, cid))
         ctx.db.commit()
-        raise HTTPException(400, str(e)) from e
+        # falha de comunicação vem com detalhe técnico: para a tela vai a frase simples
+        sem_resposta = isinstance(e, fontes.FonteIndisponivel) or isinstance(e.__cause__, fontes.FonteIndisponivel)
+        raise HTTPException(400, "O tribunal não respondeu." if sem_resposta else str(e)) from e
     partes_tribunal.marcar_tentativa(ctx.db, c)
     if res["incluidas"] or res["advogados_incluidos"] or res["campos_preenchidos"]:
         ctx.auditar("faturamento.caso.partes_do_tribunal", "fat_caso", c.id,

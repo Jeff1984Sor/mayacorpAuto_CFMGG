@@ -210,3 +210,12 @@ export function mascaraDocumento(v: string): string {
     .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
     .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
 }
+
+/** "OAB/SP 123.456" (o mesmo texto de `pessoas.service.exibir_oab`). */
+export function exibirOab(numero: string | null | undefined, uf: string | null | undefined): string | null {
+  if (!numero || !uf) return null;
+  const [num, letra] = numero.toUpperCase().split("-");
+  const d = digitos(num);
+  if (!d) return null;
+  return `OAB/${uf.toUpperCase()} ${Number(d).toLocaleString("pt-BR")}${letra ? `-${letra}` : ""}`;
+}

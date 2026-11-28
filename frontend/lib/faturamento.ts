@@ -178,6 +178,8 @@ export interface CasoOut extends CasoIn {
   titulo_sugerido: string | null;
   /** partes a revisar depois de troca de tipo ou da migração */
   pendentes_reclassificacao: number;
+  /** só na ficha: contencioso com CNJ que nunca recebeu as partes do tribunal (a tela busca sozinha, uma vez) */
+  buscar_partes_tribunal?: boolean;
   id: number;
   numero: number;
   contrato_id: number;
