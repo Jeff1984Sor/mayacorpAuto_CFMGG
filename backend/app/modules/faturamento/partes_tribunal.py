@@ -15,10 +15,12 @@ A migração dos casos antigos (`migrar_partes`) usa estas mesmas funções.
 
 import logging
 import re
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.db import agora
 from app.modules.faturamento import casos as regras_caso
 from app.modules.faturamento import envolvimento, listas
 from app.modules.faturamento.models import Caso, Contrato
@@ -47,6 +49,8 @@ SISTEMAS_CONHECIDOS = ("pje", "esaj", "eproc", "projudi")
 # polo que o tribunal informa e que já diz o papel (MNI: FL = fiscal da lei, TJ = testemunha)
 QUALIFICACAO_DO_POLO = {"fiscal_lei": "Ministério Público (fiscal da ordem jurídica)", "testemunha": "Testemunha"}
 HABILITACAO_DO_REPRESENTANTE = {"defensor": "defensor_publico", "procurador": "procurador_publico"}
+# a ficha busca as partes sozinha uma vez; sem resposta do tribunal, só tenta de novo depois deste intervalo
+INTERVALO_NOVA_BUSCA = timedelta(hours=12)
 _RECURSOS = ("apelacao", "agravo_de_instrumento", "agravo_de_peticao", "recurso_ordinario", "recurso_inominado",
              "recurso_de_revista", "recurso_especial", "recurso_extraordinario", "remessa_necessaria")
 
@@ -104,13 +108,20 @@ def item_da_capa(db: Session, tenant_id: int, lista: str, nome: str | None, cria
 
 # ------------------------------------------------------------------------------------------- cadastro único
 def pessoa_do_cadastro(db: Session, tenant_id: int, nome: str | None, documento: str | None = None,
-                       documento_parcial: str | None = None, exceto: set[int] | None = None) -> tuple[Pessoa | None, str | None]:
+                       documento_parcial: str | None = None, exceto: set[int] | None = None,
+                       gravando: bool = False) -> tuple[Pessoa | None, str | None]:
     """(pessoa, critério) de quem já está no cadastro único: pelo CPF/CNPJ; sem documento (ou com ele mascarado), só por
-    nome normalizado idêntico. Vários com o mesmo nome e documento: não escolhe (fica com o cadastro sem documento, se
-    houver). Nunca por semelhança."""
+    nome normalizado idêntico. Nunca por semelhança.
+
+    Homônimos: quem vem sem documento só é fundido, pelo nome, com uma pessoa COM documento quando ela é jurídica ou
+    ente público e é a única com esse nome (razão social idêntica é a mesma empresa). Pessoa física com CPF nunca é
+    fundida pelo nome: a parte fica com o cadastro sem documento e as duas aparecem como possível duplicado em
+    Cadastros › Pessoas, para o administrador mesclar. (O cliente do caso é reconhecido antes, em `partes_do_cliente`.)
+
+    `gravando`: fora da consulta, o documento de um cliente que ainda não tem a sua Pessoa cria ou liga essa Pessoa."""
     doc = re.sub(r"\D", "", documento or "")
     if len(doc) in (11, 14):
-        p = pessoas.por_documento(db, tenant_id, doc)
+        p = pessoas.por_documento(db, tenant_id, doc, ligar_cliente=gravando)
         return (p, "documento") if p is not None else (None, None)
     alvo = normalizar_nome(nome)
     if not alvo:
@@ -122,7 +133,7 @@ def pessoa_do_cadastro(db: Session, tenant_id: int, nome: str | None, documento:
         achadas = [p for p in achadas if not pessoas.documento(p) or _parcial_bate(documento_parcial, pessoas.documento(p))]
     com = [p for p in achadas if pessoas.documento(p)]
     sem = [p for p in achadas if not pessoas.documento(p)]
-    if len(com) == 1:
+    if len(com) == 1 and com[0].tipo_pessoa in ("juridica", *pessoas.ENTES):
         return com[0], "nome"
     return (sem[0], "nome") if sem else (None, None)
 
@@ -191,7 +202,7 @@ def advogado_do_cadastro(db: Session, tenant_id: int, ap) -> tuple[Advogado, Adv
     if adv is None and ap.usuario_id:
         adv = db.scalar(select(Advogado).where(Advogado.tenant_id == tenant_id, Advogado.usuario_id == ap.usuario_id).limit(1))
     if adv is None:
-        p = pessoas.por_documento(db, tenant_id, ap.cpf) if ap.cpf else None
+        p = pessoas.por_documento(db, tenant_id, ap.cpf, ligar_cliente=True) if ap.cpf else None
         if p is None:
             nome = normalizar_nome(ap.nome)
             p = db.scalar(select(Pessoa).join(Advogado, Advogado.pessoa_id == Pessoa.id).where(
@@ -296,6 +307,8 @@ def aplicar_partes(db: Session, caso: Caso, proc: Processo, qualquer_tipo: bool 
     if not proc.partes:
         res["avisos"].append("O tribunal ainda não informou as partes deste processo.")
         return res
+    if tipo == TipoDeCaso.contencioso:
+        regras_caso.extensao(db, caso).partes_tribunal_em = agora()  # a ficha não precisa mais buscar sozinha
     envolvimento.garantir_cliente(db, caso)
     contrato = db.get(Contrato, caso.contrato_id)
     tomador = contrato.tomador if contrato else None
@@ -352,7 +365,7 @@ def aplicar_partes(db: Session, caso: Caso, proc: Processo, qualquer_tipo: bool 
         if eh_cliente:
             alvo, criterio = db.get(Pessoa, pessoa_cliente), "cliente"
         else:
-            alvo, criterio = pessoa_do_cadastro(db, tenant_id, pes.nome, doc, pes.documento_parcial, exceto=rejeitado)
+            alvo, criterio = pessoa_do_cadastro(db, tenant_id, pes.nome, doc, pes.documento_parcial, exceto=rejeitado, gravando=True)
             alvo, criterio = alvo or pes, criterio or ("documento" if doc else "nome")
         cat = envolvimento.categoria_do_polo(db, tenant_id, tipo, parte.polo if parte.polo in ("ativo", "passivo", "terceiro") else "neutro")
         cats[cat.id] = cat
@@ -421,6 +434,51 @@ def _advogados_do_diario(db: Session, caso: Caso, proc: Processo, envs, pessoa_c
                              "escritório entraram no cadastro sem parte. Ligue cada um à parte dele na aba Partes.")
 
 
+def buscar_sozinha(db: Session, caso: Caso) -> bool:
+    """A ficha deve buscar as partes no tribunal sem ninguém pedir? Só caso contencioso com número CNJ válido, com a
+    busca no tribunal ligada, que nunca recebeu partes do tribunal, sem importação na fila e sem tentativa recente
+    (`INTERVALO_NOVA_BUSCA`). Caso novo não passa por aqui: quem traz as partes é o job `importar_caso`."""
+    from app.modules.tribunais.models import Job
+
+    if regras_caso.tipo_caso_de(caso) != TipoDeCaso.contencioso or not cnj.valido(cnj.so_digitos(caso.numero_processo)):
+        return False
+    ext = regras_caso.extensao(db, caso, criar=False)
+    if ext is not None and (not ext.monitorar_andamentos or ext.partes_tribunal_em is not None or (
+            ext.partes_tribunal_tentativa_em is not None and agora() - ext.partes_tribunal_tentativa_em < INTERVALO_NOVA_BUSCA)):
+        return False
+    return db.scalar(select(Job.id).where(Job.tenant_id == caso.tenant_id, Job.tipo == "importar_caso", Job.referencia_id == caso.id,
+                                          Job.status.in_(("fila", "rodando", "reprocessar"))).limit(1)) is None
+
+
+def marcar_tentativa(db: Session, caso: Caso) -> None:
+    """Registra que a ficha foi buscar as partes agora (com ou sem resposta do tribunal)."""
+    if regras_caso.tipo_caso_de(caso) == TipoDeCaso.contencioso:
+        regras_caso.extensao(db, caso).partes_tribunal_tentativa_em = agora()
+
+
+def advogados_sem_parte(db: Session, caso: Caso) -> list[dict]:
+    """Advogados que o diário (DJEN) listou no processo do caso sem dizer de quem são e que ainda não são advogado de
+    nenhuma parte do caso. Só consulta: eles já estão no cadastro único e o usuário os inclui pelo modal da parte."""
+    if regras_caso.tipo_caso_de(caso) != TipoDeCaso.contencioso:
+        return []
+    proc = db.scalar(select(Processo).where(Processo.caso_id == caso.id).order_by(Processo.id).limit(1))
+    if proc is None or fonte_das_partes(proc) != "djen":
+        return []
+    ligados = set(db.scalars(select(EnvolvimentoAdvogado.advogado_id).join(
+        Envolvimento, Envolvimento.id == EnvolvimentoAdvogado.envolvimento_id).where(Envolvimento.caso_id == caso.id)))
+    saida: dict[int, dict] = {}
+    for ap in (a for parte in proc.partes for a in parte.advogados):
+        try:
+            numero, uf = pessoas.normalizar_oab(ap.oab_numero), pessoas.validar_uf(ap.oab_uf)
+        except pessoas.RegraPessoa:
+            continue
+        adv = pessoas.advogado_por_oab(db, caso.tenant_id, numero, uf)
+        if adv is None or adv.eh_interno or adv.id in ligados or adv.id in saida:
+            continue
+        saida[adv.id] = _adv_linha(db, adv, next((o for o in adv.oabs if (o.numero, o.uf) == (numero, uf)), None))
+    return list(saida.values())
+
+
 def do_processo(db: Session, caso: Caso, proc: Processo) -> dict | None:
     """Processo ligado a um caso (importação, criação pelo processo, sincronização): ficha + partes. Só no contencioso
     e só com a busca no tribunal ligada no caso."""
@@ -432,7 +490,7 @@ def do_processo(db: Session, caso: Caso, proc: Processo) -> dict | None:
 
 def ao_ligar(db: Session, caso: Caso, proc: Processo) -> dict | None:
     """`do_processo` para as importações automáticas: um problema com as partes não derruba a importação do processo
-    (andamentos e autos seguem); fica no log e o botão "Trazer partes do tribunal" mostra o erro."""
+    (andamentos e autos seguem); fica no log e a busca que a ficha faz sozinha (rota `partes-do-tribunal`) mostra o erro."""
     try:
         with db.begin_nested():
             return do_processo(db, caso, proc)
@@ -442,7 +500,7 @@ def ao_ligar(db: Session, caso: Caso, proc: Processo) -> dict | None:
 
 
 def trazer_do_tribunal(db: Session, caso: Caso, usuario_id: int | None = None) -> dict:
-    """Botão "Trazer partes do tribunal": aplica as partes do processo do caso. Sem processo importado (ou sem partes)
+    """Rota `partes-do-tribunal` (a ficha chama sozinha, ver `buscar_sozinha`): aplica as partes do processo do caso. Sem processo importado (ou sem partes)
     e com a busca ligada no caso, importa antes. Levanta `tribunais.service.ErroIntegracao` com a mensagem para a tela."""
     from app.modules.tribunais import caso as caso_mod
     from app.modules.tribunais import service as svc

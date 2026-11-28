@@ -3,7 +3,7 @@
 O banco é o mesmo da suíte inteira: documentos próprios (CNPJ de raiz 7062xxxx, CPF de base 7062xxxxx).
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 
 from app.core import documentos
 from app.core.db import SessionLocal
@@ -34,6 +34,17 @@ def _cliente(c, h, nome: str, doc: str | None, tipo: str = "PJ") -> dict:
     r = c.post("/api/nfse/tomadores", json={"tipo": tipo, "nome": nome, "cpf_cnpj": doc}, headers=h)
     assert r.status_code in (200, 201), r.text
     return r.json()
+
+
+def _cliente_antigo_sem_pessoa(cliente_id: int, apagar_pessoa: bool = True) -> None:
+    """Deixa o cliente como nos bancos anteriores à migração: sem a sua Pessoa (direto na tabela, sem passar pelo
+    gancho que cria a Pessoa a cada gravação do cliente)."""
+    with SessionLocal() as db:
+        pessoa_id = db.scalar(select(Tomador.pessoa_id).where(Tomador.id == cliente_id))
+        db.execute(update(Tomador).where(Tomador.id == cliente_id).values(pessoa_id=None))
+        if apagar_pessoa and pessoa_id:
+            db.execute(delete(Pessoa).where(Pessoa.id == pessoa_id))
+        db.commit()
 
 
 def test_validadores_de_documento_e_oab():
@@ -242,3 +253,53 @@ def test_isolamento_entre_escritorios(cliente):  # noqa: F811
     minha = _pessoa(c, h, tipo_pessoa="fisica", nome="Mesma Pessoa Aqui", cpf_cnpj=cpf)
     assert minha["id"] != de_fora_id and minha["ja_existia"] is False
     assert c.post(f"/api/pessoas/{minha['id']}/mesclar", json={"duplicada_id": de_fora_id}, headers=h).status_code == 404
+
+
+def test_documento_de_cliente_sem_pessoa_nao_cria_pessoa_solta(cliente):  # noqa: F811
+    """Cliente que ainda não tem a sua Pessoa (banco antigo): cadastrar pessoa com o documento dele cria ou liga a
+    Pessoa DELE. O cliente é uma parte cadastrada uma vez só."""
+    c, h = cliente, _login(cliente)
+
+    def do_cliente(cliente_id: int, doc: str) -> tuple[int | None, int]:
+        with SessionLocal() as db:
+            coluna = Pessoa.cnpj if len(doc) == 14 else Pessoa.cpf
+            return db.get(Tomador, cliente_id).pessoa_id, db.scalar(select(func.count()).select_from(Pessoa).where(coluna == doc))
+
+    # 1. cadastro de pessoa (o mesmo usado no cadastro rápido das partes): a Pessoa nasce já como a do cliente
+    cnpj = _cnpj(70620020)
+    cli = _cliente(c, h, "Cliente Antigo Um 7062 Ltda", cnpj)
+    _cliente_antigo_sem_pessoa(cli["id"])
+    assert do_cliente(cli["id"], cnpj) == (None, 0)
+    p = _pessoa(c, h, esperado=200, tipo_pessoa="juridica", nome="Nome Digitado na Parte", cpf_cnpj=cnpj)
+    assert p["ja_existia"] and p["cliente_id"] == cli["id"] and p["eh_cliente"] and p["nome"] == "Cliente Antigo Um 7062 Ltda"
+    assert do_cliente(cli["id"], cnpj) == (p["id"], 1)
+    de_novo = _pessoa(c, h, esperado=200, tipo_pessoa="juridica", nome="Outra Vez", cpf_cnpj=cnpj)
+    assert de_novo["id"] == p["id"] and do_cliente(cli["id"], cnpj) == (p["id"], 1)
+
+    # 2. já havia uma pessoa solta com o documento: ela passa a ser a do cliente (não nasce outra)
+    cnpj2 = _cnpj(70620021)
+    cli2 = _cliente(c, h, "Cliente Antigo Dois 7062 Ltda", cnpj2)
+    _cliente_antigo_sem_pessoa(cli2["id"], apagar_pessoa=False)
+    solta = c.get(f"/api/pessoas/{cli2['pessoa_id']}", headers=h).json()
+    assert solta["cliente_id"] is None and solta["cpf_cnpj"] == cnpj2
+    p2 = _pessoa(c, h, esperado=200, tipo_pessoa="juridica", nome="Qualquer", cpf_cnpj=cnpj2)
+    assert p2["id"] == solta["id"] and p2["cliente_id"] == cli2["id"]
+    assert do_cliente(cli2["id"], cnpj2) == (solta["id"], 1)
+
+    # 3. pessoa sem documento que recebe, na alteração, o CPF de um cliente sem Pessoa: vira a Pessoa dele
+    cpf = _cpf(706200220)
+    cli3 = _cliente(c, h, "Cliente Antigo Três 7062", cpf, tipo="PF")
+    _cliente_antigo_sem_pessoa(cli3["id"])
+    sem = _pessoa(c, h, nome="Cliente Antigo Tres 7062")
+    r = c.put(f"/api/pessoas/{sem['id']}", json={"tipo_pessoa": "fisica", "nome": "Cliente Antigo Tres 7062", "cpf_cnpj": cpf}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["cliente_id"] == cli3["id"] and r.json()["nome"] == "Cliente Antigo Três 7062"  # o nome é o do cliente
+    assert do_cliente(cli3["id"], cpf) == (sem["id"], 1)
+    # a procura que só consulta (capa do tribunal) não cria nada
+    cnpj4 = _cnpj(70620023)
+    cli4 = _cliente(c, h, "Cliente Antigo Quatro 7062 Ltda", cnpj4)
+    _cliente_antigo_sem_pessoa(cli4["id"])
+    with SessionLocal() as db:
+        assert service.por_documento(db, db.get(Tomador, cli4["id"]).tenant_id, cnpj4) is None
+        db.commit()
+    assert do_cliente(cli4["id"], cnpj4) == (None, 0)

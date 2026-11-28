@@ -6,13 +6,13 @@ O caso (`fat_caso`) guarda os campos comuns. O que é só de um tipo fica numa t
 """
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base, Timestamped
+from app.core.db import Base, Timestamped, UtcDateTime
 
 Dinheiro = Numeric(15, 2)
 
@@ -162,6 +162,9 @@ class CasoContencioso(Base, Timestamped):
     monitorar_andamentos: Mapped[bool] = mapped_column(Boolean, default=True)  # busca capa e andamentos no tribunal
     # campos que a capa do tribunal já preencheu uma vez (não preenche de novo: o que o usuário mudar depois fica)
     preenchido_tribunal: Mapped[list[str] | None] = mapped_column(JSON)
+    # partes do tribunal: quando vieram para o caso e a última vez que a ficha foi buscá-las sozinha
+    partes_tribunal_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    partes_tribunal_tentativa_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class CasoConsultivo(Base, Timestamped):

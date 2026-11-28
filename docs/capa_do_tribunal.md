@@ -37,7 +37,7 @@ A mais:
 | `classe_detalhe` | `{codigo, nome, item_id}`; `item_id` é o item da lista "classe" com o mesmo nome (ou `null`: será criado ao importar). |
 | `assuntos_detalhe` | `[{codigo, nome, principal, item_id}]`, com o item da lista "assunto" quando existe. |
 | `fonte_partes` | `djen`, `processo_importado` (partes já guardadas no escritório) ou `null`. |
-| `partes[]` (campos a mais) | `tipo_participacao`, `documento`, `documento_parcial`, `advogados[]`, `pessoa_id`, `pessoa_criterio` (`documento` ou `nome`), `cliente_id` (se a pessoa é cliente do escritório) e `cliente_do_caso` (é o cliente do contrato informado). |
+| `partes[]` (campos a mais) | `tipo_participacao`, `documento`, `documento_parcial`, `advogados[]`, `pessoa_id`, `pessoa_criterio` (`documento` ou `nome`), `cliente_id` (se a pessoa é cliente do escritório) e `cliente_do_caso` (é o cliente do contrato informado). `pessoa_id` segue a mesma regra da importação (homônimo pessoa física com CPF não conta como "já no cadastro"); como a consulta não grava, cliente que ainda não tem a sua Pessoa sai com `pessoa_id` nulo. |
 | `advogados[]` | Advogados que o DJEN listou sem dizer de quem são: `{nome, oab_numero, oab_uf, advogado_id}` (`advogado_id` quando a OAB já está no cadastro). |
 
 Cada advogado (de parte ou da lista) sai como `{nome, oab_numero, oab_uf, advogado_id}`.
@@ -45,7 +45,8 @@ Cada advogado (de parte ou da lista) sai como `{nome, oab_numero, oab_uf, advoga
 ## O que a importação grava
 
 Acontece quando o processo é ligado ao caso: caso salvo com número CNJ (job `importar_caso`), caso criado a partir do
-processo (Tribunais), processo ligado a um caso, autos baixados com certificado e o botão "Trazer partes do tribunal".
+processo (Tribunais), processo ligado a um caso, autos baixados com certificado e a busca que a ficha faz sozinha no caso
+que nunca recebeu partes (rota `partes-do-tribunal`, abaixo).
 A sincronização diária (DataJud) só traz andamentos.
 
 ### Ficha (`preencher_ficha`)
@@ -67,15 +68,24 @@ testemunha, vítima e "outro" vão para Outros). A qualificação entra quando o
 com o nome de uma qualificação da categoria, ou quando o polo já diz o papel (fiscal da lei, testemunha).
 
 **Pessoa (cadastro único)**
-1. Com CPF/CNPJ: a pessoa do cadastro com esse documento.
+1. Com CPF/CNPJ: a pessoa do cadastro com esse documento. Se o documento é de um cliente do escritório que ainda não
+   tem a sua Pessoa (banco anterior à migração), a Pessoa nasce já como a do cliente, ou a que existe com o documento
+   passa a ser a dele (`pessoas.service.ligar_cliente_pelo_documento`): o cliente é uma parte cadastrada uma vez só.
 2. Sem documento, ou com ele mascarado: só por nome idêntico depois de normalizado (sem acento, pontuação e sufixo
-   societário). Havendo uma única pessoa com documento e esse nome, é ela; havendo várias, fica a pessoa sem documento.
+   societário), e com cuidado com homônimos:
+   - existe uma única pessoa **jurídica ou ente público** com documento e esse nome: é ela (razão social idêntica é a
+     mesma empresa);
+   - a pessoa com documento e esse nome é **física**: não é fundida pelo nome. A parte fica com o cadastro sem
+     documento (o que já existir com esse nome, ou um novo) e as duas aparecem como possível duplicado em
+     Cadastros › Pessoas, onde o administrador decide e usa "Mesclar";
+   - várias pessoas com documento e esse nome: não escolhe; fica a pessoa sem documento.
 3. Nunca por semelhança.
 4. Quando o tribunal passa a informar o documento de quem tinha vindo só com o nome (DJEN e depois MNI), a mesma pessoa
    recebe o documento.
 
 **Cliente.** A parte que é o cliente do caso (vínculo confirmado, mesma pessoa, mesmo CPF/CNPJ ou, sem documento, mesmo
-nome; vínculo rejeitado pelo usuário não conta) é a mesma parte "é cliente" que o caso já tem. Ela vai para o polo e a
+nome, inclusive quando o cliente é pessoa física: a regra dos homônimos acima não vale para o cliente do próprio caso;
+vínculo rejeitado pelo usuário não conta) é a mesma parte "é cliente" que o caso já tem. Ela vai para o polo e a
 qualificação que o processo diz enquanto ninguém a classificou à mão (sem qualificação e ainda "pendente de
 reclassificação" ou já no mesmo polo).
 
@@ -91,6 +101,20 @@ quais advogados o tribunal já trouxe (`fat_envolvimento.advogados_do_tribunal`)
   entram no cadastro e voltam em `advogados_sem_parte`, para o usuário ligar na aba Partes.
 
 ## `POST /api/faturamento/casos/{id}/partes-do-tribunal`
+
+Não existe botão para esta rota: quem chama é a própria ficha do caso, sozinha.
+
+- **Caso novo, ou número CNJ incluído ou trocado na edição**: ao salvar, o job `importar_caso` traz ficha e partes; a
+  tela acompanha e recarrega as partes quando o processo aparece (`components/tribunais/processo-do-caso.tsx`).
+- **Caso que já existia** (contencioso, CNJ válido, busca no tribunal ligada) **e nunca recebeu partes do tribunal**: a
+  ficha do caso (`GET /faturamento/casos/{id}`) devolve `buscar_partes_tribunal: true` e a tela chama esta rota uma vez,
+  só para quem tem `casos.editar` (`components/faturamento/caso/partes.tsx`, `usePartesDoTribunal`). O marcador fica em
+  `fat_caso_contencioso`: `partes_tribunal_em` (as partes vieram: não busca mais) e `partes_tribunal_tentativa_em`
+  (última busca; sem resposta ou sem partes, só tenta de novo depois de 12 horas, `INTERVALO_NOVA_BUSCA`). Com
+  importação do caso na fila, a ficha não pede outra busca.
+- A lista de partes (`GET /faturamento/casos/{id}/envolvimentos`) devolve `advogados_sem_parte`: os advogados que o
+  diário listou sem dizer de quem são e que ainda não são advogado de nenhuma parte do caso (só informação; o usuário
+  os inclui, se quiser, pelo modal da parte).
 
 Permissão `casos.editar`. Sem corpo. Aplica as partes do processo do caso; se o caso ainda não tem processo importado
 (ou o processo está sem partes) e a busca está ligada, importa antes. Erro 400 com a mensagem quando o caso não é

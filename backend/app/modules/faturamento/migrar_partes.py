@@ -116,8 +116,8 @@ def _tipos_e_clientes(db: Session, tenant_id: int, r: Resultado) -> None:
 
 
 def _processos(db: Session, tenant_id: int, r: Resultado) -> None:
-    """Passo 3: partes e advogados dos processos importados que estão ligados a um caso (a mesma regra do botão
-    "Trazer partes do tribunal": `partes_tribunal.aplicar_partes`)."""
+    """Passo 3: partes e advogados dos processos importados que estão ligados a um caso (a mesma regra da
+    rota `partes-do-tribunal`: `partes_tribunal.aplicar_partes`)."""
     for proc in db.scalars(select(Processo).where(Processo.tenant_id == tenant_id, Processo.caso_id.is_not(None))):
         c = db.get(Caso, proc.caso_id)
         if c is None or c.tenant_id != tenant_id:

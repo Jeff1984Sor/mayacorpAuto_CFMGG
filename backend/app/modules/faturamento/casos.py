@@ -448,7 +448,7 @@ def saida(ctx, c: Caso, ficha: bool = True, lote: dict | None = None) -> dict:
     """Parte nova de CasoOut. Na lista (`ficha=False`, com o `lote` de `preparar_lista`) o aviso de CNJ repetido e o
     título sugerido ficam de fora."""
     db = ctx.db
-    from app.modules.faturamento import envolvimento
+    from app.modules.faturamento import envolvimento, partes_tribunal
 
     equipe_ids = [e.usuario_id for e in c.equipe]
     etiquetas = [x.item_id for x in c.itens_lista if x.papel == "etiqueta"]
@@ -466,6 +466,7 @@ def saida(ctx, c: Caso, ficha: bool = True, lote: dict | None = None) -> dict:
         "partes_resumo": partes,
         "titulo_sugerido": envolvimento.titulo_sugerido(db, c) if ficha else None,
         "pendentes_reclassificacao": n_pendentes,
+        "buscar_partes_tribunal": partes_tribunal.buscar_sozinha(db, c) if ficha and not lote else False,
         tipo: _bloco(ctx, c, ext, tipo, lote) if ext else None,
         "aviso_cnj_duplicado": cnj_duplicado(db, c.tenant_id, c.numero_processo, c.id) if ficha and tipo == "contencioso" else None,
         "tipo_caso": tipo, "tipo_caso_nome": ROTULOS["tipo_caso"][tipo], "status_nome": ROTULOS["status"][c.status.value],

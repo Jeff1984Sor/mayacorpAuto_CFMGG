@@ -31,11 +31,13 @@ def conferir_cnj(ctx: Ctx, numero: str = Query(min_length=1, max_length=40), cas
 
 @router.post("/casos/{cid}/partes-do-tribunal")
 def partes_do_tribunal(cid: int, ctx: Operador):
-    """Botão "Trazer partes do tribunal" (aba Partes): as partes e os advogados do processo do caso viram partes do caso.
+    """Chamada sozinha pela ficha do caso que nunca recebeu partes do tribunal (`CasoOut.buscar_partes_tribunal`; não há
+    botão): as partes e os advogados do processo do caso viram partes do caso.
     Só inclui quem ainda não está no caso; devolve o que incluiu (`incluidas`, `advogados_incluidos`), o que já existia
     (`ja_existiam`, `advogados_ja_existiam`) e os advogados que o tribunal não disse de quem são (`advogados_sem_parte`)."""
     from app.modules.faturamento import partes_tribunal
     from app.modules.faturamento.models import Caso
+    from app.modules.tribunais import fontes
     from app.modules.tribunais import service as tribunais
 
     c = ctx.db.get(Caso, cid)
@@ -44,9 +46,13 @@ def partes_do_tribunal(cid: int, ctx: Operador):
     regras_caso.exigir_ver(ctx, c)
     try:
         res = partes_tribunal.trazer_do_tribunal(ctx.db, c, usuario_id=ctx.usuario.id)
-    except tribunais.ErroIntegracao as e:
+    except (tribunais.ErroIntegracao, fontes.FonteIndisponivel, fontes.ForaDoBrasil) as e:
         ctx.db.rollback()
+        # a ficha chama esta rota sozinha: fica anotado que tentou, para não repetir a cada abertura
+        partes_tribunal.marcar_tentativa(ctx.db, ctx.db.get(Caso, cid))
+        ctx.db.commit()
         raise HTTPException(400, str(e)) from e
+    partes_tribunal.marcar_tentativa(ctx.db, c)
     if res["incluidas"] or res["advogados_incluidos"] or res["campos_preenchidos"]:
         ctx.auditar("faturamento.caso.partes_do_tribunal", "fat_caso", c.id,
                     descricao=f"#{c.numero}: {len(res['incluidas'])} parte(s) e {len(res['advogados_incluidos'])} advogado(s) do "

@@ -425,8 +425,9 @@ def criar(dados: PessoaIn, ctx: Operador):
     from fastapi.responses import JSONResponse
 
     doc = _validar(ctx, dados, None)
-    existente = service.por_documento(ctx.db, ctx.tenant_id, doc) if doc else None
+    existente = service.por_documento(ctx.db, ctx.tenant_id, doc, ligar_cliente=True) if doc else None
     if existente:
+        ctx.db.commit()  # a Pessoa de um cliente que ainda não tinha a sua pode ter nascido agora
         return JSONResponse(pessoa_out(ctx, existente, ja_existia=True).model_dump(mode="json"), status_code=200)
     p = Pessoa(tenant_id=ctx.tenant_id, outros_documentos=[])
     _aplicar(p, dados, doc)
@@ -466,6 +467,8 @@ def alterar(pid: int, dados: PessoaIn, ctx: Operador):
     if "advogado" in dados.model_fields_set:
         _salvar_advogado(ctx, p, dados.advogado)
     ctx.db.flush()
+    if doc and not cliente_id:  # o documento é de um cliente que ainda não tinha a sua Pessoa: passa a ser esta
+        service.ligar_cliente_pelo_documento(ctx.db, ctx.tenant_id, doc)
     ctx.auditar("pessoa.alterar", "trb_pessoa", p.id, descricao=p.nome, antes=antes,
                 depois={"nome": p.nome, "documento": service.documento(p), "ativo": p.ativo})
     ctx.db.commit()

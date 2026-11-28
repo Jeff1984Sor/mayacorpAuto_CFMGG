@@ -59,6 +59,15 @@ parte importada de tribunal.
      ligado a ela em vez de nascer outra; ao cadastrar Pessoa (ou parte de um caso) com o documento de um cliente, a
      resposta é a Pessoa do cliente. Nome, documento e tipo vão do cliente para a Pessoa: a fonte é o cadastro de
      clientes, que emite fatura e NFS-e (pela tela de Pessoas esses três campos não mudam quando a pessoa é cliente).
+     Vale também para o cliente que ainda não tem a sua Pessoa (banco anterior à migração): cadastrar ou alterar uma
+     Pessoa, incluir parte pelo cadastro rápido ou receber parte do tribunal com o CPF/CNPJ dele cria a Pessoa já como
+     a do cliente, ou liga a ele a que existir com o documento (`pessoas.service.ligar_cliente_pelo_documento`,
+     acionado por `por_documento(..., ligar_cliente=True)` em tudo que grava). Nunca fica pessoa solta com documento
+     de cliente.
+   - Homônimos nas partes vindas do tribunal (`faturamento/partes_tribunal.pessoa_do_cadastro`): parte sem documento só
+     é fundida pelo nome idêntico com pessoa que tem documento quando esta é jurídica ou ente público. Pessoa física
+     com CPF não é fundida pelo nome: a parte fica com um cadastro sem documento e a dupla aparece em "Possíveis
+     duplicados", para o administrador mesclar. O cliente do próprio caso continua reconhecido pelo nome idêntico.
    - Mesclar: a Pessoa de um cliente nunca é desativada; se uma das duas é de cliente, ela é a principal. Duas pessoas
      de clientes diferentes não se mesclam.
    - Tudo isso acontece num ponto só: antes de todo flush com cliente novo ou alterado (`rpa_nfse/models.py` chama

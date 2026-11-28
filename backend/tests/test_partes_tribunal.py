@@ -24,6 +24,7 @@ from app.modules.tribunais.models import Pessoa, Processo
 from tests.test_api_fluxo import _login, cliente  # noqa: F401  (fixture)
 from tests.test_boletos_api import _cnpj
 from tests.test_perfis import _usuario_com_perfil
+from tests.test_pessoas import _cliente_antigo_sem_pessoa, _cpf
 from tests.test_tribunais import _datajud, _djen, _preparar_advogado
 
 CPF_DEVEDOR, CPF_UPGRADE = "70650000191", "70650000272"
@@ -419,3 +420,132 @@ def test_campos_so_sao_preenchidos_quando_vazios(cliente):  # noqa: F811
         db.commit()
     ficha = c.get(f"/api/faturamento/casos/{cheio.id}", headers=h).json()
     assert ficha["contencioso"]["juiz_relator"] == "Juiz Digitado" and "preenchido_tribunal" not in ficha["contencioso"]
+
+
+def test_homonimo_sem_documento_so_e_fundido_com_pessoa_juridica(cliente):  # noqa: F811
+    """Parte que o tribunal manda sem documento e com nome idêntico ao de alguém do cadastro que TEM documento: é a
+    mesma quando é empresa ou ente público; pessoa física com CPF não é fundida pelo nome (vira possível duplicado)."""
+    c, h = cliente, _login(cliente)
+    _cli, contrato = _cliente_e_contrato(c, h, "Cliente Homônimos 7065 Ltda", 70650020)
+    cadastro = {}
+    for chave, corpo in (("pf", {"tipo_pessoa": "fisica", "nome": "Carlos Homônimo 7065", "cpf_cnpj": _cpf(706500210)}),
+                         ("pj", {"tipo_pessoa": "juridica", "nome": "Transportadora Homônima 7065 Ltda", "cpf_cnpj": _cnpj(70650022)}),
+                         ("ente", {"tipo_pessoa": "ente_publico", "nome": "Município Homônimo 7065", "cpf_cnpj": _cnpj(70650023)})):
+        r = c.post("/api/pessoas", headers=h, json=corpo)
+        assert r.status_code == 201, r.text
+        cadastro[chave] = r.json()["id"]
+    n = _numero(20, j=8, tr="26", origem="0100")
+    with SessionLocal() as db:
+        tenant_id = db.scalar(select(Tenant.id).where(Tenant.slug == "cfme"))
+        proc = _processo_direto(db, tenant_id, n)
+        service.substituir_partes(db, proc, [
+            _mni("CLIENTE HOMONIMOS 7065 LTDA", "ativo"), _mni("CARLOS HOMONIMO 7065", "passivo"),
+            _mni("TRANSPORTADORA HOMONIMA 7065 LTDA", "passivo"), _mni("MUNICIPIO HOMONIMO 7065", "terceiro")],
+            set(), None, fonte="djen")
+        caso = _caso_direto(db, tenant_id, contrato["id"], n)
+        service.ligar_caso(db, proc, caso)
+        db.commit()
+        caso_id = caso.id
+        # a consulta (capa) responde igual: só a empresa e o ente aparecem como "já no cadastro"
+        achou = {nome: partes_tribunal.pessoa_do_cadastro(db, tenant_id, nome)[0] for nome in (
+            "CARLOS HOMONIMO 7065", "TRANSPORTADORA HOMONIMA 7065 LTDA", "MUNICIPIO HOMONIMO 7065")}
+        assert achou["TRANSPORTADORA HOMONIMA 7065 LTDA"].id == cadastro["pj"] and achou["MUNICIPIO HOMONIMO 7065"].id == cadastro["ente"]
+        assert achou["CARLOS HOMONIMO 7065"].id != cadastro["pf"] and partes_tribunal.pessoas.documento(achou["CARLOS HOMONIMO 7065"]) is None
+    blocos = _partes(c, h, caso_id)
+    passivo = {e["pessoa"]["nome"]: e for e in blocos["Polo Passivo"]}
+    assert passivo["Transportadora Homônima 7065 Ltda"]["pessoa_id"] == cadastro["pj"]  # razão social idêntica: a mesma empresa
+    assert [e["pessoa_id"] for e in blocos["Terceiros"]] == [cadastro["ente"]]
+    carlos = passivo["CARLOS HOMONIMO 7065"]  # a pessoa física com CPF não foi usada: a parte ficou sem documento
+    assert carlos["pessoa_id"] != cadastro["pf"] and carlos["pessoa"]["cpf_cnpj"] is None
+    dups = c.get(f"/api/pessoas/{cadastro['pf']}/duplicados", headers=h).json()
+    assert [(d["id"], d["motivo"]) for d in dups] == [(carlos["pessoa_id"], "Mesmo nome")]  # aparece para o administrador mesclar
+    # de novo não cria outra pessoa nem outra parte
+    with SessionLocal() as db:
+        antes = _contagens(db)
+    res = _trazer(c, h, caso_id)
+    assert res["incluidas"] == [] and len(res["ja_existiam"]) == 4
+    with SessionLocal() as db:
+        assert _contagens(db) == antes
+
+
+def test_parte_do_tribunal_com_documento_de_cliente_sem_pessoa(cliente):  # noqa: F811
+    """Cliente de banco antigo, ainda sem a sua Pessoa: a parte que o tribunal manda com o CNPJ dele nasce como a
+    Pessoa do cliente (uma só), também quando ele não é o cliente do caso."""
+    c, h = cliente, _login(cliente)
+    _cli, contrato = _cliente_e_contrato(c, h, "Cliente do Caso Antigo 7065 Ltda", 70650024)
+    outro = c.post("/api/nfse/tomadores", headers=h, json={"tipo": "PJ", "nome": "Outro Cliente Antigo 7065 Ltda", "cpf_cnpj": _cnpj(70650025)}).json()
+    _cliente_antigo_sem_pessoa(outro["id"])
+    n = _numero(21, j=8, tr="26", origem="0100")
+    with SessionLocal() as db:
+        tenant_id = db.scalar(select(Tenant.id).where(Tenant.slug == "cfme"))
+        assert db.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.cnpj == _cnpj(70650025))) == 0
+        proc = _processo_direto(db, tenant_id, n)
+        service.substituir_partes(db, proc, [
+            _mni("CLIENTE DO CASO ANTIGO 7065 LTDA", "ativo", _cnpj(70650024)),
+            _mni("OUTRO CLIENTE ANTIGO 7065 LTDA", "passivo", _cnpj(70650025))], set(), None, fonte="mni")
+        caso = _caso_direto(db, tenant_id, contrato["id"], n)
+        service.ligar_caso(db, proc, caso)
+        db.commit()
+        pessoa_do_outro = db.get(Tomador, outro["id"]).pessoa_id
+        assert pessoa_do_outro and db.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.cnpj == _cnpj(70650025))) == 1
+        caso_id = caso.id
+    reu = _partes(c, h, caso_id)["Polo Passivo"][0]
+    assert (reu["pessoa_id"], reu["pessoa"]["cliente_id"], reu["eh_cliente"]) == (pessoa_do_outro, outro["id"], False)
+    assert reu["pessoa"]["nome"] == "Outro Cliente Antigo 7065 Ltda"  # o nome é o do cadastro de clientes
+
+
+def test_ficha_busca_as_partes_sozinha_uma_vez(cliente, trib):  # noqa: F811
+    """Caso antigo (contencioso, com CNJ, nunca recebeu partes do tribunal): a ficha avisa que é para buscar
+    (`buscar_partes_tribunal`), uma vez; sem resposta do tribunal, só de novo depois do intervalo."""
+    from datetime import timedelta
+
+    from app.core.db import agora
+
+    c, h = cliente, _login(cliente)
+    _preparar_advogado(c, h)
+    _cli, contrato = _cliente_e_contrato(c, h, "Cliente Busca Sozinha 7065 Ltda", 70650030)
+    n_ok, n_fora, n_desligado = _numero(30), _numero(31), _numero(32)
+    _processo_no_tribunal(trib, n_ok, "Autor Busca 7065", "CLIENTE BUSCA SOZINHA 7065 LTDA")
+    with SessionLocal() as db:  # casos que já existiam: nenhum job de importação foi criado para eles
+        tenant_id = db.scalar(select(Tenant.id).where(Tenant.slug == "cfme"))
+        ok, fora, desligado = (_caso_direto(db, tenant_id, contrato["id"], n).id for n in (n_ok, n_fora, n_desligado))
+        regras_caso.extensao(db, db.get(Caso, desligado)).monitorar_andamentos = False
+        db.commit()
+
+    def ficha(caso_id: int) -> dict:
+        return c.get(f"/api/faturamento/casos/{caso_id}", headers=h).json()
+
+    assert ficha(ok)["buscar_partes_tribunal"] is True and ficha(desligado)["buscar_partes_tribunal"] is False
+    consultivo = c.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={"titulo": "Parecer busca 7065"}).json()
+    assert consultivo["buscar_partes_tribunal"] is False
+    lista = c.get("/api/faturamento/casos", params={"q": "7065"}, headers=h).json()
+    assert not any(x["buscar_partes_tribunal"] for x in (lista["itens"] if isinstance(lista, dict) else lista))  # só na ficha
+
+    res = _trazer(c, h, ok)
+    assert sorted(x["nome"] for x in res["incluidas"] + res["ja_existiam"]) == ["Autor Busca 7065", "Cliente Busca Sozinha 7065 Ltda"]
+    assert ficha(ok)["buscar_partes_tribunal"] is False  # já vieram: não busca mais
+    # os advogados que o diário não disse de quem são aparecem na lista de partes até serem incluídos em alguma
+    partes = c.get(f"/api/faturamento/casos/{ok}/envolvimentos", headers=h).json()
+    assert [(a["nome"], a["oab"]) for a in partes["advogados_sem_parte"]] == [("DR CONTRARIO 7065", "OAB/SP 706.501")]
+    autor = next(e for b in partes["categorias"] for e in b["envolvimentos"] if e["pessoa"]["nome"] == "Autor Busca 7065")
+    r = c.post(f"/api/faturamento/casos/{ok}/envolvimentos/{autor['id']}/advogados", headers=h,
+               json={"advogado_id": partes["advogados_sem_parte"][0]["advogado_id"]})
+    assert r.status_code == 201, r.text
+    assert c.get(f"/api/faturamento/casos/{ok}/envolvimentos", headers=h).json()["advogados_sem_parte"] == []
+
+    # o tribunal não conhece o processo: erro com mensagem, anotado; a ficha só pede de novo depois do intervalo
+    assert ficha(fora)["buscar_partes_tribunal"] is True
+    assert _trazer(c, h, fora, esperado=400)["detail"]
+    assert ficha(fora)["buscar_partes_tribunal"] is False
+    with SessionLocal() as db:
+        ext = db.get(CasoContencioso, fora)
+        assert ext.partes_tribunal_em is None and ext.partes_tribunal_tentativa_em is not None
+        ext.partes_tribunal_tentativa_em = agora() - partes_tribunal.INTERVALO_NOVA_BUSCA - timedelta(minutes=1)
+        db.commit()
+    assert ficha(fora)["buscar_partes_tribunal"] is True
+
+    # caso novo: quem busca é o job da importação; a ficha não pede outra busca
+    n_novo = _numero(33)
+    _processo_no_tribunal(trib, n_novo, "Autor Novo 7065", "CLIENTE BUSCA SOZINHA 7065 LTDA")
+    novo = c.post(f"/api/faturamento/contratos/{contrato['id']}/casos", headers=h, json={"titulo": "Novo 7065", "numero_processo": n_novo})
+    assert novo.status_code == 201 and ficha(novo.json()["id"])["buscar_partes_tribunal"] is False

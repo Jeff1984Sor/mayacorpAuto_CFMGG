@@ -81,11 +81,19 @@ def clientes_de(db: Session, pessoa_ids) -> dict[int, int]:
     return dict(db.execute(select(Tomador.pessoa_id, Tomador.id).where(Tomador.pessoa_id.in_(ids))).all()) if ids else {}
 
 
-def por_documento(db: Session, tenant_id: int, doc: str | None, exceto_id: int | None = None) -> Pessoa | None:
-    """A pessoa do escritório com este CPF/CNPJ (a do cliente tem preferência)."""
+def por_documento(db: Session, tenant_id: int, doc: str | None, exceto_id: int | None = None,
+                  ligar_cliente: bool = False) -> Pessoa | None:
+    """A pessoa do escritório com este CPF/CNPJ (a do cliente tem preferência).
+
+    `ligar_cliente` (em tudo que grava: cadastro de pessoa, parte de caso, parte vinda do tribunal): se o documento é de
+    um cliente que ainda não tem a sua Pessoa, ela é criada ou ligada agora (`ligar_cliente_pelo_documento`)."""
     d = so_digitos(doc)
     if len(d) not in (11, 14):
         return None
+    if ligar_cliente:
+        do_cliente = ligar_cliente_pelo_documento(db, tenant_id, d)
+        if do_cliente is not None and do_cliente.id != exceto_id:
+            return do_cliente
     sel = select(Pessoa).where(Pessoa.tenant_id == tenant_id, (Pessoa.cpf if len(d) == 11 else Pessoa.cnpj) == d,
                                Pessoa.mesclada_em_id.is_(None))
     if exceto_id:
@@ -153,6 +161,24 @@ def garantir_pessoa_do_cliente(db: Session, tomador) -> int:
         sincronizar_clientes(db, [tomador])
         db.flush()
     return tomador.pessoa_id
+
+
+def ligar_cliente_pelo_documento(db: Session, tenant_id: int, doc: str | None) -> Pessoa | None:
+    """O cliente é uma parte cadastrada uma vez só. Cliente do escritório com este CPF/CNPJ e ainda sem a sua Pessoa
+    (banco anterior à migração): a Pessoa dele nasce agora, ou a que já existe com o documento passa a ser a dele.
+    Devolve essa Pessoa; `None` quando não há cliente nessa situação."""
+    from app.modules.rpa_nfse.models import Tomador
+
+    d = so_digitos(doc)
+    if len(d) not in (11, 14):
+        return None
+    db.flush()  # a procura abaixo enxerga a pessoa que acabou de receber o documento
+    t = db.scalar(select(Tomador).where(Tomador.tenant_id == tenant_id, Tomador.cpf_cnpj == d, Tomador.pessoa_id.is_(None))
+                  .order_by(Tomador.id).limit(1))
+    if t is None:
+        return None
+    pessoa_id = garantir_pessoa_do_cliente(db, t)
+    return db.get(Pessoa, pessoa_id) if pessoa_id else None
 
 
 # ------------------------------------------------------------------------------------------------ OAB

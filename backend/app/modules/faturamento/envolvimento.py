@@ -771,7 +771,14 @@ def listar(cid: int, ctx: Ctx, inativos: bool = False):
             "partes_resumo": resumo_partes(ctx.db, c.id), "pendentes_reclassificacao": sum(e["pendente_reclassificacao"] for e in envs if e["ativo"]),
             "polo_cliente": polo if tipo == TipoDeCaso.contencioso else None,
             "polo_inconsistente": inconsistente if tipo == TipoDeCaso.contencioso else False,
-            "tem_cliente": any(e["eh_cliente"] and e["ativo"] for e in envs)}
+            "tem_cliente": any(e["eh_cliente"] and e["ativo"] for e in envs),
+            "advogados_sem_parte": _advogados_sem_parte(ctx.db, c)}
+
+
+def _advogados_sem_parte(db: Session, c: Caso) -> list[dict]:
+    from app.modules.faturamento import partes_tribunal  # importa este módulo
+
+    return partes_tribunal.advogados_sem_parte(db, c)
 
 
 @router.get("/casos/{cid}/envolvimentos/conflito")

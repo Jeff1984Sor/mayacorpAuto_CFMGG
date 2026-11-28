@@ -373,12 +373,11 @@ def _pessoa(db: Session, tenant_id: int, dados: dict, anteriores: dict[str, Pess
     passa a informar o documento (DJEN → consulta com certificado), a mesma pessoa é completada em vez de nascer outra."""
     doc = re.sub(r"\D", "", dados.get("documento") or "")
     nome = (dados.get("nome") or "").strip()[:300] or "Parte sem nome"
+    from app.modules.pessoas import service as pessoas
+
     q = select(Pessoa).where(Pessoa.tenant_id == tenant_id, Pessoa.mesclada_em_id.is_(None))
-    existente = None
-    if len(doc) == 11:
-        existente = db.scalar(q.where(Pessoa.cpf == doc))
-    elif len(doc) == 14:
-        existente = db.scalar(q.where(Pessoa.cnpj == doc))
+    # pelo documento: a Pessoa do cliente tem preferência e nasce aqui se o cliente ainda não tinha a sua
+    existente = pessoas.por_documento(db, tenant_id, doc, ligar_cliente=True)
     if existente is None and not doc:
         existente = db.scalar(q.where(Pessoa.nome_normalizado == vinculo.normalizar_nome(nome), Pessoa.cpf.is_(None),
                                       Pessoa.cnpj.is_(None)))

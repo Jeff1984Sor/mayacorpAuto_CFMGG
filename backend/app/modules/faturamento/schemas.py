@@ -414,6 +414,8 @@ class CasoOut(Schema):
     partes_resumo: str | None = None  # "Ativo x Passivo" (coluna Partes da lista)
     titulo_sugerido: str | None = None  # contencioso: "{principal do polo ativo} x {principal do polo passivo}"
     pendentes_reclassificacao: int = 0  # partes a revisar (depois de troca de tipo ou da migração)
+    # só na ficha: contencioso com CNJ que nunca recebeu as partes do tribunal (a tela chama `partes-do-tribunal` sozinha)
+    buscar_partes_tribunal: bool = False
 
 
 # ---------- regras de cobrança
