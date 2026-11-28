@@ -388,6 +388,10 @@ def zip_faturas(dados: ZipIn, ctx: Ctx):
                 # sem modelo do cliente, a NH leva o seu número; com modelo, só o que o cliente pediu
                 gravar(z, f.pdf_path, titulo, nome_nh if proprio else f"{nome_nh} - {f.numero:05d}", f"{f.numero:05d}")
             nota = f.nfse
+            if nota and nota.chave_acesso:  # Sistema Nacional: DANFSe de desenho antigo é refeito antes de entrar no ZIP
+                from app.modules.rpa_nfse.nfse_nacional import danfse
+
+                danfse.atualizar(ctx.db, nota, oficial=False)
             if nota and nota.pdf_path and Path(nota.pdf_path).exists():
                 gravar(z, nota.pdf_path, titulo, nome_nf, str(nota.numero))
     return Response(buf.getvalue(), media_type="application/zip",

@@ -233,7 +233,8 @@ def test_emissora_no_emissor_nacional_de_ponta_a_ponta(cliente):  # noqa: F811
 
     pdf = cliente.get(f"/api/nfse/notas/{fat['nfse_id']}/pdf", headers=h)
     texto = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.content)).pages)
-    assert "Sistema Nacional NFS-e" in texto and nota["chave_acesso"] in texto and "ConsultaPublica" in texto, texto
+    # DANFSe no leiaute oficial; em simulação, sem validade jurídica
+    assert "DANFSe v2.0" in texto and nota["chave_acesso"] in texto and "NFS-e SEM VALIDADE JURÍDICA" in texto, texto
     # cancelamento: nota de simulação sai só do sistema (não vai ao governo)
     r = cliente.post(f"/api/nfse/notas/{fat['nfse_id']}/cancelar", headers=h, json={"motivo": "Teste de cancelamento da nota"})
     assert r.status_code == 200 and r.json()["status"] == "cancelada", r.text
@@ -296,7 +297,7 @@ NFSE_AUTORIZADA = f"""<NFSe versao="1.01" xmlns="{dps.NS}"><infNFSe Id="NFS{CHAV
 </infDPS></DPS></infNFSe></NFSe>""".encode()
 
 
-def _nota_autorizada(pasta, xml: bytes | None = NFSE_AUTORIZADA, simulada=False):
+def _nota_autorizada(pasta, xml: bytes | None = NFSE_AUTORIZADA, simulada=False, status="emitida"):
     """Nota com o cadastro da emissora digitado errado (São Paulo): o PDF tem de seguir o XML (Sorocaba)."""
     from types import SimpleNamespace
 
@@ -311,7 +312,7 @@ def _nota_autorizada(pasta, xml: bytes | None = NFSE_AUTORIZADA, simulada=False)
                           discriminacao="Serviços prestados", valor=Decimal("200.00"), deducoes=Decimal(0), aliquota=Decimal(0),
                           iss=Decimal(0), iss_retido=False, cod_servico=None, serie="1", numero=2, data_emissao=date(2026, 11, 28))
     return SimpleNamespace(tenant_id=1, numero=66, chave_acesso=CHAVE, cod_verificacao=CHAVE[-9:], valor=Decimal("200.00"),
-                           data_emissao=datetime(2026, 11, 28, 17, 20), simulada=simulada, rps=rps, emissora=em,
+                           data_emissao=datetime(2026, 11, 28, 17, 20), simulada=simulada, status=status, rps=rps, emissora=em,
                            xml_path=str(pasta / "nota.xml") if xml else None, pdf_path=str(pasta / "nota.pdf"))
 
 
@@ -325,57 +326,137 @@ def _texto_do_pdf(conteudo: bytes) -> str:
     return paginas[0].extract_text()
 
 
-def test_pdf_da_nota_nacional_segue_o_xml_autorizado(tmp_path):
+def test_danfse_no_leiaute_oficial_a_partir_do_xml_autorizado(tmp_path, monkeypatch):
+    """DANFSe v2.0 (Nota Técnica SE/CGNFS-e nº 008, Anexo I): blocos e rótulos do modelo, dados do XML, traço no vazio."""
     import re
 
     from app.modules.rpa_nfse import pdf
-    from app.modules.rpa_nfse.nfse_nacional import leitura
+    from app.modules.rpa_nfse.nfse_nacional import danfse_pdf, leitura
 
     x = leitura.ler(NFSE_AUTORIZADA)
-    assert x["autorizada"] and x["municipio_emissao"] == "Sorocaba" and x["municipios"] == {SOROCABA: "Sorocaba"}
+    assert x["autorizada"] and x["chave"] == CHAVE and x["municipios"] == {SOROCABA: "Sorocaba"}
     assert (x["emitente"]["uf"], x["emitente"]["cep"], x["tomador"]["codigo_municipio"], x["tomador"]["cep"]) == (
         "SP", "18081000", "3550308", "05422030")
-    assert (x["simples"], x["tributacao_issqn"], x["retencao_issqn"], x["competencia"], x["valor_liquido"]) == (
-        "2", "1", "1", "2026-11-28", "200.00")
+    assert (x["simples"], x["tributacao_issqn"], x["retencao_issqn"], x["competencia"], x["valor_liquido"], x["situacao"]) == (
+        "2", "1", "1", "2026-11-28", "200.00", "107")
+    assert x["intermediario"] is None and x["destinatario"] is None and x["ibs_cbs"] is None
     assert leitura.ler(None) == {} and leitura.ler(b"<x") == {} and leitura.ler(b"<a/>") == {}
-    assert leitura.formatar_tributacao("170201") == "17.02.01" and leitura.uf_do_municipio("3550308") == "SP"
+    assert (leitura.formatar_tributacao("170201"), leitura.formatar_nbs("113011000"), leitura.formatar_cep("18081000"),
+            leitura.uf_do_municipio("3550308")) == ("17.02.01", "1.1301.10.00", "18.081-000", "SP")
 
+    # o QR Code leva à consulta pública com a chave de acesso (item 2.4.3 da nota técnica)
+    qrs = []
+    desenhar = danfse_pdf.qr.desenhar
+    monkeypatch.setattr(danfse_pdf.qr, "desenhar", lambda c, texto, *a, **k: (qrs.append(texto), desenhar(c, texto, *a, **k)))
     nota = _nota_autorizada(tmp_path)
     texto = _texto_do_pdf(pdf.gerar(nota, None, "https://www.nfse.gov.br/ConsultaPublica"))
+    assert qrs == [f"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave={CHAVE}"]
     linhas = [ln.strip() for ln in texto.splitlines()]
-    # 1) cidade, UF e CEP do XML autorizado (o cadastro diz São Paulo)
-    prestador = texto[texto.index("PRESTADOR DE SERVIÇOS"):texto.index("TOMADOR DE SERVIÇOS")]
-    assert "Sorocaba / SP" in prestador and "18081-000" in prestador and "AVENIDA EXEMPLO, 802" in prestador
-    assert "São Paulo" not in prestador and "Cadastro" not in prestador
-    assert "05422-030" in texto and "Rua Exemplo, 72, Andar 12, Pinheiros" in texto and "00.000.000/0002-72" in texto
-    # 2) código de tributação nacional com a descrição
-    assert "17.02.01 — Datilografia, digitação, estenografia e congêneres." in texto and "Código do serviço" not in texto
-    # 3) a chave de acesso numa linha só dela
-    assert CHAVE in linhas and "Sistema Nacional NFS-e" in texto and "ConsultaPublica" in texto
-    # 4) campo sem valor não aparece: nada de barra ou travessão soltos
-    assert not [ln for ln in linhas if ln in ("/", "—", "-") or ln.startswith("/") or ln.endswith("/")], linhas
-    for ausente in ("NBS", "IBS/CBS", "Inscrição municipal", "Alíquota", "R$ 0,00", "0,00%"):
-        assert ausente not in texto, ausente
-    # 5) regime e situação do ISS como estão no XML, sem valor inventado
-    for presente in ("Optante do Simples Nacional — MEI", "Operação tributável", "Não retido", "Prestador MEI"):
-        assert presente in texto, presente
-    # 6) competência, DPS e valor líquido
-    assert re.search(r"Competência\s+28/11/2026", texto) and re.search(r"Número da DPS\s+2\s+Série da DPS\s+1\s", texto)
-    assert "28/11/2026 14:20:04" in texto and "VALOR LÍQUIDO" in texto and texto.count("R$ 200,00") == 2
 
-    # nota de simulação: o arquivo guardado é a DPS (sem o que o governo acrescenta) e o cadastro completa
-    sim = _nota_autorizada(tmp_path, etree.tostring(etree.fromstring(NFSE_AUTORIZADA).find(f".//{{{dps.NS}}}DPS")), simulada=True)
-    texto = _texto_do_pdf(pdf.gerar(sim, None, "https://www.nfse.gov.br/ConsultaPublica"))
-    assert "SIMULAÇÃO" in texto and "17.02.01" in texto and "Optante do Simples Nacional — MEI" in texto
-    assert "VALOR LÍQUIDO" not in texto and "Av. do Cadastro" in texto
-    # nota sem XML guardado: tudo do cadastro, ainda sem campo vazio aparecendo
-    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path, None), None, "https://www.nfse.gov.br/ConsultaPublica"))
-    assert "17.02.01" in texto and "Tomador Exemplo Ltda" in texto and "Não retido" in texto
-    assert not [ln for ln in texto.splitlines() if ln.strip() in ("/", "—")]
+    def campo(rotulo: str) -> str:
+        """O valor impresso logo depois do rótulo."""
+        return linhas[linhas.index(rotulo) + 1]
+
+    # cabeçalho e identificação
+    for fixo in ("DANFSe v2.0", "Documento Auxiliar da NFS-e", "Município: Sorocaba / SP",
+                 "Ambiente Gerador: Sistema Nacional da NFS-e", "Tipo de Ambiente: Produção",
+                 "A autenticidade desta NFS-e pode ser verificada"):
+        assert fixo in texto, fixo
+    assert "SEM VALIDADE" not in texto and "CANCELADA" not in texto and "SIMULAÇÃO" not in texto and "MayaCorp" not in texto
+    assert (campo("CHAVE DE ACESSO DA NFS-E"), campo("NÚMERO DA NFS-E"), campo("COMPETÊNCIA DA NFS-E")) == (CHAVE, "66", "28/11/2026")
+    assert (campo("DATA E HORA DA EMISSÃO DA NFS-E"), campo("NÚMERO DA DPS"), campo("SÉRIE DA DPS")) == ("28/11/2026 14:20:04", "2", "1")
+    assert (campo("DATA E HORA DA EMISSÃO DA DPS"), campo("EMITENTE DA NFS-e"), campo("SITUAÇÃO DA NFS-e"), campo("FINALIDADE")) == (
+        "28/11/2026 14:20:03", "Prestador", "NFS-e MEI", "-")
+    # os blocos do Anexo I, nesta ordem
+    blocos = ["PRESTADOR / FORNECEDOR", "TOMADOR / ADQUIRENTE", "DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e",
+              "INTERMEDIÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e", "SERVIÇO PRESTADO", "TRIBUTAÇÃO MUNICIPAL (ISSQN)",
+              "TRIBUTAÇÃO FEDERAL (EXCETO CBS)", "TRIBUTAÇÃO IBS / CBS", "VALOR TOTAL DA NFS-E", "INFORMAÇÕES COMPLEMENTARES"]
+    assert [linhas.index(b) for b in blocos] == sorted(linhas.index(b) for b in blocos)
+    # prestador: o que está no XML autorizado (o cadastro diz São Paulo)
+    prestador = texto[texto.index("PRESTADOR / FORNECEDOR"):texto.index("TOMADOR / ADQUIRENTE")]
+    for esperado in ("00.000.000/0001-91", "EMPRESA EXEMPLO MEI", "Sorocaba / SP", "3552205 / 18.081-000", "AVENIDA EXEMPLO, 802, VILA EXEMPLO",
+                     "EXEMPLO@EXEMPLO.COM", "Indicador Municipal (Inscrição)", "Simples Nacional na Data de Competência",
+                     "Optante - Microempreendedor Individual", "Regime de Apuração Tributária pelo SN"):
+        assert esperado in prestador, esperado
+    assert "São Paulo" not in prestador and "Cadastro" not in prestador
+    tomador = texto[texto.index("TOMADOR / ADQUIRENTE"):texto.index("DESTINATÁRIO DA OPERAÇÃO")]
+    for esperado in ("00.000.000/0002-72", "TOMADOR EXEMPLO LTDA", "3550308 / 05.422-030", "Rua Exemplo, 72, Andar 12, Pinheiros"):
+        assert esperado in tomador, esperado
+    # serviço e tributos
+    assert campo("Código de Tributação Nacional / Municipal") == "17.02.01" and campo("Código da NBS") == "-"
+    assert campo("Local da Prestação / Sigla UF / País") == "Sorocaba / SP / BR"
+    assert "Datilografia, digitação, estenografia e congêneres." in linhas and "- Geração de Documentos — parcela 1" in linhas
+    assert (campo("Tipo de Tributação do ISSQN"), campo("Retenção do ISSQN"), campo("Regime Especial de Tributação do ISSQN")) == (
+        "Operação Tributável", "Não Retido", "Nenhum")
+    assert campo("Município / Sigla UF / País de Incidência do ISSQN") == "Sorocaba / SP / BR"
+    # campo sem informação no XML: traço (nota 12), e nada de valor inventado
+    for vazio in ("BC ISSQN", "Alíquota Aplicada", "ISSQN Apurado", "IRRF", "CST / cClassTrib", "Valor Total Apurado - CBS",
+                  "Desconto Incondicionado", "Total das Retenções (ISSQN / Federais)", "VALOR LÍQUIDO DA NFS-e + IBS/CBS"):
+        assert campo(vazio) == "-", vazio
+    assert "Benefício Municipal" not in texto  # nota 5: linha sem dado nenhum some
+    assert "R$ 0,00" not in texto and not [ln for ln in linhas if ln.startswith("/") or ln.endswith("/")]
+    assert campo("VALOR DA OPERAÇÃO / SERVIÇO") == "R$ 200,00" and campo("VALOR LÍQUIDO DA NFS-e") == "R$ 200,00"
+    assert "PIS - Débito Apuração Própria" in texto  # nota 6: competência até 2026
+    assert linhas[-1] == "Totais Aproximados dos Tributos cfe. Lei nº 12.741/2012: Federais: -; Estaduais: -; Municipais: -"
+
+    # não optante com ISS destacado e retido, retenções federais, intermediário, informações complementares, competência 2027
+    cheia = (NFSE_AUTORIZADA.decode()
+             .replace("<valores><vLiq>200.00</vLiq></valores>", "<valores><vBC>1000.00</vBC><pAliqAplic>5.00</pAliqAplic>"
+                      "<vISSQN>50.00</vISSQN><vTotalRet>75.00</vTotalRet><vLiq>925.00</vLiq></valores>")
+             .replace("<cStat>107", "<cStat>100").replace("<opSimpNac>2", "<opSimpNac>1").replace("<dCompet>2026-11-28", "<dCompet>2027-01-05")
+             .replace("</toma>", "</toma><interm><CNPJ>00000000000353</CNPJ><xNome>INTERMEDIARIO EXEMPLO S.A.</xNome></interm>")
+             .replace("</cServ>", "<cNBS>113011000</cNBS></cServ><infoCompl><xInfComp>Contrato 12/2026</xInfComp><xPed>PED-1</xPed></infoCompl>")
+             .replace("<vServ>200.00", "<vServ>1000.00")
+             .replace("<tpRetISSQN>1</tpRetISSQN></tribMun>", "<tpRetISSQN>2</tpRetISSQN></tribMun><tribFed><piscofins><CST>01</CST>"
+                      "<vPis>6.50</vPis><vCofins>30.00</vCofins><tpRetPisCofins>1</tpRetPisCofins></piscofins>"
+                      "<vRetIRRF>15.00</vRetIRRF><vRetCSLL>10.00</vRetCSLL></tribFed>")
+             .replace("<indTotTrib>0</indTotTrib>", "<pTotTrib><pTotTribFed>13.45</pTotTribFed><pTotTribEst>0.00</pTotTribEst>"
+                      "<pTotTribMun>5.00</pTotTribMun></pTotTrib>"))
+    (tmp_path / "cheia").mkdir()
+    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path / "cheia", cheia.encode()), None, ""))
+    linhas = [ln.strip() for ln in texto.splitlines()]
+    assert (campo("SITUAÇÃO DA NFS-e"), campo("Simples Nacional na Data de Competência"), campo("Código da NBS")) == (
+        "NFS-e Gerada", "Não Optante", "1.1301.10.00")
+    assert (campo("BC ISSQN"), campo("Alíquota Aplicada"), campo("Retenção do ISSQN"), campo("ISSQN Apurado")) == (
+        "R$ 1.000,00", "5,00%", "Retido pelo Tomador", "R$ 50,00")
+    # PIS/COFINS retidos (tpRetPisCofins = 1) somam nas contribuições sociais retidas; a linha de PIS/COFINS sai em 2027
+    assert (campo("IRRF"), campo("Contribuições Sociais - Retidas")) == ("R$ 15,00", "R$ 46,50") and "PIS - Débito" not in texto
+    assert campo("Total das Retenções (ISSQN / Federais)") == "R$ 75,00" and campo("VALOR LÍQUIDO DA NFS-e") == "R$ 925,00"
+    assert "INTERMEDIÁRIO DA OPERAÇÃO" in linhas and "INTERMEDIARIO EXEMPLO S.A." in linhas and "00.000.000/0003-53" in linhas
+    assert "Inf. Cont.: Contrato 12/2026 | Núm. Ped.: PED-1" in linhas
+    assert linhas[-1].endswith("Federais: 13,45%; Estaduais: 0,00%; Municipais: 5,00%")
+    # sem tomador e sem incidência do ISSQN: os blocos viram uma linha (notas 2 e 4)
+    sem = re.sub(r"<toma>.*?</toma>", "", NFSE_AUTORIZADA.decode()).replace("<tribISSQN>1", "<tribISSQN>4")
+    (tmp_path / "sem").mkdir()
+    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path / "sem", sem.encode()), None, ""))
+    assert "TOMADOR/ADQUIRENTE DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e" in texto and "TOMADOR / ADQUIRENTE" not in texto
+    assert "TRIBUTAÇÃO MUNICIPAL (ISSQN) - OPERAÇÃO NÃO SUJEITA AO ISSQN" in texto and "BC ISSQN" not in texto
+
+    # nota cancelada: marca d'água "CANCELADA" (item 2.5.1)
+    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path, status="cancelada"), None, ""))
+    assert "CANCELADA" in texto and "SEM VALIDADE" not in texto
+    # nota de Teste (produção restrita, tpAmb = 2): "NFS-e SEM VALIDADE JURÍDICA" no cabeçalho (item 2.4.3)
+    (tmp_path / "teste").mkdir()
+    teste = _nota_autorizada(tmp_path / "teste", NFSE_AUTORIZADA.replace(b"<tpAmb>1", b"<tpAmb>2"), simulada=True)
+    texto = _texto_do_pdf(pdf.gerar(teste, None, ""))
+    assert "NFS-e SEM VALIDADE JURÍDICA" in texto and "Tipo de Ambiente: Homologação" in texto and "SIMULAÇÃO" not in texto
+    # simulação do próprio sistema: o arquivo guardado é a DPS (sem o que o governo acrescenta) e o cadastro completa
+    (tmp_path / "sim").mkdir()
+    sim = _nota_autorizada(tmp_path / "sim", etree.tostring(etree.fromstring(NFSE_AUTORIZADA).find(f".//{{{dps.NS}}}DPS")), simulada=True)
+    texto = _texto_do_pdf(pdf.gerar(sim, None, ""))
+    linhas = [ln.strip() for ln in texto.splitlines()]
+    assert "SIMULAÇÃO" in texto and "NFS-e SEM VALIDADE JURÍDICA" in texto and "Av. do Cadastro, 1, Centro" in texto
+    assert campo("Código de Tributação Nacional / Municipal") == "17.02.01" and campo("VALOR LÍQUIDO DA NFS-e") == "-"
+    # nota sem XML guardado: o cadastro, e traço no resto
+    (tmp_path / "nada").mkdir()
+    texto = _texto_do_pdf(pdf.gerar(_nota_autorizada(tmp_path / "nada", None), None, ""))
+    linhas = [ln.strip() for ln in texto.splitlines()]
+    assert "Tomador Exemplo Ltda" in texto and campo("Retenção do ISSQN") == "Não Retido" and campo("VALOR DA OPERAÇÃO / SERVIÇO") == "R$ 200,00"
 
 
 def test_danfse_oficial_com_plano_b(tmp_path, monkeypatch):
-    """PDF oficial só em produção; qualquer falha deixa o PDF do sistema, e a nova tentativa respeita o intervalo."""
+    """A busca do PDF no governo (desligada desde a suspensão da API, em 03/08/2026): religada, só em produção;
+    qualquer falha deixa o DANFSe do sistema, e a nova tentativa respeita o intervalo."""
     from datetime import UTC, timedelta
     from types import SimpleNamespace
 
@@ -415,11 +496,31 @@ def test_danfse_oficial_com_plano_b(tmp_path, monkeypatch):
     arquivo = tmp_path / "nota.pdf"
     arquivo.write_bytes(b"%PDF-1.4 desenho antigo")  # PDF guardado antes desta mudança (sem ficha ao lado)
 
+    # como o sistema roda hoje: a busca está desligada, ninguém chama o governo e o desenho antigo é refeito
+    assert danfse.BUSCAR_OFICIAL is False
+    danfse.atualizar(db, nota, cliente=prod, agora=agora)
+    assert not pedidos and "DANFSe v2.0" in _texto_do_pdf(arquivo.read_bytes())
+    assert danfse.estado(arquivo) == {"oficial": False, "layout": pdf.LAYOUT_NACIONAL, "cancelada": False}
+    # cancelada depois de o PDF ser guardado: refeito com a marca, uma vez só
+    nota.status = "cancelada"
+    danfse.atualizar(db, nota, oficial=False)
+    assert "CANCELADA" in _texto_do_pdf(arquivo.read_bytes()) and danfse.estado(arquivo)["cancelada"] is True
+    marca = arquivo.stat().st_mtime_ns
+    danfse.atualizar(db, nota, oficial=False)
+    assert arquivo.stat().st_mtime_ns == marca
+
+    # religada (se o governo voltar a entregar o PDF)
+    monkeypatch.setattr(danfse, "BUSCAR_OFICIAL", True)
+    nota.status = "emitida"
+    danfse._ficha(arquivo).unlink()
+    arquivo.write_bytes(b"%PDF-1.4 desenho antigo")
+
     # falha → plano B: PDF do sistema refeito no desenho atual, sem erro, tentativa anotada
     resposta["r"] = httpx.Response(500, text="erro")
     danfse.atualizar(db, nota, cliente=prod, agora=agora)
     assert len(pedidos) == 1 and "Sorocaba / SP" in _texto_do_pdf(arquivo.read_bytes())
-    assert danfse.estado(arquivo) == {"oficial": False, "tentado_em": agora.isoformat(), "layout": pdf.LAYOUT_NACIONAL}
+    assert danfse.estado(arquivo) == {"oficial": False, "tentado_em": agora.isoformat(), "layout": pdf.LAYOUT_NACIONAL,
+                                      "cancelada": False}
     # dentro do intervalo não bate de novo no governo, mesmo que agora ele respondesse
     resposta["r"] = httpx.Response(200, content=oficial)
     danfse.atualizar(db, nota, cliente=prod, agora=agora + timedelta(hours=1))
@@ -437,7 +538,7 @@ def test_danfse_oficial_com_plano_b(tmp_path, monkeypatch):
         outra = _nota_autorizada(tmp_path / pasta, simulada=simulada)
         danfse.atualizar(db, outra, cliente=prod, agora=agora, **extra)
         assert not pedidos and "Sorocaba / SP" in _texto_do_pdf((tmp_path / pasta / "nota.pdf").read_bytes())
-        assert danfse.estado(outra.pdf_path) == {"oficial": False, "layout": pdf.LAYOUT_NACIONAL}
+        assert danfse.estado(outra.pdf_path) == {"oficial": False, "layout": pdf.LAYOUT_NACIONAL, "cancelada": False}
     # fora do servidor de produção não se monta cliente nenhum: fica o PDF do sistema
     (tmp_path / "hml").mkdir()
     monkeypatch.setattr("app.modules.rpa_nfse.service.modos_permitidos", lambda: ["simulado", "teste"])
