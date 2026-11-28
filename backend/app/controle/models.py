@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -19,6 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     false,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -35,11 +37,14 @@ class Cliente(BaseControle):
     id: Mapped[int] = mapped_column(primary_key=True)
     slug: Mapped[str] = mapped_column(String(40), unique=True)  # identificador curto (cfme, silva-adv…)
     nome: Mapped[str] = mapped_column(String(200))
-    banco: Mapped[str | None] = mapped_column(String(63), unique=True)  # None = banco principal (DATABASE_URL)
+    # None = banco principal (DATABASE_URL) no escritório; no tipo "externo", None = nunca teve banco
+    banco: Mapped[str | None] = mapped_column(String(63), unique=True)
     status: Mapped[str] = mapped_column(String(15), default="ativo")  # teste | ativo | suspenso | inativo (sem acesso)
     teste_ate: Mapped[date | None] = mapped_column(Date)
     criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
     # "escritorio" = cliente do MayaJus · "mayacorp" = o admin (mesmos módulos, banco próprio, fora da lista e da cobrança)
+    # "externo" = cliente da MayaCorp sem acesso ao sistema (só ficha, contratos e cobranças): nunca vira escritório
+    # em login, domínio, worker ou migração (service._esc), mesmo com o banco guardado de quando tinha acesso
     tipo: Mapped[str] = mapped_column(String(15), default="escritorio", server_default="escritorio")
     # ficha comercial
     documento: Mapped[str | None] = mapped_column(String(14))  # CNPJ/CPF, só dígitos
@@ -153,16 +158,54 @@ class ChaveIA(BaseControle):
     atualizado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora, onupdate=agora)
 
 
-class Cobranca(BaseControle):
-    """Uma cobrança ao cliente: mensalidade (do plano), avulsa (sem produto) ou paga pela assinatura no cartão."""
+class CobrancaRecorrente(BaseControle):
+    """Serviço cobrado todo período (hospedagem, suporte…), além ou no lugar da mensalidade do plano. A rotina diária
+    gera a cobrança de cada competência (app/controle/recorrencia.py); mudar o valor aqui só vale para as próximas."""
 
-    __tablename__ = "cobranca"
-    __table_args__ = (UniqueConstraint("cliente_id", "tipo", "competencia", name="uq_cobranca_competencia"),)
+    __tablename__ = "cobranca_recorrente"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cliente_id: Mapped[int] = mapped_column(ForeignKey("cliente.id", ondelete="CASCADE"), index=True)
-    tipo: Mapped[str] = mapped_column(String(12))  # mensalidade | avulsa | cartao
-    competencia: Mapped[str | None] = mapped_column(String(7))  # AAAA-MM (mensalidade/cartão); avulsa: None
+    descricao: Mapped[str] = mapped_column(String(180))  # vai no e-mail, no link de pagamento e na nota
+    valor: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    periodicidade: Mapped[str] = mapped_column(String(10))  # mensal | bimestral | trimestral | semestral | anual
+    dia_vencimento: Mapped[int] = mapped_column(Integer)  # 1 a 28; 0 = último dia do mês
+    inicio: Mapped[date] = mapped_column(Date)  # mês da primeira competência (sempre dia 1)
+    termino_tipo: Mapped[str] = mapped_column(String(10), default="sem_fim")  # sem_fim | data | quantidade
+    termino_data: Mapped[date | None] = mapped_column(Date)  # último vencimento aceito
+    termino_quantidade: Mapped[int | None] = mapped_column(Integer)  # total de cobranças
+    antecedencia: Mapped[int] = mapped_column(Integer, default=3)  # dias antes do vencimento em que a cobrança sai
+    status: Mapped[str] = mapped_column(String(10), default="ativa")  # ativa | pausada | encerrada | concluida
+    observacao: Mapped[str | None] = mapped_column(Text)
+    # cursor da geração: a próxima competência (dia 1) e quantas já saíram; é ele que impede pular ou repetir
+    proxima_competencia: Mapped[date] = mapped_column(Date)
+    geradas: Mapped[int] = mapped_column(Integer, default=0)
+    # teto de segurança da rotina: quantas saíram sozinhas no último dia em que a rotina gerou (recorrencia.TETO_POR_DIA)
+    rotina_dia: Mapped[date | None] = mapped_column(Date)
+    rotina_no_dia: Mapped[int] = mapped_column(Integer, default=0)
+    criado_em: Mapped[datetime] = mapped_column(UtcDateTime(), default=agora)
+    encerrada_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+
+    cliente: Mapped[Cliente] = relationship()
+
+
+class Cobranca(BaseControle):
+    """Uma cobrança ao cliente: mensalidade (do plano), avulsa (sem produto), recorrente (de uma CobrancaRecorrente)
+    ou paga pela assinatura no cartão."""
+
+    __tablename__ = "cobranca"
+    __table_args__ = (
+        # uma mensalidade/cartão por cliente e mês; as recorrentes têm a própria regra (um cliente pode ter várias)
+        Index("uq_cobranca_competencia", "cliente_id", "tipo", "competencia", unique=True,
+              postgresql_where=text("recorrencia_id IS NULL"), sqlite_where=text("recorrencia_id IS NULL")),
+        UniqueConstraint("recorrencia_id", "competencia", name="uq_cobranca_recorrencia"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("cliente.id", ondelete="CASCADE"), index=True)
+    tipo: Mapped[str] = mapped_column(String(12))  # mensalidade | avulsa | cartao | recorrente
+    competencia: Mapped[str | None] = mapped_column(String(7))  # AAAA-MM (mensalidade/cartão/recorrente); avulsa: None
+    recorrencia_id: Mapped[int | None] = mapped_column(ForeignKey("cobranca_recorrente.id", ondelete="SET NULL"), index=True)
     descricao: Mapped[str] = mapped_column(String(200))
     itens: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{descricao, valor}] (plano, excedentes, desconto)
     valor: Mapped[Decimal] = mapped_column(Numeric(10, 2))
@@ -174,6 +217,7 @@ class Cobranca(BaseControle):
     pago_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
     forma_paga: Mapped[str | None] = mapped_column(String(30))  # pix | cartão | boleto | manual
     avisos: Mapped[list[int]] = mapped_column(JSON, default=list)  # passos da régua já enviados
+    envio_erro: Mapped[str | None] = mapped_column(String(200))  # por que o e-mail não saiu (ex.: falta o e-mail do financeiro)
     # NFS-e emitida para esta cobrança (a nota mora no banco do admin; aqui fica o resumo para a tela)
     nfse_status: Mapped[str | None] = mapped_column(String(12))  # emitindo | emitida | erro | cancelada
     nfse_id: Mapped[int | None] = mapped_column(Integer)

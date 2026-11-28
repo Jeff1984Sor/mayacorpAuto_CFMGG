@@ -82,7 +82,10 @@ def main() -> None:
             with SessaoControle() as db:
                 for c in db.query(Cliente).order_by(Cliente.id):
                     doms = ", ".join(d.host for d in c.dominios) or "-"
-                    print(f"{c.slug:20} {c.status:10} {c.banco or '(principal)':28} {doms}")
+                    banco = c.banco or "(principal)"
+                    if c.tipo == "externo":  # sem acesso ao sistema: banco vazio não é o principal
+                        banco = f"sem acesso ({c.banco})" if c.banco else "(sem acesso ao sistema)"
+                    print(f"{c.slug:20} {c.status:10} {banco:28} {doms}")
     except service.RegraControle as e:
         sys.exit(str(e))
 

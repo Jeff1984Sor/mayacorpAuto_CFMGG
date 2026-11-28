@@ -6,6 +6,8 @@
 - Quem paga no cartão (assinatura recorrente) já tem o plano debitado pelo Mercado Pago: a mensalidade dele leva só
   os excedentes. Cada débito da assinatura vira uma cobrança "cartao" paga.
 - Avulsa: valor e descrição livres, sem produto.
+- Recorrente: um serviço cobrado todo período (app/controle/recorrencia.py), para qualquer cliente, inclusive o
+  que não tem acesso ao sistema (tipo "externo": sem plano, sem mensalidade, sem cartão recorrente).
 - Régua: e-mails nos dias da régua (ex.: 3 dias antes, no dia, 3 e 10 dias depois). Atraso só gera aviso; a
   suspensão é sempre manual, no admin.
 """
@@ -26,6 +28,7 @@ from app.core.db import agora
 log = logging.getLogger(__name__)
 
 COBRAVEIS = ("ativo", "suspenso")  # em teste não paga; inativo não tem acesso
+SEM_EMAIL = "falta o e-mail do financeiro"
 
 
 class RegraCobranca(Exception):
@@ -76,6 +79,8 @@ def url_notificacao() -> str | None:
 
 def _url_cliente(c: Cliente) -> str | None:
     """Para onde o cliente volta depois de pagar: o "Meu plano" no próprio endereço dele."""
+    if c.tipo == "externo":  # não tem ambiente para onde voltar
+        return None
     dom = c.dominios[0].host if c.dominios else None
     if dom:
         return f"https://{dom}/minha-conta/plano"
@@ -92,6 +97,9 @@ def uso(c: Cliente, ano: int, mes: int) -> dict:
     from app.core.models import Usuario
     from app.modules.rpa_nfse.models import Nfse, StatusNfse
 
+    if c.tipo == "externo":  # sem acesso ao sistema não há banco para contar (banco vazio aqui NÃO é o principal)
+        return {"mes": f"{ano:04d}-{mes:02d}", "usuarios": 0, "limite_usuarios": None, "notas_mes": 0,
+                "limite_notas": None, "usuarios_excedentes": 0, "notas_excedentes": 0, "valor_excedente": Decimal(0)}
     p = c.plano
     inicio = datetime(ano, mes, 1)
     fim = datetime(ano + (mes == 12), mes % 12 + 1, 1)
@@ -154,6 +162,8 @@ def _vencimento(cfg: ConfigCobranca, ano: int, mes: int) -> date:
 def gerar_mensalidade(db, c: Cliente, ano: int, mes: int) -> Cobranca | None:
     """Idempotente: uma mensalidade por cliente e mês. None quando não há nada a cobrar."""
     comp = f"{ano:04d}-{mes:02d}"
+    if c.tipo != "escritorio":  # mensalidade é do plano: só de quem usa o MayaJus
+        return None
     if db.scalar(select(Cobranca.id).where(Cobranca.cliente_id == c.id, Cobranca.tipo == "mensalidade",
                                            Cobranca.competencia == comp)):
         return None
@@ -172,7 +182,7 @@ def gerar_mensalidade(db, c: Cliente, ano: int, mes: int) -> Cobranca | None:
 def primeira_cobranca(db, c: Cliente) -> Cobranca | None:
     """Cliente novo: a 1ª mensalidade (ou anuidade) já nasce. Com teste grátis, vence no fim do teste (a régua avisa
     antes); sem teste, vence em 3 dias. As mensalidades seguintes saem pela rotina de todo mês."""
-    if not c.plano:
+    if not c.plano or c.tipo != "escritorio":
         return None
     venc = c.teste_ate or date.today() + timedelta(days=3)
     comp = f"{venc:%Y-%m}"
@@ -219,6 +229,8 @@ def criar_link(db, cob: Cobranca) -> str:
 
 def assinar_cartao(db, c: Cliente) -> str:
     """Link para o cliente cadastrar o cartão: o Mercado Pago passa a debitar a mensalidade todo mês."""
+    if c.tipo != "escritorio":
+        raise RegraCobranca("O cartão recorrente é da mensalidade do plano. Este cliente paga pelo link de cada cobrança.")
     if not c.plano:
         raise RegraCobranca("Defina o plano do cliente antes de criar a assinatura.")
     if c.ciclo == "anual":
@@ -324,10 +336,20 @@ def _data_mp(v: str | None) -> datetime | None:
 
 
 # ---------------------------------------------------------------- e-mails (pelo SMTP configurado no admin)
-def enviar_email(para: list[str], assunto: str, corpo: str) -> None:
+def enviar_email(para: list[str], assunto: str, corpo: str, marca: str = "MayaJus") -> None:
     from app.controle import service
 
-    service.enviar_email(para, assunto, corpo)
+    service.enviar_email(para, assunto, corpo, marca=marca)
+
+
+def marca_de(cob: Cobranca) -> str:
+    """Quem assina o e-mail: MayaJus na mensalidade e nas cobranças de quem usa o sistema; MayaCorp no serviço
+    recorrente e em tudo de quem não tem acesso ao sistema."""
+    return "MayaCorp" if cob.tipo == "recorrente" or cob.cliente.tipo == "externo" else "MayaJus"
+
+
+def _com_marca(marca: str) -> dict:
+    return {} if marca == "MayaJus" else {"marca": marca}
 
 
 def _moeda(v: Decimal) -> str:
@@ -345,20 +367,23 @@ def enviar_cobranca(db, cob: Cobranca, passo: int | None = None) -> list[str]:
         raise RegraCobranca(f"{c.nome} não tem e-mail do financeiro na ficha.")
     link = criar_link(db, cob)
     venc = f"{cob.vencimento:%d/%m/%Y}"
+    marca = marca_de(cob)
+    de_quem = "do MayaJus" if marca == "MayaJus" else "da MayaCorp"
     if passo is None or passo < 0:
-        assunto = f"MayaJus — {cob.descricao}: vence em {venc}"
-        abertura = f"Segue a cobrança do MayaJus, com vencimento em {venc}."
+        assunto = f"{marca} — {cob.descricao}: vence em {venc}"
+        abertura = f"Segue a cobrança {de_quem}, com vencimento em {venc}."
     elif passo == 0:
-        assunto = f"MayaJus — {cob.descricao} vence hoje"
-        abertura = "Lembrete: a cobrança do MayaJus vence hoje."
+        assunto = f"{marca} — {cob.descricao} vence hoje"
+        abertura = f"Lembrete: a cobrança {de_quem} vence hoje."
     else:
-        assunto = f"MayaJus — {cob.descricao} em aberto"
+        assunto = f"{marca} — {cob.descricao} em aberto"
         abertura = (f"Ainda não identificamos o pagamento da cobrança que venceu em {venc}. Se já pagou, "
                     "desconsidere este aviso.")
     corpo = (f"Olá, {c.responsavel or c.nome}.\n\n{abertura}\n\n{_texto_itens(cob)}\n\nTotal: {_moeda(cob.valor)}\n\n"
              f"Pague por Pix, cartão ou boleto neste link:\n{link}\n\nQualquer dúvida, é só responder este e-mail.\n\n"
              "MayaCorp")
-    enviar_email(para, assunto, corpo)
+    enviar_email(para, assunto, corpo, **_com_marca(marca))
+    cob.envio_erro = None
     return para
 
 
@@ -366,19 +391,23 @@ def _avisar_pagamento(cob: Cobranca) -> None:
     c = cob.cliente
     if not c.email_financeiro:
         return
+    marca = marca_de(cob)
     try:
-        enviar_email([c.email_financeiro], f"MayaJus — pagamento recebido ({cob.descricao})",
+        enviar_email([c.email_financeiro], f"{marca} — pagamento recebido ({cob.descricao})",
                      f"Olá, {c.responsavel or c.nome}.\n\nRecebemos o pagamento de {_moeda(cob.valor)} "
-                     f"({cob.descricao}). Obrigado!\n\nMayaCorp")
+                     f"({cob.descricao}). Obrigado!\n\nMayaCorp", **_com_marca(marca))
     except Exception:
         log.exception("Aviso de pagamento da cobrança %s falhou", cob.id)
 
 
 # ---------------------------------------------------------------- rotina diária (worker)
 def rotina_diaria(hoje: date | None = None) -> dict:
-    """Gera as mensalidades do mês (se automático) e manda os e-mails da régua. Atraso só gera aviso."""
+    """Gera as mensalidades do mês (se automático) e as cobranças recorrentes que chegaram na data, e manda os
+    e-mails da régua. Atraso só gera aviso."""
+    from app.controle import recorrencia
+
     hoje = hoje or date.today()
-    feitos = {"geradas": 0, "avisos": 0}
+    feitos = {"geradas": 0, "recorrentes": 0, "avisos": 0}
     with SessaoControle() as db:
         cfg = config(db)
         db.commit()
@@ -394,13 +423,22 @@ def rotina_diaria(hoje: date | None = None) -> dict:
                     db.rollback()
                     log.exception("Mensalidade de %s falhou", c.slug)
         regua = sorted(set(cfg.regua or []))
+        feitos["recorrentes"] = recorrencia.rotina(db, hoje, regua)  # a nova já sai com o e-mail (não entra na régua de hoje)
         pendentes = db.scalars(select(Cobranca).where(Cobranca.status == "pendente", Cobranca.tipo != "cartao"))
         for cob in pendentes:
             devidos = [p for p in regua if hoje >= cob.vencimento + timedelta(days=p) and p not in (cob.avisos or [])]
-            if not devidos:
+            if not devidos and not cob.envio_erro:  # com envio_erro: o e-mail da cobrança ainda não saiu, tenta de novo
+                continue
+            if not cob.cliente.email_financeiro:
+                # sem destinatário não há o que tentar: fica marcado na cobrança (a tela destaca) e o log avisa uma vez
+                if cob.envio_erro != SEM_EMAIL:
+                    cob.envio_erro = SEM_EMAIL
+                    db.commit()
+                    log.warning("Cobrança %s de %s não foi enviada: %s", cob.id, cob.cliente.nome, SEM_EMAIL)
                 continue
             try:
-                enviar_cobranca(db, cob, max(devidos))  # só o passo mais recente: nunca vários e-mails de uma vez
+                # só o passo mais recente: nunca vários e-mails de uma vez
+                enviar_cobranca(db, cob, max(devidos) if devidos else None)
                 cob.avisos = sorted({*(cob.avisos or []), *devidos})
                 db.commit()
                 feitos["avisos"] += 1

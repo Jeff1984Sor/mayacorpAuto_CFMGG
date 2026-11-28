@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.controle import service
 from app.controle.models import ChaveIA, SessaoControle
-from app.controle.routes_admin import Painel, _cliente, _esc_do
+from app.controle.routes_admin import Painel, _esc_do, _escritorio
 from app.core import ia, tenancy
 from app.core.db import SessionLocal
 from app.core.security import cifrar, decifrar
@@ -166,7 +166,7 @@ def ia_do_cliente(cid: int, ctx: Painel):
     from app.core.models import ConfigIA, Tenant
 
     with SessaoControle() as db:
-        esc = _esc_do(_cliente(db, cid))
+        esc = _esc_do(_escritorio(db, cid))
     with tenancy.usando(esc), SessionLocal() as db:
         tid = db.scalar(select(Tenant.id).order_by(Tenant.id))
         return _ia_out(db.get(ConfigIA, tid), _centrais())
@@ -177,7 +177,7 @@ def liberar_ia(cid: int, dados: IAClienteIn, ctx: Painel):
     from app.core.models import ConfigIA, Tenant
 
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         esc, nome = _esc_do(c), c.nome
     cifrada = None
     if dados.ativo:

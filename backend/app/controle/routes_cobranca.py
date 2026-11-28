@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.controle import cobranca, nota_fiscal, planos
 from app.controle.mercadopago import ErroMercadoPago, MercadoPago, assinatura_valida
 from app.controle.models import Cliente, Cobranca, Plano, SessaoControle
-from app.controle.routes_admin import Painel, _cliente, _d, _plano_out
+from app.controle.routes_admin import Painel, _cliente, _d, _escritorio, _plano_out, mrr_dos_planos
 from app.core import tenancy
 from app.core.deps import Ctx
 from app.core.security import cifrar
@@ -70,7 +70,10 @@ class TrocaPlanoIn(BaseModel):
 
 def _cob_out(k: Cobranca) -> dict:
     vencida = k.status == "pendente" and k.vencimento < date.today()
-    return {"id": k.id, "cliente_id": k.cliente_id, "cliente_nome": k.cliente.nome, "tipo": k.tipo,
+    return {"id": k.id, "cliente_id": k.cliente_id, "cliente_nome": k.cliente.nome, "cliente_tipo": k.cliente.tipo,
+            "tipo": k.tipo, "recorrencia_id": k.recorrencia_id,
+            # só interessa enquanto está em aberto: "não enviada: falta o e-mail do financeiro"
+            "envio_erro": k.envio_erro if k.status == "pendente" else None,
             "competencia": k.competencia, "descricao": k.descricao, "itens": k.itens or [], "valor": _d(k.valor),
             "vencimento": k.vencimento, "status": "vencida" if vencida else k.status,
             "status_rotulo": "Vencida" if vencida else ROTULO.get(k.status, k.status), "link": k.link,
@@ -140,11 +143,13 @@ def testar(ctx: Painel):
 
 # ================================================================ admin: cobranças
 @admin.get("/cobrancas")
-def listar(ctx: Painel, status: str | None = None, cliente_id: int | None = None):
+def listar(ctx: Painel, status: str | None = None, cliente_id: int | None = None, tipo: str | None = None):
     with SessaoControle() as db:
         q = select(Cobranca).order_by(Cobranca.vencimento.desc(), Cobranca.id.desc())
         if cliente_id:
             q = q.where(Cobranca.cliente_id == cliente_id)
+        if tipo:
+            q = q.where(Cobranca.tipo == tipo)
         if status == "vencida":
             q = q.where(Cobranca.status == "pendente", Cobranca.vencimento < date.today())
         elif status == "pendente":
@@ -167,14 +172,21 @@ def listar(ctx: Painel, status: str | None = None, cliente_id: int | None = None
 @admin.get("/cobrancas/resumo")
 def resumo(ctx: Painel):
     hoje = date.today()
+    from app.controle import recorrencia
+
     with SessaoControle() as db:
         todas = list(db.scalars(select(Cobranca).where(Cobranca.status != "cancelada")))
+        planos_mes, recorrencias_mes = mrr_dos_planos(db), recorrencia.receita_mensal(db)
     aberto = sum((k.valor for k in todas if k.status == "pendente" and k.vencimento >= hoje), Decimal(0))
     vencido = sum((k.valor for k in todas if k.status == "pendente" and k.vencimento < hoje), Decimal(0))
     recebido = sum((k.valor for k in todas if k.status == "paga" and k.pago_em and k.pago_em.date().replace(day=1)
                     == hoje.replace(day=1)), Decimal(0))
     return {"em_aberto": _d(aberto), "vencido": _d(vencido), "recebido_mes": _d(recebido),
-            "inadimplentes": len({k.cliente_id for k in todas if k.status == "pendente" and k.vencimento < hoje})}
+            "inadimplentes": len({k.cliente_id for k in todas if k.status == "pendente" and k.vencimento < hoje}),
+            # receita recorrente mensal prevista: mensalidades de plano + recorrências ativas, tudo trazido para o mês
+            "receita_recorrente": _d(planos_mes + recorrencias_mes), "receita_planos": _d(planos_mes),
+            "receita_recorrencias": _d(recorrencias_mes),
+            "nao_enviadas": len([k for k in todas if k.status == "pendente" and k.envio_erro])}
 
 
 def _enviar(db, k: Cobranca) -> list[str]:
@@ -332,6 +344,9 @@ def _cob(db, kid: int) -> Cobranca:
 def forma_pagamento(cid: int, dados: FormaIn, ctx: Painel):
     with SessaoControle() as db:
         c = _cliente(db, cid)
+        if dados.forma_pagamento == "cartao" and c.tipo != "escritorio":
+            raise HTTPException(400, "O cartão recorrente é da mensalidade do plano. Cliente sem acesso ao sistema "
+                                     "paga pelo link de cada cobrança (Pix, cartão ou boleto).")
         c.forma_pagamento = dados.forma_pagamento
         db.commit()
         ctx.auditar("admin.cliente.pagamento", "controle_cliente", c.id, descricao=dados.forma_pagamento)
@@ -343,7 +358,7 @@ def forma_pagamento(cid: int, dados: FormaIn, ctx: Painel):
 def criar_assinatura(cid: int, ctx: Painel):
     """Link para o cliente cadastrar o cartão (vai por e-mail para o financeiro)."""
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         try:
             link = cobranca.assinar_cartao(db, c)
         except (ErroMercadoPago, cobranca.RegraCobranca) as e:

@@ -24,7 +24,11 @@ class RegraControle(ValueError):
 
 
 def _esc(c: Cliente | None) -> Escritorio | None:
-    return Escritorio(slug=c.slug, banco=c.banco, mayacorp=c.tipo == "mayacorp") if c and c.status in ATIVOS else None
+    """O cliente como escritório (com banco). Cliente sem acesso ao sistema (tipo "externo") nunca é escritório:
+    é por aqui que passam o login, o domínio, o token, o worker e a migração, então ele fica fora de todos."""
+    if c is None or c.tipo == "externo" or c.status not in ATIVOS:
+        return None
+    return Escritorio(slug=c.slug, banco=c.banco, mayacorp=c.tipo == "mayacorp")
 
 
 def _memo(tipo: str, chave: str, buscar) -> Escritorio | None:
@@ -126,6 +130,8 @@ def sincronizar_todos(slug: str) -> int:
     from app.core.models import Usuario
 
     esc = por_slug(slug)
+    if esc is None:  # inativo ou sem acesso ao sistema: não há banco para ler
+        raise RegraControle(f"{slug} não é um escritório com acesso ao sistema.")
     with tenancy.usando(esc), SessionLocal() as db:
         usuarios = [(u.id, [u.login, u.email]) for u in db.scalars(select(Usuario))]
     for uid, chaves in usuarios:
@@ -141,7 +147,9 @@ def registrar(slug: str, nome: str, *, banco: str | None, status: str = "ativo",
     with SessaoControle() as db:
         if db.scalar(select(Cliente).where(Cliente.slug == slug)):
             raise RegraControle(f"Já existe o escritório {slug}.")
-        if banco is None and db.scalar(select(Cliente).where(Cliente.banco.is_(None))):
+        # banco vazio só quer dizer "banco principal" em quem tem acesso ao sistema; no externo é "não tem banco"
+        if banco is None and tipo != "externo" and db.scalar(select(Cliente).where(Cliente.banco.is_(None),
+                                                                                   Cliente.tipo != "externo")):
             raise RegraControle("Já existe um escritório no banco principal.")
         if tipo == "mayacorp" and db.scalar(select(Cliente).where(Cliente.tipo == "mayacorp")):
             raise RegraControle("O admin da MayaCorp já existe.")
@@ -156,7 +164,30 @@ def registrar(slug: str, nome: str, *, banco: str | None, status: str = "ativo",
         return c
 
 
+def registrar_externo(nome: str, **ficha) -> Cliente:
+    """Cliente da MayaCorp sem acesso ao sistema: só a ficha (para contratos, cobranças e nota). Nada de banco,
+    usuário, domínio, plano ou teste."""
+    with SessaoControle() as db:
+        usados = set(db.scalars(select(Cliente.slug)))
+    base = slug_de(nome)
+    slug, n = base, 1
+    while slug in usados:
+        n += 1
+        slug = f"{base[:36]}-{n}"
+    return registrar(slug, nome, banco=None, tipo="externo", status="ativo", **ficha)
+
+
+def slug_de(nome: str) -> str:
+    import unicodedata
+
+    base = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().lower()
+    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-")[:30] or "escritorio"
+    return base if base[0].isalpha() else f"e-{base}"
+
+
 def adicionar_dominio(db, cliente: Cliente, host: str) -> Dominio:
+    if cliente.tipo == "externo":
+        raise RegraControle("Cliente sem acesso ao sistema não tem domínio.")
     host = normalizar_host(host)
     if not re.match(r"^[a-z0-9.-]+\.[a-z]{2,}$", host):
         raise RegraControle(f"Domínio inválido: {host}")
@@ -220,9 +251,6 @@ def provisionar(slug: str, nome: str, *, admin_email: str, admin_nome: str = "",
                 admin_senha: str | None = None, primeiro_acesso: bool = False, **ficha) -> tuple[Cliente, str]:
     """Escritório novo: banco próprio, tabelas, identidade, o usuário Suporte e o administrador. Com primeiro_acesso,
     o link é o de boas-vindas: o próprio cliente cria o usuário master (admin_email só recebe o e-mail)."""
-    from app.core.db import SessionLocal
-    from app.core.models import Identidade, Tenant
-
     email = admin_email.strip().lower()
     login = admin_login.strip().lower() if admin_login else None
     if admin_senha:
@@ -244,36 +272,129 @@ def provisionar(slug: str, nome: str, *, admin_email: str, admin_nome: str = "",
     cliente = registrar(slug, nome, banco=banco, dias_teste=dias_teste, dominios=dominios, tipo=tipo, **ficha)
     esc = Escritorio(slug=slug, banco=banco, mayacorp=tipo == "mayacorp")
     try:
-        migrar(esc)
-        with tenancy.usando(esc), SessionLocal() as db:
-            t = Tenant(slug=slug, nome=nome)
-            db.add(t)
-            db.flush()
-            db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
-            from app.modules.faturamento import seeds_caso
-
-            seeds_caso.garantir(db, t.id)  # listas, áreas e papéis das partes padrão
-            suporte = _usuario_suporte(db, t.id, slug) if tipo != "mayacorp" else None
-            if primeiro_acesso:  # o próprio cliente cria o usuário master pelo link de boas-vindas
-                db.commit()
-                uid, link = None, link_primeiro_acesso(slug, email)
-            else:
-                admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
-                db.commit()
-                uid = admin.id
-                link = "" if admin_senha else _convite(admin)
-            sid = suporte.id if suporte else None
+        uid, sid, link = _montar_ambiente(esc, nome, admin_nome=admin_nome, email=email, login=login,
+                                          admin_senha=admin_senha, primeiro_acesso=primeiro_acesso)
     except Exception:
         with SessaoControle() as db:  # não deixa escritório pela metade no controle (o banco vazio pode ser reaproveitado)
             db.delete(db.get(Cliente, cliente.id))
             db.commit()
         limpar_cache()
         raise
+    _catalogar(slug, uid, sid, email, login)
+    return cliente, link
+
+
+def _montar_ambiente(esc: Escritorio, nome: str, *, admin_nome: str, email: str, login: str | None,
+                     admin_senha: str | None, primeiro_acesso: bool) -> tuple[int | None, int | None, str]:
+    """Tabelas, identidade, listas padrão, usuário Suporte e o primeiro acesso no banco (já criado) do escritório."""
+    from app.core.db import SessionLocal
+    from app.core.models import Identidade, Tenant
+
+    slug = esc.slug
+    migrar(esc)
+    with tenancy.usando(esc), SessionLocal() as db:
+        t = Tenant(slug=slug, nome=nome)
+        db.add(t)
+        db.flush()
+        db.add(Identidade(tenant_id=t.id, nome_exibicao=nome))
+        from app.modules.faturamento import seeds_caso
+
+        seeds_caso.garantir(db, t.id)  # listas, áreas e papéis das partes padrão
+        suporte = _usuario_suporte(db, t.id, slug) if not esc.mayacorp else None
+        if primeiro_acesso:  # o próprio cliente cria o usuário master pelo link de boas-vindas
+            db.commit()
+            uid, link = None, link_primeiro_acesso(slug, email)
+        else:
+            admin = _primeiro_admin(db, t.id, admin_nome, email, login, admin_senha)
+            db.commit()
+            uid = admin.id
+            link = "" if admin_senha else _convite(admin)
+        return uid, suporte.id if suporte else None, link
+
+
+def _catalogar(slug: str, uid: int | None, sid: int | None, email: str, login: str | None) -> None:
     if uid:
         sincronizar_usuario(slug, uid, [email, login])
     if sid:
         sincronizar_usuario(slug, sid, [f"suporte+{slug}@mayacorp.com.br", f"suporte.{slug}"])
-    return cliente, link
+
+
+def dar_acesso(cliente_id: int, *, admin_email: str | None, dias_teste: int | None = None,
+               dominios: list[str] | None = None, **ficha) -> tuple[Cliente, str | None]:
+    """Cliente sem acesso vira escritório do MayaJus. Quem nunca teve banco ganha o ambiente pelo mesmo caminho do
+    cadastro normal (o link devolvido é o de boas-vindas); quem já teve (perdeu o acesso e ficou só na cobrança)
+    volta para o banco de antes, com os usuários e os dados como estavam (link None)."""
+    with SessaoControle() as db:
+        c = db.get(Cliente, cliente_id)
+        if c is None or c.tipo != "externo":
+            raise RegraControle("Este cliente já tem acesso ao sistema.")
+        slug, nome, banco_antigo = c.slug, c.nome, c.banco
+        email = (admin_email or "").strip().lower()
+        if banco_antigo is None:
+            if not email:
+                raise RegraControle("Informe o e-mail que recebe as boas-vindas.")
+            if db.get(Login, email):
+                raise RegraControle(f"{email} já é usado em outro escritório (o login precisa ser único no MayaJus).")
+    banco = banco_antigo or nome_do_banco(slug)
+    if banco_antigo is None:
+        criar_banco(banco)  # antes de mudar o cadastro: sem banco, o cliente continua só na cobrança
+    with SessaoControle() as db:
+        c = db.get(Cliente, cliente_id)
+        antes = {"status": c.status, "teste_ate": c.teste_ate, "plano_id": c.plano_id, "ciclo": c.ciclo,
+                 "inicio_contrato": c.inicio_contrato}
+        c.tipo, c.banco = "escritorio", banco
+        c.status = "teste" if dias_teste else "ativo"
+        c.teste_ate = date.today() + timedelta(days=dias_teste) if dias_teste else None
+        for k, v in ficha.items():
+            setattr(c, k, v)
+        try:
+            novos = [adicionar_dominio(db, c, h) for h in dominios or []]
+            db.flush()
+            ids_dominios = [d.id for d in novos]
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+    limpar_cache()
+    if banco_antigo is not None:
+        with SessaoControle() as db:
+            return db.get(Cliente, cliente_id), None
+    try:
+        uid, sid, link = _montar_ambiente(Escritorio(slug=slug, banco=banco), nome, admin_nome="", email=email, login=None,
+                                          admin_senha=None, primeiro_acesso=True)
+    except Exception:
+        with SessaoControle() as db:  # volta a ser só cobrança (o banco vazio pode ser reaproveitado)
+            c = db.get(Cliente, cliente_id)
+            c.tipo, c.banco = "externo", None
+            for k, v in antes.items():
+                setattr(c, k, v)
+            for d in list(c.dominios):
+                if d.id in ids_dominios:
+                    db.delete(d)
+            db.commit()
+        limpar_cache()
+        raise
+    _catalogar(slug, uid, sid, email, None)
+    with SessaoControle() as db:
+        return db.get(Cliente, cliente_id), link
+
+
+def tirar_acesso(cliente_id: int) -> Cliente:
+    """Escritório vira cliente só de cobrança: ninguém mais entra e a mensalidade do plano para. Nada é apagado
+    (banco, usuários, domínios e o plano ficam guardados para o caso de o acesso voltar)."""
+    with SessaoControle() as db:
+        c = db.get(Cliente, cliente_id)
+        if c is None or c.tipo != "escritorio":
+            raise RegraControle("Este cliente não tem acesso ao sistema.")
+        if c.banco is None:
+            raise RegraControle("O escritório do banco principal não pode ficar sem acesso ao sistema.")
+        c.tipo = "externo"
+        c.status = "inativo" if c.status == "inativo" else "ativo"  # ativo aqui = continua sendo cobrado
+        c.teste_ate = None
+        c.forma_pagamento = "link"
+        db.commit()
+        limpar_cache()
+        return c
 
 
 def _usuario_suporte(db, tenant_id: int, slug: str):
@@ -348,7 +469,7 @@ def registrar_principal_se_faltar() -> str | None:
     from app.core.models import Tenant
 
     with SessaoControle() as db:
-        if db.scalar(select(Cliente.id).where(Cliente.banco.is_(None))):
+        if db.scalar(select(Cliente.id).where(Cliente.banco.is_(None), Cliente.tipo != "externo")):
             return None
     with Session(tenancy.engine_do(None)) as db:
         t = db.scalar(select(Tenant).order_by(Tenant.id))
@@ -436,7 +557,8 @@ def escritorio_mayacorp() -> Escritorio | None:
         return Escritorio(slug=c.slug, banco=c.banco, mayacorp=True) if c else None
 
 
-def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[str, bytes, str]] | None = None) -> None:
+def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[str, bytes, str]] | None = None,
+                 marca: str = "MayaJus") -> None:
     """E-mails da MayaCorp aos clientes (convites, contratos, cobranças) saem pelo SMTP configurado no admin
     (Configurações › Notificações e e-mail), no modelo HTML com a marca; sem SMTP no admin, pelo do servidor."""
     import mimetypes
@@ -449,7 +571,7 @@ def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[s
 
     esc = escritorio_mayacorp()
     if esc is None:
-        mail.enviar(para, assunto, corpo, anexos=anexos, html=corpo_html(corpo, titulo=assunto))
+        mail.enviar(para, assunto, corpo, anexos=anexos, html=corpo_html(corpo, titulo=assunto, marca=marca))
         return
     with tenancy.usando(esc), SessionLocal() as s:
         cfg = s.scalar(select(ConfigNotificacao).limit(1))
@@ -458,7 +580,7 @@ def enviar_email(para: list[str], assunto: str, corpo: str, anexos: list[tuple[s
         logo = Path(ident.logo_path) if ident and ident.logo_path else None
         if logo and logo.exists():
             imagens["logo-mayacorp"] = (logo.read_bytes(), mimetypes.guess_type(logo.name)[0] or "image/png")
-        html = corpo_html(corpo, titulo=assunto, marca="MayaJus", logo_cid="logo-mayacorp" if imagens else None)
+        html = corpo_html(corpo, titulo=assunto, marca=marca, logo_cid="logo-mayacorp" if imagens else None)
         mail.enviar(para, assunto, corpo, anexos=anexos, config=cfg if cfg and cfg.smtp_host else None, html=html,
                     imagens=imagens)
 
@@ -484,11 +606,18 @@ def excluir_escritorio(slug: str) -> None:
         c = db.scalar(select(Cliente).where(Cliente.slug == slug))
         if c is None:
             raise RegraControle("Escritório não encontrado.")
-        if c.banco is None or c.tipo == "mayacorp":
+        if c.tipo == "mayacorp" or (c.banco is None and c.tipo != "externo"):
             raise RegraControle("O escritório principal e o admin da MayaCorp não podem ser excluídos.")
         if c.status != "inativo":
-            raise RegraControle("Inative o escritório antes de excluir (ninguém entra enquanto está inativo).")
+            raise RegraControle("Inative o cliente antes de excluir." if c.tipo == "externo" else
+                                "Inative o escritório antes de excluir (ninguém entra enquanto está inativo).")
         banco = c.banco
+    if banco is None:  # cliente sem acesso que nunca teve banco: só o registro no controle
+        with SessaoControle() as db:
+            db.delete(db.scalar(select(Cliente).where(Cliente.slug == slug)))
+            db.commit()
+        limpar_cache()
+        return
     eng = tenancy._engines.pop(banco, None)
     if eng is not None:
         eng.dispose()

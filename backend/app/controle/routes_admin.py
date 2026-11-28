@@ -6,7 +6,6 @@ escritórios clientes estas rotas não existem (404).
 
 import logging
 import re
-import unicodedata
 from datetime import date
 from decimal import Decimal
 from typing import Annotated
@@ -26,6 +25,9 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin MayaCorp"])
 STATUS = {"teste": "Em teste", "ativo": "Ativo", "suspenso": "Suspenso (avisado)", "inativo": "Inativo (sem acesso)"}
+# cliente sem acesso ao sistema (tipo "externo"): só existe "ativo" (é cobrado) e "inativo" (as recorrências param)
+STATUS_EXTERNO = {"ativo": "Ativo", "inativo": "Inativo (não é cobrado)"}
+TIPOS = ("escritorio", "externo")  # o que aparece em Clientes; "mayacorp" é o próprio admin
 
 
 def _painel(ctx: Ctx) -> Contexto:
@@ -82,6 +84,27 @@ class ClienteNovoIn(FichaIn):
     slug: str | None = Field(default=None, max_length=39)
     admin_nome: str = Field(default="", max_length=150)  # quem recebe as boas-vindas (opcional)
     admin_email: EmailStr  # recebe o link de boas-vindas e cria o usuário master
+    dias_teste: int | None = Field(default=None, ge=1, le=90)
+    dominios: list[str] = []
+
+
+class ExternoIn(BaseModel):
+    """Cliente sem acesso ao sistema: só a ficha, para cobrar e emitir a nota."""
+
+    nome: str = Field(min_length=2, max_length=200)
+    documento: str | None = None
+    responsavel: str | None = Field(default=None, max_length=150)
+    email_financeiro: EmailStr | None = None
+    telefone: str | None = Field(default=None, max_length=30)
+    observacao: str | None = None
+
+
+class DarAcessoIn(BaseModel):
+    admin_nome: str = Field(default="", max_length=150)
+    admin_email: EmailStr | None = None  # obrigatório para quem nunca teve ambiente (recebe as boas-vindas)
+    plano_id: int | None = None
+    ciclo: str = Field(default="mensal", pattern="^(mensal|anual)$")
+    inicio_contrato: date | None = None
     dias_teste: int | None = Field(default=None, ge=1, le=90)
     dominios: list[str] = []
 
@@ -144,7 +167,7 @@ def _plano_out(p: Plano | None) -> dict | None:
 
 
 def _valor(c: Cliente) -> Decimal | None:
-    if not c.plano:
+    if not c.plano or c.tipo == "externo":  # sem acesso não tem plano (o de antes só fica guardado para a volta)
         return None
     return c.plano.preco_anual if c.ciclo == "anual" else c.plano.preco_mensal
 
@@ -160,29 +183,43 @@ def _cliente_out(c: Cliente) -> dict:
 
 
 def _cliente_base(c: Cliente) -> dict:
-    return {"id": c.id, "slug": c.slug, "nome": c.nome, "status": c.status, "status_rotulo": STATUS.get(c.status, c.status),
+    externo = c.tipo == "externo"
+    rotulos = STATUS_EXTERNO if externo else STATUS
+    return {"id": c.id, "slug": c.slug, "nome": c.nome, "tipo": c.tipo, "status": c.status,
+            "status_rotulo": rotulos.get(c.status, c.status),
             "teste_ate": c.teste_ate, "criado_em": c.criado_em, "documento": c.documento, "responsavel": c.responsavel,
-            "email_financeiro": c.email_financeiro, "telefone": c.telefone, "plano": _plano_out(c.plano),
-            "plano_id": c.plano_id, "ciclo": c.ciclo, "valor": _d(_valor(c)), "inicio_contrato": c.inicio_contrato,
-            "observacao": c.observacao, "banco_principal": c.banco is None,
-            "dominios": [{"id": d.id, "host": d.host} for d in c.dominios], "robos": c.robos or []}
+            "email_financeiro": c.email_financeiro, "telefone": c.telefone,
+            "plano": None if externo else _plano_out(c.plano), "plano_id": c.plano_id, "ciclo": c.ciclo, "valor": _d(_valor(c)), "inicio_contrato": c.inicio_contrato,
+            "observacao": c.observacao, "banco_principal": c.banco is None and not externo,
+            # externo que já teve acesso: o banco continua guardado e volta se o acesso for devolvido
+            "ambiente_guardado": externo and c.banco is not None,
+            "dominios": [] if externo else [{"id": d.id, "host": d.host} for d in c.dominios],
+            "robos": [] if externo else c.robos or []}
 
 
 def _cliente(db, cid: int) -> Cliente:
+    """Qualquer cliente da MayaCorp (com ou sem acesso ao sistema): ficha, situação, contratos e cobranças."""
     c = db.get(Cliente, cid)
-    if not c or c.tipo != "escritorio":
+    if not c or c.tipo not in TIPOS:
         raise HTTPException(404, "Cliente não encontrado.")
     return c
 
 
+def _escritorio(db, cid: int) -> Cliente:
+    """Só quem usa o MayaJus: tudo o que mexe no ambiente (usuários, domínios, uso, IA, cartão do plano)."""
+    c = _cliente(db, cid)
+    if c.tipo != "escritorio":
+        raise HTTPException(400, "Este cliente não tem acesso ao sistema.")
+    return c
+
+
 def _esc_do(c: Cliente) -> tenancy.Escritorio:
+    if c.tipo != "escritorio":  # banco vazio de cliente sem acesso NÃO é o banco principal
+        raise HTTPException(400, "Este cliente não tem acesso ao sistema.")
     return tenancy.Escritorio(slug=c.slug, banco=c.banco)
 
 
-def _slug_de(nome: str) -> str:
-    base = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().lower()
-    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-")[:30] or "escritorio"
-    return base if base[0].isalpha() else f"e-{base}"
+_slug_de = service.slug_de
 
 
 def _validar_indicacao(db, indicado_por_id: int | None, proprio_id: int | None = None) -> None:
@@ -193,8 +230,11 @@ def _validar_indicacao(db, indicado_por_id: int | None, proprio_id: int | None =
         raise HTTPException(400, "Indicação inválida: escolha outro cliente do MayaJus.")
 
 
-def _ficha(dados: FichaIn) -> dict:
-    campos = dados.model_dump(include=set(FichaIn.model_fields))
+SO_DA_FICHA_EXTERNA = set(ExternoIn.model_fields)
+
+
+def _ficha(dados: FichaIn | ExternoIn) -> dict:
+    campos = dados.model_dump(include=set(type(dados).model_fields) & set(FichaIn.model_fields))
     campos["documento"] = re.sub(r"\D", "", campos["documento"] or "") or None
     campos["email_financeiro"] = str(campos["email_financeiro"]).lower() if campos["email_financeiro"] else None
     if campos.get("robos") is None:
@@ -210,18 +250,28 @@ def resumo(ctx: Painel):
     with SessaoControle() as db:
         clientes = list(db.scalars(select(Cliente).where(Cliente.tipo == "escritorio")))
         por_status = {k: 0 for k in STATUS}
-        mrr = Decimal(0)
         for c in clientes:
             por_status[c.status] = por_status.get(c.status, 0) + 1
-            if c.status in ("ativo", "suspenso") and c.plano:
-                mrr += c.plano.preco_anual / 12 if c.ciclo == "anual" else c.plano.preco_mensal
-        return {"clientes": len(clientes), "por_status": por_status, "mrr": _d(mrr)}
+        externos = db.scalar(select(func.count(Cliente.id)).where(Cliente.tipo == "externo")) or 0
+        return {"clientes": len(clientes), "por_status": por_status, "mrr": _d(mrr_dos_planos(db)),
+                "sem_acesso": externos}
+
+
+def mrr_dos_planos(db) -> Decimal:
+    """Mensalidades de plano dos escritórios ativos/suspensos, trazidas para o mês (anual ÷ 12)."""
+    mrr = Decimal(0)
+    for c in db.scalars(select(Cliente).where(Cliente.tipo == "escritorio", Cliente.status.in_(("ativo", "suspenso")))):
+        if c.plano:
+            mrr += c.plano.preco_anual / 12 if c.ciclo == "anual" else c.plano.preco_mensal
+    return mrr
 
 
 @router.get("/clientes")
-def listar_clientes(ctx: Painel, q: str | None = None, status: str | None = None):
+def listar_clientes(ctx: Painel, q: str | None = None, status: str | None = None, tipo: str | None = None):
     with SessaoControle() as db:
-        sel = select(Cliente).where(Cliente.tipo == "escritorio")
+        sel = select(Cliente).where(Cliente.tipo.in_(TIPOS))
+        if tipo in TIPOS:
+            sel = sel.where(Cliente.tipo == tipo)
         if status:
             sel = sel.where(Cliente.status == status)
         if q:
@@ -265,6 +315,95 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
         return {**_cliente_out(db.get(Cliente, cliente.id)), "convite": link}
 
 
+@router.post("/clientes/externo", status_code=201)
+def criar_cliente_externo(dados: ExternoIn, ctx: Painel):
+    """Cliente sem acesso ao sistema: só a ficha. Não cria banco, usuário, domínio, teste nem boas-vindas."""
+    ficha = _ficha(dados)
+    nome = ficha.pop("nome").strip()
+    try:
+        cliente = service.registrar_externo(nome, **ficha)
+    except service.RegraControle as e:
+        _erro(e)
+    with SessaoControle() as db:
+        c = db.get(Cliente, cliente.id)
+        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, c)  # o mesmo cliente em Cadastros › Clientes (para a nota)
+        ctx.auditar("admin.cliente.criar", "controle_cliente", c.id, descricao=f"{c.slug}: {nome} (sem acesso ao sistema)")
+        ctx.db.commit()
+        return _cliente_out(c)
+
+
+@router.post("/clientes/{cid}/dar-acesso")
+def dar_acesso(cid: int, dados: DarAcessoIn, ctx: Painel):
+    """Cliente só de cobrança passa a usar o MayaJus: ganha o ambiente (ou recupera o de antes), plano e teste."""
+    from app.core.models import Usuario
+
+    with SessaoControle() as db:
+        c = _cliente(db, cid)
+        if c.tipo != "externo":
+            raise HTTPException(400, "Este cliente já tem acesso ao sistema.")
+        if dados.plano_id and not db.get(Plano, dados.plano_id):
+            raise HTTPException(400, "Plano não encontrado.")
+        tinha_ambiente, nome, financeiro = c.banco is not None, c.nome, c.email_financeiro
+    email = str(dados.admin_email).lower() if dados.admin_email else financeiro
+    ficha = {"plano_id": dados.plano_id, "ciclo": dados.ciclo, "inicio_contrato": dados.inicio_contrato or date.today()}
+    if email and not financeiro:
+        ficha["email_financeiro"] = email  # o botão "1º acesso" do login procura por este e-mail
+    try:
+        cliente, link = service.dar_acesso(cid, admin_email=email, dias_teste=dados.dias_teste, dominios=dados.dominios,
+                                           **ficha)
+    except service.RegraControle as e:
+        _erro(e)
+    enviado = None
+    if link:  # ambiente novo: boas-vindas com o link para criar o usuário master
+        _boas_vindas(email, dados.admin_nome, nome, link, dados.dias_teste)
+        enviado = email
+    else:  # ambiente de antes: quem já tinha senha volta a entrar; sem usuário master, vão as boas-vindas
+        with tenancy.usando(tenancy.Escritorio(slug=cliente.slug, banco=cliente.banco)), SessionLocal() as db:
+            tem_master = db.scalar(select(Usuario.id).where(Usuario.equipe_mayacorp.is_(False),
+                                                            Usuario.senha_hash.is_not(None)))
+        if not tem_master and email:
+            link = service.link_primeiro_acesso(cliente.slug, email)
+            _boas_vindas(email, dados.admin_nome, nome, link, dados.dias_teste)
+            enviado = email
+    _primeira_cobranca(cid)
+    ctx.auditar("admin.cliente.dar_acesso", "controle_cliente", cid,
+                descricao=f"{nome}: passou a ter acesso ao sistema" + (" (ambiente de antes)" if tinha_ambiente else ""))
+    ctx.db.commit()
+    with SessaoControle() as db:
+        return {**_cliente_out(db.get(Cliente, cid)), "convite": link, "boas_vindas_para": enviado,
+                "ambiente_de_antes": tinha_ambiente}
+
+
+@router.post("/clientes/{cid}/tirar-acesso")
+def tirar_acesso(cid: int, ctx: Painel):
+    """Escritório fica só na cobrança: ninguém mais entra e a mensalidade do plano para. Nada é apagado."""
+    from app.controle import cobranca
+    from app.controle.mercadopago import ErroMercadoPago
+
+    with SessaoControle() as db:
+        c = _escritorio(db, cid)
+        if c.banco is None:
+            raise HTTPException(400, "O escritório do banco principal não pode ficar sem acesso ao sistema.")
+        nome = c.nome
+        if c.mp_assinatura_id and c.mp_assinatura_status != "cancelled":
+            # o cartão recorrente é da mensalidade do plano: sem plano, o Mercado Pago tem de parar de debitar
+            try:
+                cobranca.mp(cobranca.config(db)).alterar_assinatura(c.mp_assinatura_id, status="cancelled")
+            except (ErroMercadoPago, cobranca.RegraCobranca) as e:
+                raise HTTPException(400, "Não deu para cancelar a assinatura do cartão no Mercado Pago, e sem isso o "
+                                         f"cliente continuaria sendo debitado. Tente de novo em instantes. ({e})") from e
+            c.mp_assinatura_status = "cancelled"
+            db.commit()
+    try:
+        service.tirar_acesso(cid)
+    except service.RegraControle as e:
+        _erro(e)
+    ctx.auditar("admin.cliente.tirar_acesso", "controle_cliente", cid, descricao=f"{nome}: ficou só na cobrança, sem acesso")
+    ctx.db.commit()
+    with SessaoControle() as db:
+        return _cliente_out(db.get(Cliente, cid))
+
+
 def _primeira_cobranca(cid: int) -> None:
     """A 1ª cobrança nasce com o cliente; sem teste grátis, o link já vai por e-mail."""
     from app.controle import cobranca
@@ -298,7 +437,7 @@ def reenviar_boas_vindas(cid: int, ctx: Painel):
     from app.core.models import Usuario
 
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         esc, nome, para, pessoa = _esc_do(c), c.nome, c.email_financeiro, c.responsavel or ""
     with tenancy.usando(esc), SessionLocal() as db:
         if db.scalar(select(Usuario.id).where(Usuario.equipe_mayacorp.is_(False), Usuario.senha_hash.is_not(None))):
@@ -322,10 +461,14 @@ def ler_cliente(cid: int, ctx: Painel):
 def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
     with SessaoControle() as db:
         c = _cliente(db, cid)
-        if dados.plano_id and not db.get(Plano, dados.plano_id):
-            raise HTTPException(400, "Plano não encontrado.")
-        _validar_indicacao(db, dados.indicado_por_id, c.id)
-        for k, v in _ficha(dados).items():
+        campos = _ficha(dados)
+        if c.tipo == "externo":  # sem acesso ao sistema: só a ficha (plano, teste, indicação e robôs não se aplicam)
+            campos = {k: v for k, v in campos.items() if k in SO_DA_FICHA_EXTERNA}
+        else:
+            if dados.plano_id and not db.get(Plano, dados.plano_id):
+                raise HTTPException(400, "Plano não encontrado.")
+            _validar_indicacao(db, dados.indicado_por_id, c.id)
+        for k, v in campos.items():
             setattr(c, k, v)
         db.commit()
         service.limpar_cache()  # robôs liberados valem no próximo clique do cliente
@@ -339,6 +482,8 @@ def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
 def mudar_status(cid: int, dados: StatusIn, ctx: Painel):
     with SessaoControle() as db:
         c = _cliente(db, cid)
+        if c.tipo == "externo" and dados.status not in STATUS_EXTERNO:
+            raise HTTPException(400, "Cliente sem acesso ao sistema fica ativo (é cobrado) ou inativo (não é cobrado).")
         antes = c.status
         c.status = dados.status
         db.commit()
@@ -351,7 +496,7 @@ def mudar_status(cid: int, dados: StatusIn, ctx: Painel):
 @router.post("/clientes/{cid}/dominios", status_code=201)
 def adicionar_dominio(cid: int, dados: DominioIn, ctx: Painel):
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         try:
             service.adicionar_dominio(db, c, dados.host)
         except service.RegraControle as e:
@@ -366,7 +511,7 @@ def adicionar_dominio(cid: int, dados: DominioIn, ctx: Painel):
 @router.delete("/clientes/{cid}/dominios/{did}")
 def remover_dominio(cid: int, did: int, ctx: Painel):
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         d = db.get(Dominio, did)
         if not d or d.cliente_id != c.id:
             raise HTTPException(404, "Domínio não encontrado.")
@@ -386,7 +531,7 @@ def uso(cid: int, ctx: Painel):
     from app.controle import cobranca
 
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         hoje = date.today()
         u = cobranca.uso(c, hoje.year, hoje.month)
     return {**u, "valor_excedente": _d(u["valor_excedente"])}
@@ -404,7 +549,7 @@ def usuarios_do_cliente(cid: int, ctx: Painel):
     from app.core.models import Usuario
 
     with SessaoControle() as db:
-        esc = _esc_do(_cliente(db, cid))
+        esc = _esc_do(_escritorio(db, cid))
     with tenancy.usando(esc), SessionLocal() as db:
         return [_usuario_out(u) for u in db.scalars(select(Usuario).order_by(Usuario.nome))]
 
@@ -423,7 +568,7 @@ def criar_usuario_do_cliente(cid: int, dados: UsuarioClienteIn, ctx: Painel):
 
     email = str(dados.email).lower()
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         esc, nome_cliente = _esc_do(c), c.nome
     if service.chaves_em_uso([email], exceto_slug=esc.slug):
         raise HTTPException(409, "Este e-mail já é usado em outro escritório do MayaJus.")
@@ -452,7 +597,7 @@ def zerar_senha(cid: int, uid: int, ctx: Painel):
     from app.core.models import Usuario
 
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         esc, nome_cliente = _esc_do(c), c.nome
     with tenancy.usando(esc), SessionLocal() as db:
         u = db.get(Usuario, uid)
@@ -475,7 +620,7 @@ def ativar_usuario(cid: int, uid: int, dados: AtivoIn, ctx: Painel):
     from app.core.models import Usuario
 
     with SessaoControle() as db:
-        c = _cliente(db, cid)
+        c = _escritorio(db, cid)
         esc, nome_cliente = _esc_do(c), c.nome
     with tenancy.usando(esc), SessionLocal() as db:
         u = db.get(Usuario, uid)
@@ -828,20 +973,21 @@ def ia_mensagem(dados: MensagemIAIn, ctx: Painel):
 # ================================================================ exclusões
 @router.delete("/clientes/{cid}")
 def excluir_cliente_saas(cid: int, ctx: Painel, confirmar: str = ""):
-    """Apaga o escritório de vez (banco, usuários, domínios, contratos, cobranças). Só inativo e com o identificador
-    digitado de novo, porque não tem volta."""
+    """Apaga o cliente de vez (banco, usuários, domínios, contratos, cobranças e recorrências). Só inativo e com o
+    identificador digitado de novo, porque não tem volta. Cliente sem acesso que nunca teve ambiente não tem banco."""
     with SessaoControle() as db:
         c = _cliente(db, cid)
-        slug, nome = c.slug, c.nome
+        slug, nome, tinha_banco = c.slug, c.nome, c.banco is not None
     if confirmar.strip().lower() != slug:
-        raise HTTPException(400, f"Para confirmar, digite o identificador do escritório: {slug}")
+        raise HTTPException(400, f"Para confirmar, digite o identificador do cliente: {slug}")
     try:
         service.excluir_escritorio(slug)
     except service.RegraControle as e:
         _erro(e)
-    ctx.auditar("admin.cliente.excluir", "controle_cliente", cid, descricao=f"{slug}: {nome} (banco apagado)")
+    ctx.auditar("admin.cliente.excluir", "controle_cliente", cid,
+                descricao=f"{slug}: {nome}" + (" (banco apagado)" if tinha_banco else " (sem acesso ao sistema)"))
     ctx.db.commit()
-    return {"mensagem": f"{nome} foi excluído, com o banco e os acessos."}
+    return {"mensagem": f"{nome} foi excluído" + (", com o banco e os acessos." if tinha_banco else ".")}
 
 
 @router.delete("/planos/{pid}")

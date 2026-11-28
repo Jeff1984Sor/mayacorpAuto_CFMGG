@@ -85,15 +85,20 @@ def emitir(cob_id: int, *, de_novo: bool = False) -> Cobranca:
         cfg = _config(db)
         cli = cob.cliente
         doc = so_digitos(cli.documento)
+        # o texto configurado fala da licença do MayaJus: vale para a mensalidade e para as cobranças de quem usa o
+        # sistema. Serviço recorrente e cliente sem acesso ao sistema levam na nota a própria descrição da cobrança.
+        outro_servico = cob.tipo == "recorrente" or cli.tipo == "externo"
         dados = {"valor": Decimal(cob.valor), "descricao": cob.descricao, "competencia": cob.competencia,
                  "nome": cli.nome, "documento": doc, "email": cli.email_financeiro, "telefone": cli.telefone,
-                 "emissora_id": cfg.nfse_emissora_id, "texto": (cfg.nfse_descricao or DESCRICAO_PADRAO),
+                 "quem": "O cliente" if cli.tipo == "externo" else "O escritório",
+                 "emissora_id": cfg.nfse_emissora_id,
+                 "texto": "{descricao}" if outro_servico else (cfg.nfse_descricao or DESCRICAO_PADRAO),
                  "pago_em": cob.pago_em.date() if cob.pago_em else date.today()}
         cob.nfse_status, cob.nfse_erro = "emitindo", None
         db.commit()
     try:
         if not (cpf_valido(doc) if len(doc) == 11 else cnpj_valido(doc)):
-            raise ErroNotaMensalidade(f"O escritório {dados['nome']} está sem CNPJ/CPF válido na ficha (Clientes do admin).")
+            raise ErroNotaMensalidade(f"{dados['quem']} {dados['nome']} está sem CNPJ/CPF válido na ficha (Clientes do admin).")
         esc = escritorio_mayacorp()
         if esc is None:
             raise ErroNotaMensalidade("O escritório MayaCorp (admin) não foi encontrado.")

@@ -79,6 +79,9 @@ def corpo_html(corpo: str, *, titulo: str, marca: str = "MayaJus", logo_cid: str
               f'font-weight:700;font-size:20px;color:#fff">{html.escape(marca[:1])}</td>'
               f'<td style="padding-left:12px;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.2px">'
               f'{html.escape(marca)}</td></tr></table>')
+    # cobrança de quem não usa o MayaJus (cliente sem acesso ao sistema) sai com a marca MayaCorp, sem falar do produto
+    rodape = (f'MayaJus é um produto <b style="color:{NAVY}">MayaCorp</b> · gestão jurídica com NFS-e e financeiro'
+              if marca == "MayaJus" else f'<b style="color:{NAVY}">{html.escape(marca)}</b>')
     return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>{html.escape(titulo)}</title></head>
 <body style="margin:0;padding:0;background:{GRAY};font-family:'DM Sans',Arial,Helvetica,sans-serif">
@@ -87,6 +90,6 @@ def corpo_html(corpo: str, *, titulo: str, marca: str = "MayaJus", logo_cid: str
 <tr><td style="background:{NAVY};background-image:linear-gradient(135deg,{DARK} 0%,{NAVY} 70%,{INDIGO} 140%);padding:24px 32px">{cabeca}</td></tr>
 <tr><td style="padding:28px 32px 12px;color:{DARK};font-size:15px;line-height:1.6">{"".join(partes)}</td></tr>
 <tr><td style="padding:18px 32px 26px;border-top:1px solid #eceef5;color:#8a90a6;font-size:12px;line-height:1.5">
-MayaJus é um produto <b style="color:{NAVY}">MayaCorp</b> · gestão jurídica com NFS-e e financeiro<br>
+{rodape}<br>
 Responda este e-mail se precisar de ajuda.</td></tr>
 </table></td></tr></table></body></html>"""
