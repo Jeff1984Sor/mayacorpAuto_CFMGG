@@ -420,7 +420,16 @@ def test_recorrente_paga_da_baixa_e_emite_nota(painel, mp, monkeypatch):
         "nfse_emissora_id": r.json()["id"], "nfse_descricao": "Licença MayaJus - {descricao}"})
     assert r.status_code == 200, r.text
 
-    cid = _externo(c, adm, "Escola Saber", documento="60746948000112", email_financeiro="fin@escolasaber.com.br")["id"]
+    # cliente novo já com o cadastro completo (o mesmo formulário de Cadastros › Clientes): é ele que vai na nota
+    novo = _externo(c, adm, None, cadastro={
+        "tipo": "PJ", "nome": "Escola Saber", "cpf_cnpj": "60.746.948/0001-12", "emails": ["Fin@EscolaSaber.com.br"],
+        "cep": "18035-000", "logradouro": "Rua da Escola", "numero": "10", "bairro": "Centro", "cidade": "Sorocaba",
+        "uf": "SP", "telefones": [{"numero": "(15) 3222-1000", "tipo": "comercial"}],
+        "contatos": [{"nome": "Sara Saber", "cargo": "Financeiro"}]})
+    cid = novo["id"]
+    assert (novo["nome"], novo["documento"], novo["email_financeiro"], novo["telefone"], novo["responsavel"]) == (
+        "Escola Saber", "60746948000112", "fin@escolasaber.com.br", "(15) 3222-1000", "Sara Saber")
+    assert novo["cadastro"]["completo"] is True and novo["tomador_id"]
     _recorrencia(c, adm, cid, descricao="Portal do aluno", valor="480.00")
     assert cobranca.rotina_diaria(date(2027, 1, 5))["recorrentes"] == 1
     (k,) = _cobrancas(c, adm, cid)
@@ -431,6 +440,7 @@ def test_recorrente_paga_da_baixa_e_emite_nota(painel, mp, monkeypatch):
     nota = c.get(f"/api/nfse/notas/{k['nfse_id']}", headers=adm).json()
     # a nota leva a descrição do serviço, não o texto da licença do MayaJus
     assert nota["tomador_doc"] == "60746948000112" and nota["valor"] == "480.00"
+    assert nota["tomador_id"] == novo["tomador_id"]
     assert "Portal do aluno 01/2027" in nota["discriminacao"] and "MayaJus" not in nota["discriminacao"]
     assert mp["emails"][-1][1] == "MayaCorp — pagamento recebido (Portal do aluno 01/2027)"
     # baixa manual também vale, e paga não entra mais na régua

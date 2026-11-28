@@ -97,6 +97,33 @@ def _p(campo: str, nivel: str, mensagem: str) -> dict:
     return {"campo": campo, "nivel": nivel, "mensagem": mensagem}
 
 
+def problemas_tomador(tom: dict) -> list[dict]:
+    """A conferência do cliente (tomador) da nota. É a mesma para o RPS que vai ser emitido e para quem quer saber,
+    antes, se o cadastro está pronto para a nota (service.pendencias_para_nota)."""
+    problemas: list[dict] = []
+    doc = so_digitos(tom.get("cpf_cnpj"))
+    if not tom.get("nome"):
+        problemas.append(_p("tomador.nome", "erro", "Nome do cliente em branco."))
+    if tom.get("tipo") == "PF":
+        if not cpf_valido(doc):
+            problemas.append(_p("tomador.cpf_cnpj", "erro", "O CPF do cliente está incorreto."))
+    elif tom.get("tipo") == "PJ":
+        if not cnpj_valido(doc):
+            problemas.append(_p("tomador.cpf_cnpj", "erro", "O CNPJ do cliente está incorreto."))
+    else:
+        problemas.append(_p("tomador.cpf_cnpj", "aviso", "Cliente sem CPF/CNPJ informado."))
+
+    if tom.get("cep") and not cep_valido(tom.get("cep")):
+        problemas.append(_p("tomador.cep", "erro", "CEP do cliente inválido."))
+    elif not tom.get("cep"):
+        problemas.append(_p("tomador.cep", "aviso", "Cliente sem CEP."))
+    if tom.get("uf") and tom["uf"].upper() not in UFS:
+        problemas.append(_p("tomador.uf", "erro", f"UF '{tom['uf']}' inválida."))
+    if not tom.get("email"):
+        problemas.append(_p("tomador.email", "aviso", "Cliente sem e-mail: a nota não poderá ser enviada a ele."))
+    return problemas
+
+
 def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | None = None) -> None:
     """Preenche rps.erros_json, rps.status, rps.iss e os campos do layout 2 em rps.dados_json."""
     if rps.status in (StatusRps.descartado, StatusRps.emitido):
@@ -172,26 +199,7 @@ def validar(rps: Rps, ctx: ContextoValidacao, duplicados_no_arquivo: set[str] | 
     rps.iss = calcular_iss(rps.valor, rps.deducoes, rps.aliquota)
 
     # ---- Tomador
-    doc = so_digitos(tom.get("cpf_cnpj"))
-    if not tom.get("nome"):
-        problemas.append(_p("tomador.nome", "erro", "Nome do cliente em branco."))
-    if tom.get("tipo") == "PF":
-        if not cpf_valido(doc):
-            problemas.append(_p("tomador.cpf_cnpj", "erro", "O CPF do cliente está incorreto."))
-    elif tom.get("tipo") == "PJ":
-        if not cnpj_valido(doc):
-            problemas.append(_p("tomador.cpf_cnpj", "erro", "O CNPJ do cliente está incorreto."))
-    else:
-        problemas.append(_p("tomador.cpf_cnpj", "aviso", "Cliente sem CPF/CNPJ informado."))
-
-    if tom.get("cep") and not cep_valido(tom.get("cep")):
-        problemas.append(_p("tomador.cep", "erro", "CEP do cliente inválido."))
-    elif not tom.get("cep"):
-        problemas.append(_p("tomador.cep", "aviso", "Cliente sem CEP."))
-    if tom.get("uf") and tom["uf"].upper() not in UFS:
-        problemas.append(_p("tomador.uf", "erro", f"UF '{tom['uf']}' inválida."))
-    if not tom.get("email"):
-        problemas.append(_p("tomador.email", "aviso", "Cliente sem e-mail: a nota não poderá ser enviada a ele."))
+    problemas.extend(problemas_tomador(tom))
     if rps.tomador_novo:
         problemas.append(_p("tomador", "aviso", "Tomador novo: será cadastrado automaticamente."))
 

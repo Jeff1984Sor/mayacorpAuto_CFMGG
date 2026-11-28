@@ -46,11 +46,15 @@ class Cliente(BaseControle):
     # "externo" = cliente da MayaCorp sem acesso ao sistema (só ficha, contratos e cobranças): nunca vira escritório
     # em login, domínio, worker ou migração (service._esc), mesmo com o banco guardado de quando tinha acesso
     tipo: Mapped[str] = mapped_column(String(15), default="escritorio", server_default="escritorio")
-    # ficha comercial
+    # Cadastro fiscal completo (endereço, e-mails, telefones, contatos): o Tomador no banco do admin, o mesmo de
+    # Cadastros › Clientes. Ele é o dono de nome, documento, e-mail do financeiro, telefone e responsável; as colunas
+    # abaixo são a cópia que o resto do controle lê (login, cobrança, régua, contratos), mantida por controle/cadastro.py.
+    tomador_id: Mapped[int | None] = mapped_column(Integer, index=True)
     documento: Mapped[str | None] = mapped_column(String(14))  # CNPJ/CPF, só dígitos
     responsavel: Mapped[str | None] = mapped_column(String(150))
     email_financeiro: Mapped[str | None] = mapped_column(String(200))
     telefone: Mapped[str | None] = mapped_column(String(30))
+    # comercial / SaaS (só do controle)
     plano_id: Mapped[int | None] = mapped_column(ForeignKey("plano.id"))
     ciclo: Mapped[str] = mapped_column(String(10), default="mensal", server_default="mensal")  # mensal | anual
     inicio_contrato: Mapped[date | None] = mapped_column(Date)

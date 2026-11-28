@@ -16,7 +16,6 @@ from sqlalchemy import select
 from app.controle.models import Cliente, Cobranca, ConfigCobranca, SessaoControle
 from app.core import tenancy
 from app.core.db import SessionLocal, agora
-from app.core.documentos import cnpj_valido, cpf_valido, so_digitos
 
 log = logging.getLogger(__name__)
 
@@ -84,21 +83,17 @@ def emitir(cob_id: int, *, de_novo: bool = False) -> Cobranca:
                                       "Para emitir outra, cancele a nota antes em Notas emitidas.")
         cfg = _config(db)
         cli = cob.cliente
-        doc = so_digitos(cli.documento)
         # o texto configurado fala da licença do MayaJus: vale para a mensalidade e para as cobranças de quem usa o
         # sistema. Serviço recorrente e cliente sem acesso ao sistema levam na nota a própria descrição da cobrança.
         outro_servico = cob.tipo == "recorrente" or cli.tipo == "externo"
         dados = {"valor": Decimal(cob.valor), "descricao": cob.descricao, "competencia": cob.competencia,
-                 "nome": cli.nome, "documento": doc, "email": cli.email_financeiro, "telefone": cli.telefone,
-                 "quem": "O cliente" if cli.tipo == "externo" else "O escritório",
+                 "cliente_id": cli.id, "nome": cli.nome,
                  "emissora_id": cfg.nfse_emissora_id,
                  "texto": "{descricao}" if outro_servico else (cfg.nfse_descricao or DESCRICAO_PADRAO),
                  "pago_em": cob.pago_em.date() if cob.pago_em else date.today()}
         cob.nfse_status, cob.nfse_erro = "emitindo", None
         db.commit()
     try:
-        if not (cpf_valido(doc) if len(doc) == 11 else cnpj_valido(doc)):
-            raise ErroNotaMensalidade(f"{dados['quem']} {dados['nome']} está sem CNPJ/CPF válido na ficha (Clientes do admin).")
         esc = escritorio_mayacorp()
         if esc is None:
             raise ErroNotaMensalidade("O escritório MayaCorp (admin) não foi encontrado.")
@@ -116,12 +111,40 @@ def emitir(cob_id: int, *, de_novo: bool = False) -> Cobranca:
         return cob
 
 
+def _tomador_do_cliente(db, d: dict):
+    """O cadastro completo do cliente (o mesmo de Cadastros › Clientes do admin), já conferido: se falta algo que a
+    nota exige, a emissão para aqui com a lista do que falta, em vez de ir ao governo e voltar recusada."""
+    from app.controle import cadastro
+    from app.core.models import Tenant
+    from app.modules.rpa_nfse import service as nfse
+
+    tenant_id = db.scalar(select(Tenant.id).order_by(Tenant.id))
+    with SessaoControle() as ctl:
+        cli = ctl.get(Cliente, d["cliente_id"])
+        tom = cadastro.ligar(db, tenant_id, cli)
+        if tom is not None:
+            cadastro.aplicar_no_cliente(cli, tom)
+        motivo = None if tom is not None else (cadastro.conflito(db, tenant_id, cli) or "o cadastro completo")
+        db.commit()  # a ligação fica feita mesmo que a nota não saia
+        ctl.commit()
+        nome = cli.nome
+    falta = [motivo] if motivo else nfse.pendencias_para_nota(tom)
+    if falta:
+        lista = falta[0] if len(falta) == 1 else ", ".join(falta[:-1]) + " e " + falta[-1]
+        raise ErroNotaMensalidade(f"Cadastro de {nome} incompleto para emitir a nota: falta {lista}. "
+                                  f"Complete em Clientes › {nome} › Dados e emita de novo.")
+    return tom
+
+
 def _emitir_no_admin(esc: tenancy.Escritorio, cob_id: int, d: dict) -> dict:
+    from app.controle import cadastro
     from app.modules.rpa_nfse import service as nfse
     from app.modules.rpa_nfse import tasks
-    from app.modules.rpa_nfse.models import Emissora, Lote, Nfse, Rps, StatusLote, StatusRps, Tomador
+    from app.modules.rpa_nfse.models import Emissora, Lote, Nfse, Rps, StatusLote, StatusRps
 
     with tenancy.usando(esc), SessionLocal() as db:
+        tom = _tomador_do_cliente(db, d)
+        d = {**d, "nome": tom.nome, "email": cadastro.email_financeiro(tom)}
         q = select(Emissora).where(Emissora.ativa.is_(True)).order_by(Emissora.id)
         emissora = db.get(Emissora, d["emissora_id"]) if d["emissora_id"] else db.scalar(q)
         if emissora is None:
@@ -130,15 +153,6 @@ def _emitir_no_admin(esc: tenancy.Escritorio, cob_id: int, d: dict) -> dict:
         if not ok:
             raise ErroNotaMensalidade(f"A empresa emissora não está pronta: {msg}.")
         tenant_id = emissora.tenant_id
-        doc = d["documento"]
-        tom = db.scalar(select(Tomador).where(Tomador.tenant_id == tenant_id, Tomador.cpf_cnpj == doc))
-        if tom is None:
-            tom = Tomador(tenant_id=tenant_id, tipo="PJ" if len(doc) == 14 else "PF", nome=d["nome"], cpf_cnpj=doc,
-                          emails=[d["email"]] if d["email"] else [], telefone=d["telefone"])
-            db.add(tom)
-            db.flush()
-        elif d["email"] and d["email"] not in (tom.emails or []):
-            tom.emails = [*(tom.emails or []), d["email"]]
         texto = d["texto"].replace("{descricao}", d["descricao"]).replace("{competencia}", d["competencia"] or "")
         assinatura = hashlib.sha256(f"cobranca:{cob_id}:{agora().isoformat()}".encode()).hexdigest()
         lote = Lote(tenant_id=tenant_id, numero=nfse.proximo_numero_lote(db, tenant_id), emissora_id=emissora.id,
@@ -149,10 +163,7 @@ def _emitir_no_admin(esc: tenancy.Escritorio, cob_id: int, d: dict) -> dict:
         db.flush()
         numero = emissora.prox_rps
         emissora.prox_rps += 1
-        tomador_json = {"tipo": tom.tipo, "nome": tom.nome, "cpf_cnpj": doc, "email": (tom.emails or [None])[0],
-                        "telefone": tom.telefone, "cep": tom.cep, "logradouro": tom.logradouro, "numero": tom.numero,
-                        "complemento": tom.complemento, "bairro": tom.bairro, "cidade": tom.cidade, "uf": tom.uf,
-                        "tipo_logradouro": tom.tipo_logradouro}
+        tomador_json = {**nfse.tomador_para_rps(tom), "email": d["email"]}
         r = Rps(lote_id=lote.id, emissora_id=emissora.id, linha=1, tipo_rps="RPS", serie=emissora.serie_rps, numero=numero,
                 data_emissao=date.today(), situacao="T", tomador_id=tom.id, tomador_novo=False,
                 cod_servico=emissora.cod_servico_padrao or "", aliquota=emissora.aliquota_iss, valor=d["valor"],

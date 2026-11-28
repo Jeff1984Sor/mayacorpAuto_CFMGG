@@ -302,6 +302,15 @@ def listar_tomadores(
                               pagina=pagina, por_pagina=por_pagina)
 
 
+def _no_admin_mayacorp() -> bool:
+    """No admin da MayaCorp, o cliente de Cadastros › Clientes é o cadastro completo de um cliente do admin
+    (controle/cadastro.py): salvar aqui atualiza a ficha de lá."""
+    from app.core import tenancy
+
+    esc = tenancy.atual()
+    return bool(tenancy.multi() and esc and esc.mayacorp)
+
+
 def _validar_tomador(dados: TomadorIn) -> None:
     if dados.cpf_cnpj and not documento_valido(dados.cpf_cnpj):
         raise HTTPException(400, "CPF/CNPJ inválido.")
@@ -408,6 +417,10 @@ async def importar_tomadores(ctx: Operador, arquivo: UploadFile = File(...)):
         t.nome = nome_t
     ctx.auditar("tomador.importar", "tomador", descricao=f"{criados} novos, {atualizados} atualizados, {ignorados} ignorados")
     ctx.db.commit()
+    if _no_admin_mayacorp():
+        from app.controle import cadastro
+
+        cadastro.ligar_todos()
     return Mensagem(mensagem=f"{criados} clientes novos, {atualizados} atualizados, {ignorados} linhas ignoradas.")
 
 
@@ -430,6 +443,10 @@ def salvar_tomador(tid: int, dados: TomadorIn, ctx: Operador):
     a, d = audit.diff(antes, audit.snapshot(t))
     ctx.auditar("tomador.alterar", "tomador", t.id, descricao=t.nome, antes=a, depois=d)
     ctx.db.commit()
+    if _no_admin_mayacorp():
+        from app.controle import cadastro
+
+        cadastro.tomador_alterado(t)
     return _tomador_out(ctx, t)
 
 
@@ -448,6 +465,11 @@ def excluir_tomador(tid: int, ctx: Admin, tudo: bool = False):
     from app.modules.faturamento import exclusao
 
     t = _do_tenant(ctx, Tomador, tid)
+    if _no_admin_mayacorp():
+        from app.controle import cadastro
+
+        if dono := cadastro.cliente_do_tomador(t.id):
+            raise HTTPException(409, f"Este é o cadastro do cliente {dono}. Para excluir, exclua o cliente em Clientes.")
     dep = exclusao.dependencias(ctx.db, t)
     if dep["bloqueio"]:
         raise HTTPException(409, dep["bloqueio"])

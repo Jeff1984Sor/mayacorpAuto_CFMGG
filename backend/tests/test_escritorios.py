@@ -347,6 +347,19 @@ def test_cobranca_mercado_pago(multi, monkeypatch):
         assert db.get(Cobranca, kid).avisos == [-3, 0, 3]
 
 
+ENDERECO = {"cep": "01310100", "logradouro": "Avenida Paulista", "numero": "1000", "bairro": "Bela Vista",
+            "cidade": "São Paulo", "uf": "SP"}
+
+
+def _completar_cadastro(c, adm, cliente_id, **dados):
+    """Completa o cadastro do cliente pela tela Cadastros › Clientes do admin (é o mesmo registro da ficha)."""
+    cli = c.get(f"/api/admin/clientes/{cliente_id}", headers=adm).json()
+    atual = c.get(f"/api/nfse/tomadores/{cli['tomador_id']}", headers=adm).json()
+    r = c.put(f"/api/nfse/tomadores/{cli['tomador_id']}", headers=adm, json={**atual, **dados})
+    assert r.status_code == 200, r.text
+    return c.get(f"/api/admin/clientes/{cliente_id}", headers=adm).json()
+
+
 def test_nfse_da_mensalidade_paga(multi, monkeypatch):
     """Cobrança paga: o admin emite a NFS-e da MayaCorp para o CNPJ do escritório (banco do admin, Emissor Nacional)."""
     from datetime import datetime
@@ -374,9 +387,16 @@ def test_nfse_da_mensalidade_paga(multi, monkeypatch):
 
     with SessaoControle() as db:
         silva = db.scalar(select(Cliente).where(Cliente.slug == "silva"))
-        silva.documento, silva.email_financeiro = "11444777000161", "fin@silva.adv.br"
         sem_doc = db.scalar(select(Cliente).where(Cliente.slug == "cfme"))
-        sem_doc.documento = None
+        silva_id, sem_doc_id = silva.id, sem_doc.id
+    # o cadastro completo (o que vai na nota) é o de Cadastros › Clientes do admin; a ficha do controle acompanha
+    ficha = _completar_cadastro(c, adm, silva_id, tipo="PJ", cpf_cnpj="11444777000161", emails=["fin@silva.adv.br"],
+                                **ENDERECO)
+    assert ficha["documento"] == "11444777000161" and ficha["cadastro"] == {
+        "tomador_id": ficha["tomador_id"], "completo": True, "conflito": None, "pendencias": []}
+    ficha = _completar_cadastro(c, adm, sem_doc_id, emails=["fin@cfme.com.br"], **ENDERECO)
+    assert ficha["documento"] is None and ficha["cadastro"]["pendencias"] == ["CNPJ/CPF"]
+    with SessaoControle() as db:
         k1 = Cobranca(cliente_id=silva.id, tipo="avulsa", descricao="Implantação de dezembro", itens=[], valor=Decimal("450.00"),
                       vencimento=date.today(), status="pendente", avisos=[])
         k2 = Cobranca(cliente_id=sem_doc.id, tipo="avulsa", descricao="Treinamento", itens=[], valor=Decimal("90.00"),
@@ -406,10 +426,11 @@ def test_nfse_da_mensalidade_paga(multi, monkeypatch):
     # escritório sem CNPJ: a baixa vale, a nota fica com o erro na cobrança e pode ser refeita depois
     assert c.post(f"/api/admin/cobrancas/{k2_id}/baixa", headers=adm, json={}).status_code == 200
     k = next(x for x in c.get("/api/admin/cobrancas", headers=adm).json() if x["id"] == k2_id)
-    assert k["status"] == "paga" and k["nfse_status"] == "erro" and "CNPJ" in k["nfse_erro"], k
-    with SessaoControle() as db:
-        db.get(Cliente, db.get(Cobranca, k2_id).cliente_id).documento = "33000167000101"
-        db.commit()
+    assert k["status"] == "paga" and k["nfse_status"] == "erro", k
+    assert "incompleto para emitir a nota: falta CNPJ/CPF." in k["nfse_erro"], k
+    r = c.post(f"/api/admin/cobrancas/{k2_id}/nfse", headers=adm)  # o botão "Emitir NFS-e" diz a mesma coisa
+    assert r.status_code == 400 and "falta CNPJ/CPF" in r.json()["detail"], r.text
+    assert _completar_cadastro(c, adm, sem_doc_id, cpf_cnpj="33000167000101")["cadastro"]["completo"] is True
     r = c.post(f"/api/admin/cobrancas/{k2_id}/nfse", headers=adm)
     assert r.status_code == 200 and r.json()["nfse_status"] == "emitida", r.text
     # cobrança em aberto não tem nota

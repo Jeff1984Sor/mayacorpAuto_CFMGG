@@ -20,6 +20,7 @@ from app.controle.models import Cliente, ContratoCliente, Dominio, ModeloContrat
 from app.core import tenancy
 from app.core.db import SessionLocal, agora
 from app.core.deps import Contexto, Ctx
+from app.modules.rpa_nfse.schemas import TomadorIn
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +62,10 @@ class PlanoIn(BaseModel):
 
 
 class FichaIn(BaseModel):
-    nome: str = Field(min_length=2, max_length=200)
+    # nome, documento, responsável, e-mail do financeiro e telefone pertencem ao cadastro completo (o Tomador do
+    # admin; ver controle/cadastro.py). Aqui continuam aceitos como ficha curta: o que vier preenchido entra no
+    # cadastro; vazio não mexe em nada.
+    nome: str | None = Field(default=None, min_length=2, max_length=200)
     documento: str | None = None
     responsavel: str | None = Field(default=None, max_length=150)
     email_financeiro: EmailStr | None = None
@@ -81,6 +85,7 @@ class PoliticaIn(BaseModel):
 
 
 class ClienteNovoIn(FichaIn):
+    cadastro: TomadorIn | None = None  # o cadastro completo, igual ao de Cadastros › Clientes (dispensa a ficha curta)
     slug: str | None = Field(default=None, max_length=39)
     admin_nome: str = Field(default="", max_length=150)  # quem recebe as boas-vindas (opcional)
     admin_email: EmailStr  # recebe o link de boas-vindas e cria o usuário master
@@ -91,12 +96,13 @@ class ClienteNovoIn(FichaIn):
 class ExternoIn(BaseModel):
     """Cliente sem acesso ao sistema: só a ficha, para cobrar e emitir a nota."""
 
-    nome: str = Field(min_length=2, max_length=200)
+    nome: str | None = Field(default=None, min_length=2, max_length=200)
     documento: str | None = None
     responsavel: str | None = Field(default=None, max_length=150)
     email_financeiro: EmailStr | None = None
     telefone: str | None = Field(default=None, max_length=30)
     observacao: str | None = None
+    cadastro: TomadorIn | None = None
 
 
 class DarAcessoIn(BaseModel):
@@ -182,6 +188,22 @@ def _cliente_out(c: Cliente) -> dict:
             "valor_com_desconto": _d(indicacao.aplicar(valor, pct)), **_cliente_base(c)}
 
 
+def _saidas(ctx, db, clientes: list[Cliente]) -> list[dict]:
+    """Os clientes para a tela, com a situação do cadastro completo (pronto para a nota ou o que falta). É também
+    aqui que um cliente ainda sem cadastro é ligado e que a ficha do controle se acerta com o cadastro, se ele mudou
+    por outro caminho; por isso o commit nas duas sessões (ctx.db = banco do admin, db = controle)."""
+    from app.controle import cadastro
+
+    situacoes = cadastro.conferir(ctx.db, ctx.tenant_id, clientes)
+    ctx.db.commit()
+    db.commit()
+    return [{**_cliente_out(c), "tomador_id": c.tomador_id, "cadastro": situacoes[c.id]} for c in clientes]
+
+
+def _saida(ctx, db, c: Cliente) -> dict:
+    return _saidas(ctx, db, [c])[0]
+
+
 def _cliente_base(c: Cliente) -> dict:
     externo = c.tipo == "externo"
     rotulos = STATUS_EXTERNO if externo else STATUS
@@ -230,7 +252,49 @@ def _validar_indicacao(db, indicado_por_id: int | None, proprio_id: int | None =
         raise HTTPException(400, "Indicação inválida: escolha outro cliente do MayaJus.")
 
 
-SO_DA_FICHA_EXTERNA = set(ExternoIn.model_fields)
+SO_DA_FICHA_EXTERNA = set(ExternoIn.model_fields) - {"cadastro"}
+FICHA_CURTA = ("nome", "documento", "email_financeiro", "telefone", "responsavel")  # copiados do cadastro completo
+
+
+def _cadastro_do_formulario(ctx, dados: TomadorIn | None, email_padrao: str | None = None) -> dict | None:
+    """O cadastro completo vindo do formulário, com as mesmas validações de /nfse/tomadores. Recusa antes de criar
+    qualquer coisa quando o CNPJ/CPF já é o cadastro de outro cliente."""
+    from app.controle import cadastro
+    from app.modules.rpa_nfse.models import Tomador
+    from app.modules.rpa_nfse.routes import _dados_tomador, _validar_tomador
+
+    if dados is None:
+        return None
+    _validar_tomador(dados)
+    cad = _dados_tomador(dados)
+    if not cad["emails"] and email_padrao:
+        cad["emails"] = [email_padrao]  # sem e-mail no cadastro, o das boas-vindas é o do financeiro
+    if cad["cpf_cnpj"]:
+        t = ctx.db.scalar(select(Tomador).where(Tomador.tenant_id == ctx.tenant_id, Tomador.cpf_cnpj == cad["cpf_cnpj"]))
+        dono = cadastro.cliente_do_tomador(t.id) if t is not None else None
+        if dono:
+            raise HTTPException(409, f"Já existe o cliente {dono} com este CNPJ/CPF.")
+    return cad
+
+
+def _ficha_do_cadastro(cad: dict) -> dict:
+    from types import SimpleNamespace
+
+    from app.controle import cadastro
+
+    return cadastro.do_tomador(SimpleNamespace(**cad))
+
+
+def _ligar_cadastro(ctx, db, c: Cliente, cad: dict | None) -> None:
+    """Cliente recém-criado: grava o cadastro completo do formulário ou, na ficha curta, liga/cria o cadastro dele."""
+    from app.controle import cadastro
+
+    if cad is not None:
+        cadastro.gravar(ctx.db, ctx.tenant_id, c, cad)
+    else:
+        cadastro.ligar(ctx.db, ctx.tenant_id, c)
+    ctx.db.flush()
+    db.commit()
 
 
 def _ficha(dados: FichaIn | ExternoIn) -> dict:
@@ -282,7 +346,7 @@ def listar_clientes(ctx: Painel, q: str | None = None, status: str | None = None
             from sqlalchemy import or_
 
             sel = sel.where(or_(*conds))
-        return [_cliente_out(c) for c in db.scalars(sel.order_by(Cliente.nome))]
+        return _saidas(ctx, db, list(db.scalars(sel.order_by(Cliente.nome))))
 
 
 @router.post("/clientes", status_code=201)
@@ -291,7 +355,12 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
     with SessaoControle() as db:
         _validar_indicacao(db, dados.indicado_por_id)
     ficha = _ficha(dados)
-    nome = ficha.pop("nome")
+    cad = _cadastro_do_formulario(ctx, dados.cadastro, str(dados.admin_email).lower())
+    if cad is not None:
+        ficha.update(_ficha_do_cadastro(cad))
+    nome = (ficha.pop("nome") or "").strip()
+    if len(nome) < 2:
+        raise HTTPException(400, "Informe o nome ou a razão social do cliente.")
     teste_ate = ficha.pop("teste_ate")
     slug = (dados.slug or _slug_de(nome)).lower()
     ficha["email_financeiro"] = ficha.get("email_financeiro") or str(dados.admin_email).lower()  # o "1º acesso" usa este e-mail
@@ -308,28 +377,33 @@ def criar_cliente(dados: ClienteNovoIn, ctx: Painel):
     _boas_vindas(str(dados.admin_email), dados.admin_nome, nome, link, dados.dias_teste)
     _primeira_cobranca(cliente.id)
     with SessaoControle() as db:
-        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, db.get(Cliente, cliente.id))
+        _ligar_cadastro(ctx, db, db.get(Cliente, cliente.id), cad)
     ctx.auditar("admin.cliente.criar", "controle_cliente", cliente.id, descricao=f"{slug}: {nome}")
     ctx.db.commit()
     with SessaoControle() as db:
-        return {**_cliente_out(db.get(Cliente, cliente.id)), "convite": link}
+        return {**_saida(ctx, db, db.get(Cliente, cliente.id)), "convite": link}
 
 
 @router.post("/clientes/externo", status_code=201)
 def criar_cliente_externo(dados: ExternoIn, ctx: Painel):
     """Cliente sem acesso ao sistema: só a ficha. Não cria banco, usuário, domínio, teste nem boas-vindas."""
     ficha = _ficha(dados)
-    nome = ficha.pop("nome").strip()
+    cad = _cadastro_do_formulario(ctx, dados.cadastro)
+    if cad is not None:
+        ficha.update(_ficha_do_cadastro(cad))
+    nome = (ficha.pop("nome") or "").strip()
+    if len(nome) < 2:
+        raise HTTPException(400, "Informe o nome ou a razão social do cliente.")
     try:
         cliente = service.registrar_externo(nome, **ficha)
     except service.RegraControle as e:
         _erro(e)
     with SessaoControle() as db:
         c = db.get(Cliente, cliente.id)
-        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, c)  # o mesmo cliente em Cadastros › Clientes (para a nota)
+        _ligar_cadastro(ctx, db, c, cad)  # o mesmo cliente em Cadastros › Clientes (é o cadastro que vai na nota)
         ctx.auditar("admin.cliente.criar", "controle_cliente", c.id, descricao=f"{c.slug}: {nome} (sem acesso ao sistema)")
         ctx.db.commit()
-        return _cliente_out(c)
+        return _saida(ctx, db, c)
 
 
 @router.post("/clientes/{cid}/dar-acesso")
@@ -353,6 +427,13 @@ def dar_acesso(cid: int, dados: DarAcessoIn, ctx: Painel):
                                            **ficha)
     except service.RegraControle as e:
         _erro(e)
+    if "email_financeiro" in ficha:  # o e-mail entra no cadastro completo (é de lá que a ficha é copiada)
+        from app.controle import cadastro
+
+        with SessaoControle() as db:
+            cadastro.empurrar(ctx.db, ctx.tenant_id, db.get(Cliente, cid), email_financeiro=email)
+            ctx.db.commit()
+            db.commit()
     enviado = None
     if link:  # ambiente novo: boas-vindas com o link para criar o usuário master
         _boas_vindas(email, dados.admin_nome, nome, link, dados.dias_teste)
@@ -370,7 +451,7 @@ def dar_acesso(cid: int, dados: DarAcessoIn, ctx: Painel):
                 descricao=f"{nome}: passou a ter acesso ao sistema" + (" (ambiente de antes)" if tinha_ambiente else ""))
     ctx.db.commit()
     with SessaoControle() as db:
-        return {**_cliente_out(db.get(Cliente, cid)), "convite": link, "boas_vindas_para": enviado,
+        return {**_saida(ctx, db, db.get(Cliente, cid)), "convite": link, "boas_vindas_para": enviado,
                 "ambiente_de_antes": tinha_ambiente}
 
 
@@ -401,7 +482,7 @@ def tirar_acesso(cid: int, ctx: Painel):
     ctx.auditar("admin.cliente.tirar_acesso", "controle_cliente", cid, descricao=f"{nome}: ficou só na cobrança, sem acesso")
     ctx.db.commit()
     with SessaoControle() as db:
-        return _cliente_out(db.get(Cliente, cid))
+        return _saida(ctx, db, db.get(Cliente, cid))
 
 
 def _primeira_cobranca(cid: int) -> None:
@@ -454,14 +535,19 @@ def reenviar_boas_vindas(cid: int, ctx: Painel):
 @router.get("/clientes/{cid}")
 def ler_cliente(cid: int, ctx: Painel):
     with SessaoControle() as db:
-        return _cliente_out(_cliente(db, cid))
+        return _saida(ctx, db, _cliente(db, cid))
 
 
 @router.put("/clientes/{cid}")
 def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
     with SessaoControle() as db:
         c = _cliente(db, cid)
+        from sqlalchemy.exc import IntegrityError
+
+        from app.controle import cadastro
+
         campos = _ficha(dados)
+        curta = {k: campos.pop(k, None) for k in FICHA_CURTA}
         if c.tipo == "externo":  # sem acesso ao sistema: só a ficha (plano, teste, indicação e robôs não se aplicam)
             campos = {k: v for k, v in campos.items() if k in SO_DA_FICHA_EXTERNA}
         else:
@@ -470,12 +556,16 @@ def alterar_cliente(cid: int, dados: FichaIn, ctx: Painel):
             _validar_indicacao(db, dados.indicado_por_id, c.id)
         for k, v in campos.items():
             setattr(c, k, v)
+        try:  # a ficha curta (rotas antigas) entra no cadastro completo, que é o dono desses dados
+            cadastro.empurrar(ctx.db, ctx.tenant_id, c, **curta)
+        except IntegrityError:
+            ctx.db.rollback()
+            raise HTTPException(409, "Já existe outro cadastro com este CNPJ/CPF.") from None
         db.commit()
         service.limpar_cache()  # robôs liberados valem no próximo clique do cliente
-        service.espelhar_no_cadastro(ctx.db, ctx.tenant_id, c)
         ctx.auditar("admin.cliente.alterar", "controle_cliente", c.id, descricao=c.nome)
         ctx.db.commit()
-        return _cliente_out(c)
+        return _saida(ctx, db, c)
 
 
 @router.post("/clientes/{cid}/status")
@@ -490,7 +580,7 @@ def mudar_status(cid: int, dados: StatusIn, ctx: Painel):
         service.limpar_cache()
         ctx.auditar("admin.cliente.status", "controle_cliente", c.id, descricao=f"{c.nome}: {antes} → {dados.status}")
         ctx.db.commit()
-        return _cliente_out(c)
+        return _saida(ctx, db, c)
 
 
 @router.post("/clientes/{cid}/dominios", status_code=201)
@@ -505,7 +595,7 @@ def adicionar_dominio(cid: int, dados: DominioIn, ctx: Painel):
         db.refresh(c)
         ctx.auditar("admin.cliente.dominio", "controle_cliente", c.id, descricao=f"+ {dados.host}")
         ctx.db.commit()
-        return _cliente_out(c)
+        return _saida(ctx, db, c)
 
 
 @router.delete("/clientes/{cid}/dominios/{did}")
@@ -522,7 +612,7 @@ def remover_dominio(cid: int, did: int, ctx: Painel):
         service.limpar_cache()
         ctx.auditar("admin.cliente.dominio", "controle_cliente", c.id, descricao=f"- {host}")
         ctx.db.commit()
-        return _cliente_out(c)
+        return _saida(ctx, db, c)
 
 
 @router.get("/clientes/{cid}/uso")

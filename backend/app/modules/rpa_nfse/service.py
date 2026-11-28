@@ -415,6 +415,40 @@ def tomador_incompleto(t: Tomador) -> bool:
     return not (t.cpf_cnpj and t.cep and t.logradouro and t.emails)
 
 
+def tomador_para_rps(t: Tomador) -> dict:
+    """O cliente do cadastro no formato que vai dentro do RPS (dados_json["tomador"]): é o que o emissor lê."""
+    return {"tipo": t.tipo, "nome": t.nome, "cpf_cnpj": t.cpf_cnpj, "im": t.im, "ie": t.ie,
+            "tipo_logradouro": t.tipo_logradouro, "logradouro": t.logradouro, "numero": t.numero,
+            "complemento": t.complemento, "bairro": t.bairro, "cidade": t.cidade, "uf": t.uf, "cep": t.cep,
+            "email": (t.emails or [None])[0], "telefone": t.telefone,
+            "codigo_municipio": MUNICIPIO_SP if _normaliza(t.cidade) == "SAO PAULO" else None}
+
+
+def pendencias_para_nota(t: Tomador) -> list[str]:
+    """O que falta no cadastro do cliente para a nota sair completa, em palavras de tela ("CEP", "e-mail"…). Quem
+    decide é a conferência do emissor (validator.problemas_tomador: nome, CPF/CNPJ, CEP, UF e e-mail) mais o endereço
+    que vai impresso na nota (logradouro, cidade e UF, o mesmo critério de `tomador_incompleto`). Lista vazia = pronto."""
+    campos = {p["campo"] for p in validator.problemas_tomador(tomador_para_rps(t))}
+    falta = []
+    if "tomador.nome" in campos:
+        falta.append("nome ou razão social")
+    if "tomador.cpf_cnpj" in campos:
+        falta.append("CNPJ/CPF válido (o informado está incorreto)" if t.cpf_cnpj else "CNPJ/CPF")
+    if "tomador.cep" in campos:
+        falta.append("CEP válido" if t.cep else "CEP")
+    if not (t.logradouro or "").strip():
+        falta.append("logradouro")
+    if not (t.cidade or "").strip():
+        falta.append("cidade")
+    if "tomador.uf" in campos:
+        falta.append("UF válida")
+    elif not (t.uf or "").strip():
+        falta.append("UF")
+    if "tomador.email" in campos:
+        falta.append("e-mail")
+    return falta
+
+
 # ---------------------------------------------------------------- e-mail ao tomador
 def _anexos_disponiveis(db: Session, nota: Nfse) -> list[dict]:
     """PDF, XML e fatura que existem para a nota, com o que vem marcado por padrão nas configurações."""

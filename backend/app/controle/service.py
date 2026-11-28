@@ -494,55 +494,12 @@ def migrar_todos() -> list[str]:
     return feitos
 
 
-def espelhar_no_cadastro(db, tenant_id: int, c: Cliente) -> None:
-    """O cliente do MayaJus é o mesmo cliente no cadastro da MayaCorp (Cadastros › Clientes do admin): um cadastro só,
-    usado nas faturas, notas e contratos. Acha pelo CNPJ/CPF ou pelo nome; cria se faltar e mantém nome/contato."""
-    from app.modules.rpa_nfse.models import Tomador
-
-    if c.tipo == "mayacorp":
-        return
-    doc = re.sub(r"\D", "", c.documento or "") or None
-    t = None
-    if doc:
-        t = db.scalar(select(Tomador).where(Tomador.tenant_id == tenant_id, Tomador.cpf_cnpj == doc))
-    if t is None:
-        t = db.scalar(select(Tomador).where(Tomador.tenant_id == tenant_id, Tomador.nome == c.nome))
-    if t is None:
-        t = Tomador(tenant_id=tenant_id, tipo="PF" if doc and len(doc) == 11 else "PJ", nome=c.nome, emails=[],
-                    enderecos=[], contatos=[], telefones=[])
-        db.add(t)
-    t.nome = c.nome
-    if doc:
-        t.cpf_cnpj = doc
-        t.tipo = "PF" if len(doc) == 11 else "PJ"
-    if c.email_financeiro and c.email_financeiro.lower() not in [e.lower() for e in (t.emails or [])]:
-        t.emails = [*(t.emails or []), c.email_financeiro]
-    if c.telefone and not t.telefone:
-        t.telefone = c.telefone[:20]
-    if c.responsavel and not any(x.get("nome") == c.responsavel for x in (t.contatos or [])):
-        t.contatos = [*(t.contatos or []), {"nome": c.responsavel, "email": c.email_financeiro or None, "telefone": None,
-                                             "celular": None, "cargo": None, "whatsapp": False}]
-
-
 def espelhar_todos_no_cadastro() -> int:
-    """Põe no cadastro da MayaCorp os clientes do MayaJus que ainda não estão lá (roda no migrar)."""
-    from app.core.db import SessionLocal
-    from app.core.models import Tenant
+    """Liga cada cliente ao cadastro completo dele no banco do admin (Cadastros › Clientes), criando o que faltar.
+    Roda no migrar de todo deploy; as regras estão em app/controle/cadastro.py."""
+    from app.controle import cadastro
 
-    esc = escritorio_mayacorp()
-    if esc is None:
-        return 0
-    with SessaoControle() as db:
-        clientes = db.scalars(select(Cliente).where(Cliente.tipo != "mayacorp")).all()
-        db.expunge_all()
-    with tenancy.usando(esc), SessionLocal() as s:
-        tenant = s.scalar(select(Tenant).order_by(Tenant.id))
-        if tenant is None:
-            return 0
-        for c in clientes:
-            espelhar_no_cadastro(s, tenant.id, c)
-        s.commit()
-    return len(clientes)
+    return cadastro.ligar_todos()
 
 
 def endereco_do_painel() -> str | None:
