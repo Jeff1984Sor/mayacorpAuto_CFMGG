@@ -1,11 +1,12 @@
 // Faturamento: espelho de backend/app/modules/faturamento/schemas.py (Decimal chega como string).
 
+import type { AdministrativoDados, CasoRef, ConsultivoDados, ContenciosoDados, ItemNome, TipoDeCaso, TipoVinculo } from "./casos";
 import type { Decimal } from "./types";
 
 export type TipoRegra = "fixo" | "recorrente" | "hora";
 export type Frequencia = "diaria" | "semanal" | "mensal" | "anual";
 export type Termino = "sem" | "ocorrencias" | "data";
-export type StatusCaso = "aberto" | "encerrado";
+export type StatusCaso = "aberto" | "suspenso" | "arquivado" | "encerrado";
 export type TipoDespesa = "custas" | "copias" | "deslocamento" | "correio" | "diligencia" | "honorario_perito" | "outros";
 export type Aba = "honorarios" | "despesas";
 export type StatusRevisao = "em_revisao" | "faturada" | "descartada";
@@ -138,9 +139,45 @@ export interface CasoIn {
   status: StatusCaso;
   data_abertura: string | null;
   data_encerramento: string | null;
+  // --- tipos de caso (lib/casos.ts). Só o que vai no pedido é gravado: telas antigas não mandam e não apagam nada.
+  tipo_caso?: TipoDeCaso | null;
+  equipe_ids?: number[] | null;
+  etiqueta_ids?: number[] | null;
+  motivo_encerramento_id?: number | null;
+  origem_id?: number | null;
+  centro_custo_id?: number | null;
+  valor_estimado?: string | null;
+  caso_pai_id?: number | null;
+  tipo_vinculo?: TipoVinculo | null;
+  sigiloso?: boolean | null;
+  observacoes?: string | null;
+  /** dados só do tipo do caso (mande o bloco do tipo) */
+  contencioso?: ContenciosoDados | null;
+  consultivo?: ConsultivoDados | null;
+  administrativo?: AdministrativoDados | null;
 }
 
 export interface CasoOut extends CasoIn {
+  tipo_caso: TipoDeCaso;
+  tipo_caso_nome: string;
+  status_nome: string;
+  equipe_ids: number[];
+  equipe: ItemNome[];
+  etiqueta_ids: number[];
+  etiquetas: ItemNome[];
+  motivo_encerramento_nome: string | null;
+  origem_nome: string | null;
+  centro_custo_nome: string | null;
+  caso_pai_titulo: string | null;
+  sigiloso: boolean;
+  /** outro caso do escritório com o mesmo número CNJ (só na ficha) */
+  aviso_cnj_duplicado: CasoRef | null;
+  /** "Ativo x Passivo" (coluna Partes da lista) */
+  partes_resumo: string | null;
+  /** contencioso: "{principal do polo ativo} x {principal do polo passivo}" (só na ficha) */
+  titulo_sugerido: string | null;
+  /** partes a revisar depois de troca de tipo ou da migração */
+  pendentes_reclassificacao: number;
   id: number;
   numero: number;
   contrato_id: number;

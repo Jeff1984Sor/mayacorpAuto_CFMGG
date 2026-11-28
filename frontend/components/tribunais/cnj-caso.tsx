@@ -75,12 +75,15 @@ export function CnjCaso({
   contratoId,
   form,
   onAplicar,
+  abaixo,
 }: {
   valor: string | null;
   onChange: (v: string) => void;
   contratoId: number | null | undefined;
   form: CasoIn;
   onAplicar: (patch: Partial<CasoIn>) => void;
+  /** aviso logo abaixo do número (ex.: o que o número CNJ diz e o caso que já usa o mesmo número) */
+  abaixo?: React.ReactNode;
 }) {
   const { pode } = useAuth();
   const podeBuscar = pode("casos.editar");
@@ -162,6 +165,8 @@ export function CnjCaso({
           </Button>
         )}
       </div>
+
+      {abaixo}
 
       {consultar.isPending && (
         <p className="flex items-center gap-2 rounded-lg bg-brand/8 px-3 py-2 text-sm text-info-ink">

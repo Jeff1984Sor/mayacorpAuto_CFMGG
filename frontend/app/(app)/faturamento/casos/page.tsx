@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 import { ClientesMulti, type ClienteEscolhido } from "@/components/faturamento/clientes-multi";
 import { useAreas } from "@/components/faturamento/campos-adicionais";
-import { CasoDialog } from "@/components/faturamento/dialogos";
+import { CasoDialog } from "@/components/faturamento/caso/caso-dialog";
 import { AreaBadge } from "@/components/faturamento/ficha-caso";
 import { PlanilhaAcoes } from "@/components/faturamento/importar-planilha";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";

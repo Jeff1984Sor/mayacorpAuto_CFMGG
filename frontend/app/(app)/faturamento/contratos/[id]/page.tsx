@@ -7,7 +7,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { CasoDialog, ContratoDialog } from "@/components/faturamento/dialogos";
+import { CasoDialog } from "@/components/faturamento/caso/caso-dialog";
+import { ContratoDialog } from "@/components/faturamento/dialogos";
 import { useEmitirNfse } from "@/components/faturamento/emitir";
 import { RegrasCobranca } from "@/components/faturamento/regras";
 import { ConfirmDialog } from "@/components/mayacorp/confirm-dialog";
