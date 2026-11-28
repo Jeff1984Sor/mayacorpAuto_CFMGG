@@ -224,3 +224,79 @@ class CasoAdministrativo(Base, Timestamped):
 
 EXTENSAO = {TipoDeCaso.contencioso.value: CasoContencioso, TipoDeCaso.consultivo.value: CasoConsultivo,
             TipoDeCaso.administrativo.value: CasoAdministrativo}
+
+
+# ------------------------------------------------------------------------------------------- partes do caso
+# Regras, seeds e rotas em envolvimento.py. A pessoa é a do cadastro único (trb_pessoa); o advogado, pes_advogado.
+class EnvCategoria(Base, Timestamped):
+    """Categoria de parte de um tipo de caso (no contencioso: Polo Ativo, Polo Passivo, Terceiros, Outros)."""
+
+    __tablename__ = "fat_env_categoria"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    tipo_caso: Mapped[str] = mapped_column(String(15))
+    codigo: Mapped[str] = mapped_column(String(40))
+    nome: Mapped[str] = mapped_column(String(80))
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    polo: Mapped[str] = mapped_column(String(8))  # ativo | passivo | neutro
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    sistema: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (UniqueConstraint("tenant_id", "tipo_caso", "codigo", name="uq_fat_env_categoria"),)
+
+
+class EnvQualificacao(Base, Timestamped):
+    """Qualificação dentro de uma categoria (Autor, Réu, Contratante...). As do sistema têm `codigo`."""
+
+    __tablename__ = "fat_env_qualificacao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    categoria_id: Mapped[int] = mapped_column(ForeignKey("fat_env_categoria.id"), index=True)
+    codigo: Mapped[str | None] = mapped_column(String(80))
+    nome: Mapped[str] = mapped_column(String(120))
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    sistema: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (UniqueConstraint("categoria_id", "codigo", name="uq_fat_env_qualificacao"),)
+
+
+class Envolvimento(Base, Timestamped):
+    """Uma pessoa num caso, com o papel dela. Parte retirada fica desativada (histórico), nunca é apagada."""
+
+    __tablename__ = "fat_envolvimento"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    caso_id: Mapped[int] = mapped_column(ForeignKey("fat_caso.id", ondelete="CASCADE"), index=True)
+    pessoa_id: Mapped[int] = mapped_column(ForeignKey("trb_pessoa.id"), index=True)
+    categoria_id: Mapped[int] = mapped_column(ForeignKey("fat_env_categoria.id"))
+    qualificacao_id: Mapped[int | None] = mapped_column(ForeignKey("fat_env_qualificacao.id"))
+    eh_cliente: Mapped[bool] = mapped_column(Boolean, default=False)  # cliente do escritório NESTE caso
+    principal: Mapped[bool] = mapped_column(Boolean, default=False)  # parte principal do polo (vai no título sugerido)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    representado_por_id: Mapped[int | None] = mapped_column(ForeignKey("fat_envolvimento.id", ondelete="SET NULL"))
+    data_inclusao: Mapped[date | None] = mapped_column(Date)
+    data_exclusao: Mapped[date | None] = mapped_column(Date)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    pendente_reclassificacao: Mapped[bool] = mapped_column(Boolean, default=False)  # depois de troca de tipo ou migração
+    observacoes: Mapped[str | None] = mapped_column(Text)
+
+
+class EnvolvimentoAdvogado(Base, Timestamped):
+    """Advogado de uma parte naquele caso."""
+
+    __tablename__ = "fat_envolvimento_advogado"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    envolvimento_id: Mapped[int] = mapped_column(ForeignKey("fat_envolvimento.id", ondelete="CASCADE"), index=True)
+    advogado_id: Mapped[int] = mapped_column(ForeignKey("pes_advogado.id"), index=True)
+    oab_id: Mapped[int | None] = mapped_column(ForeignKey("pes_advogado_oab.id"))  # a inscrição habilitada no caso
+    principal: Mapped[bool] = mapped_column(Boolean, default=False)  # recebe as intimações
+    tipo_habilitacao: Mapped[str | None] = mapped_column(String(30))
+    data_habilitacao: Mapped[date | None] = mapped_column(Date)
+    data_desabilitacao: Mapped[date | None] = mapped_column(Date)
+    documento_procuracao_id: Mapped[int | None] = mapped_column(ForeignKey("fat_anexo.id", ondelete="SET NULL"))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -411,6 +411,9 @@ class CasoOut(Schema):
     consultivo: ConsultivoDados | None = None
     administrativo: AdministrativoDados | None = None
     aviso_cnj_duplicado: CasoRef | None = None  # outro caso do escritório com o mesmo número CNJ (aviso, não bloqueia)
+    partes_resumo: str | None = None  # "Ativo x Passivo" (coluna Partes da lista)
+    titulo_sugerido: str | None = None  # contencioso: "{principal do polo ativo} x {principal do polo passivo}"
+    pendentes_reclassificacao: int = 0  # partes a revisar (depois de troca de tipo ou da migração)
 
 
 # ---------- regras de cobrança

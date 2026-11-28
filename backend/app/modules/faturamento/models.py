@@ -568,4 +568,8 @@ from app.modules.faturamento.tipos_caso import (  # noqa: E402, F401  (tabelas q
     CasoContencioso,
     CasoEquipe,
     CasoLista,
+    EnvCategoria,
+    Envolvimento,
+    EnvolvimentoAdvogado,
+    EnvQualificacao,
 )

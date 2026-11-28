@@ -185,6 +185,14 @@ def aplicar(ctx, c: Caso, dados, novo: bool) -> None:
     else:
         _aplicar_administrativo(ctx, c, ext, bloco)
     sincronizar_tipo(c, ext)
+    from app.modules.faturamento import envolvimento
+
+    if trocou:  # as partes vão para a categoria do mesmo polo no tipo novo, pendentes de reclassificação
+        envolvimento.trocar_tipo(ctx.db, c)
+    envolvimento.garantir_cliente(ctx.db, c)  # o cliente do caso é sempre uma das partes
+    if not novo and "polo" in dados.model_fields_set:
+        envolvimento.polo_pela_ficha(ctx.db, c, dados.polo)
+    envolvimento.sincronizar_polo(ctx.db, c)
 
 
 def ao_criar(db: Session, c: Caso) -> None:
@@ -198,6 +206,10 @@ def ao_criar(db: Session, c: Caso) -> None:
         ext.justica = justica_do_numero(c.numero_processo) or JUSTICA_DO_TIPO.get(c.tipo) or ext.justica
         _do_numero(c, ext)
     sincronizar_tipo(c, ext)
+    from app.modules.faturamento import envolvimento
+
+    envolvimento.garantir_cliente(db, c)
+    envolvimento.sincronizar_polo(db, c)
 
 
 def sincronizar_tipo(c: Caso, ext=None) -> None:
@@ -417,7 +429,12 @@ def saida(ctx, c: Caso, ficha: bool = True) -> dict:
     pai = db.get(Caso, c.caso_pai_id) if c.caso_pai_id else None
     tipo = tipo_caso_de(c)
     ext = extensao(db, c, criar=False)
+    from app.modules.faturamento import envolvimento
+
     return {
+        "partes_resumo": envolvimento.resumo_partes(db, c.id),
+        "titulo_sugerido": envolvimento.titulo_sugerido(db, c) if ficha else None,
+        "pendentes_reclassificacao": envolvimento.pendentes(db, c.id),
         tipo: _bloco(ctx, c, ext, tipo) if ext else None,
         "aviso_cnj_duplicado": cnj_duplicado(db, c.tenant_id, c.numero_processo, c.id) if ficha and tipo == "contencioso" else None,
         "tipo_caso": tipo, "tipo_caso_nome": ROTULOS["tipo_caso"][tipo], "status_nome": ROTULOS["status"][c.status.value],

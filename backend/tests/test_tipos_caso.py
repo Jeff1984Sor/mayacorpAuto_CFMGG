@@ -281,3 +281,22 @@ def test_consultivo_e_administrativo_com_extensao(cliente):  # noqa: F811
     with SessionLocal() as db:
         assert db.get(CasoAdministrativo, adm["id"]).numero_processo_adm == "10880.123456/2030-11"
         assert db.get(CasoContencioso, adm["id"]) is not None
+
+
+def test_ficha_vai_e_volta_sem_perder_nada(cliente):  # noqa: F811
+    """A ficha lida pode ser regravada inteira (tela nova) e o assistente monta o CasoIn a partir do CasoOut."""
+    from app.modules.faturamento.schemas import CasoIn, CasoOut
+
+    c, h = cliente, _login(cliente)
+    k = contrato_novo(c, h, "Cliente Vai e Volta", 70610013)
+    itens = c.get("/api/faturamento/listas", headers=h).json()
+    classe = next(i for i in itens if i["lista"] == "classe")
+    caso = caso_novo(c, h, k["id"], tipo_caso="contencioso", numero_processo=CNJ_TRF3, polo="passivo", observacoes="Nota",
+                     contencioso={"classe_id": classe["id"], "prognostico": "remoto", "valor_risco": "100.00"})
+    volta = c.put(f"/api/faturamento/casos/{caso['id']}", json=caso, headers=h)
+    assert volta.status_code == 200, volta.text
+    ignorar = {"qtd_andamentos", "qtd_anexos"}
+    assert {k_: v for k_, v in volta.json().items() if k_ not in ignorar} == {k_: v for k_, v in caso.items() if k_ not in ignorar}
+    saida = CasoOut.model_validate(caso)
+    entrada = CasoIn(**{campo: getattr(saida, campo) for campo in CasoIn.model_fields if hasattr(saida, campo)})
+    assert entrada.contencioso.prognostico == "remoto" and entrada.tipo_caso == "contencioso" and entrada.polo == "passivo"
