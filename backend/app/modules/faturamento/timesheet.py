@@ -81,6 +81,7 @@ def _consulta(ctx, de, ate, profissional_id, minhas, caso_id, contrato_id, tomad
 
 def _linhas(ctx, registros: list[Timesheet]) -> list[LinhaTimesheet]:
     cache_vh: dict = {}
+    por_faixas = service.estimativa_por_faixas(ctx.db, ctx.tenant_id, registros)  # regras com tabela progressiva
     out = []
     for t in registros:
         caso = t.caso
@@ -89,6 +90,8 @@ def _linhas(ctx, registros: list[Timesheet]) -> list[LinhaTimesheet]:
         item = ctx.db.get(FaturaItem, t.fatura_item_id) if t.fatura_item_id else None
         if item:
             vh, valor = item.valor_unitario, item.valor
+        elif t.id in por_faixas:
+            vh, valor = por_faixas[t.id]
         else:
             chave = (caso.id, t.profissional_id)
             if chave not in cache_vh:

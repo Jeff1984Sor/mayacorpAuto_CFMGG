@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.schemas import Schema
 from app.modules.faturamento.models import (
+    FormaFaixa,
     Frequencia,
     PrioridadeTarefa,
     StatusCaso,
@@ -237,6 +238,57 @@ class CasoOut(Schema):
 
 
 # ---------- regras de cobrança
+class FaixaIn(BaseModel):
+    """Uma faixa de horas da tabela progressiva / regressiva (regra por hora)."""
+
+    de: Decimal = Field(ge=0, le=99999)
+    ate: Decimal | None = Field(default=None, gt=0, le=99999)  # vazio = em diante (só a última)
+    forma: FormaFaixa
+    valor: Decimal | None = Field(default=None, ge=0)
+    tabela_preco_id: int | None = None
+    percentual: Decimal | None = Field(default=None, gt=0, le=1000)
+
+
+class FaixaOut(Schema):
+    de: Decimal
+    ate: Decimal | None
+    forma: FormaFaixa
+    valor: Decimal | None
+    tabela_preco_id: int | None
+    percentual: Decimal | None
+
+
+def _h(v: Decimal) -> str:
+    return f"{v.normalize():f}".replace(".", ",")
+
+
+def validar_faixas(faixas: list[FaixaIn]) -> None:
+    """Faixas contíguas: começam em 0, sem buraco nem sobreposição, e a última vai "em diante"."""
+    if len(faixas) > 20:
+        raise ValueError("Use no máximo 20 faixas.")
+    if faixas[0].de != 0:
+        raise ValueError("A primeira faixa precisa começar em 0 hora.")
+    for n, f in enumerate(faixas, start=1):
+        ultima = n == len(faixas)
+        if f.ate is None and not ultima:
+            raise ValueError(f"Só a última faixa pode ficar sem limite: informe até quantas horas vai a faixa {n}.")
+        if f.ate is not None and ultima:
+            raise ValueError('A última faixa precisa ser "em diante" (sem limite), para nenhuma hora ficar sem preço.')
+        if f.ate is not None and f.ate <= f.de:
+            raise ValueError(f"Na faixa {n}, o fim ({_h(f.ate)} h) precisa ser maior que o início ({_h(f.de)} h).")
+        if not ultima and faixas[n].de != f.ate:
+            problema = "sobrou um buraco" if faixas[n].de > f.ate else "as faixas se sobrepõem"
+            raise ValueError(f"A faixa {n + 1} precisa começar onde a faixa {n} termina ({_h(f.ate)} h): {problema}.")
+        if f.forma == FormaFaixa.fixo and f.valor is None:
+            raise ValueError(f"Informe o valor fixo da faixa {n}.")
+        if f.forma == FormaFaixa.hora and not f.valor:
+            raise ValueError(f"Informe o valor por hora da faixa {n}.")
+        if f.forma == FormaFaixa.tabela and not f.tabela_preco_id:
+            raise ValueError(f"Escolha a tabela de preço da faixa {n}.")
+        if f.forma == FormaFaixa.percentual and not f.percentual:
+            raise ValueError(f"Informe o percentual da faixa {n}.")
+
+
 class RegraIn(BaseModel):
     tipo: TipoRegra
     descricao: str = Field(min_length=2, max_length=4000)
@@ -249,11 +301,17 @@ class RegraIn(BaseModel):
     ocorrencias: int | None = Field(default=None, ge=1, le=999)
     data_fim: date | None = None
     tabela_preco_id: int | None = None
+    faixas_modo: str = Field(default="escalonada", pattern="^(escalonada|atingida)$")
+    faixas: list[FaixaIn] = []  # só na regra por hora; vazio = cobra como sempre (tabela × cargo)
     ativo: bool = True
     observacao: str | None = None
 
     @model_validator(mode="after")
     def _coerente(self):
+        if self.tipo != TipoRegra.hora:
+            self.faixas, self.faixas_modo = [], "escalonada"
+        elif self.faixas:
+            validar_faixas(self.faixas)
         if self.tipo in (TipoRegra.fixo, TipoRegra.recorrente) and not self.valor:
             raise ValueError("Informe o valor da cobrança.")
         if self.tipo == TipoRegra.fixo and not self.data_pagamento:
@@ -283,6 +341,8 @@ class RegraOut(Schema):
     ocorrencias: int | None
     data_fim: date | None
     tabela_preco_id: int | None
+    faixas_modo: str = "escalonada"
+    faixas: list[FaixaOut] = []
     ativo: bool
     observacao: str | None
     resumo: str = ""  # "Mensal, todo dia 5 · 12 parcelas"
@@ -350,6 +410,7 @@ class ItemPendenteOut(BaseModel):
     valor_unitario: Decimal | None
     profissional: str | None
     aviso: str | None
+    detalhe: str | None = None  # regra por faixas: de onde veio o valor
 
 
 class ContratoPendenteOut(BaseModel):
@@ -433,6 +494,7 @@ class RevisaoItemOut(Schema):
     valor_original: Decimal
     excluido: bool
     manual: bool
+    detalhe: str | None = None  # regra por faixas: de onde veio o valor
 
 
 class RevisaoResumoOut(BaseModel):

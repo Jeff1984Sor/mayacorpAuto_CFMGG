@@ -143,7 +143,7 @@ def disponiveis(rid: int, ctx: Ctx):
                             caso_numero=casos[p.caso_id].numero if p.caso_id in casos else None,
                             caso_titulo=casos[p.caso_id].titulo if p.caso_id in casos else None, data=p.data,
                             descricao=p.descricao, valor=p.valor, parcela=p.parcela, quantidade=p.quantidade,
-                            valor_unitario=p.valor_unitario, profissional=p.profissional, aviso=p.aviso)
+                            valor_unitario=p.valor_unitario, profissional=p.profissional, aviso=p.aviso, detalhe=p.detalhe)
             for p in service.disponiveis_para_revisao(ctx.db, r)]
 
 
@@ -248,7 +248,7 @@ def aprovar(rid: int, ctx: Operador):
     except service.RegraFaturamento as e:
         _falha(ctx, e)
     ctx.auditar("faturamento.revisao.aprovar", "fat_revisao", r.id,
-                descricao=f"Revisão #{r.numero} → {', '.join(f.codigo for f in fats)}")
+                descricao=f"Revisão #{r.numero} → {', '.join(f.codigo for f in fats) or 'sem fatura nova'}")
     ctx.db.commit()
     return _out(ctx, r)
 

@@ -102,6 +102,7 @@ function LinhaItem({ i, sel, onToggle, contratoId }: { i: ItemPendente; sel: boo
           <Pill tom={COR_TIPO[i.tipo] ?? "neutral"}>{rotuloTipoItem(i.tipo)}</Pill>
           <span className="line-clamp-2">{i.descricao}</span>
         </div>
+        {i.detalhe && <p className="mt-1 text-xs text-muted-foreground">{i.detalhe}</p>}
         {aviso && (
           <p className="mt-1 flex items-center gap-1 text-xs font-medium text-warning-ink">
             <AlertTriangle className="size-3.5 shrink-0" /> {i.aviso}
@@ -309,6 +310,7 @@ export default function ItensAFaturarPage() {
     onSuccess: (r) => {
       depois();
       setConfirmarDireto(false);
+      if (!r.faturas.length) return toast.success("Nenhuma fatura nova", { description: "As horas já estavam cobertas pelo valor fixo da faixa, que já foi faturado." });
       toast.success(`${r.faturas.length} fatura(s) criada(s) · ${moeda(r.total)}`);
       setResultado({ faturas: r, revisoes: null });
       void aposCriarFaturas(r.faturas.map((f) => f.id));

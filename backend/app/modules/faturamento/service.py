@@ -101,6 +101,11 @@ class Pendente:
     aviso: str | None = None  # ex.: sem valor/hora para a categoria
     origem_id: int | None = None  # timesheet ou despesa
     profissional_id: int | None = None
+    faixa: dict | None = None  # regra por faixas (faixas.py): trechos do mês, texto e valor fixo que cobre as horas
+
+    @property
+    def detalhe(self) -> str | None:
+        return (self.faixa or {}).get("texto")
 
 
 @dataclass
@@ -214,13 +219,18 @@ def pendencias(db: Session, tenant_id: int, *, aba: str, de: date, ate: date, cl
         hora_caso = {r.caso_id: r for r in regras if r.tipo == TipoRegra.hora and r.caso_id}
         caso_com_regra_propria = {r.caso_id for r in regras if r.caso_id}
         cache: dict = {}
+        com_faixas: dict[int, RegraCobranca] = {}  # caso → regra com tabela por faixas (calculada pelo mês inteiro)
+        for caso in casos.values():
+            regra = hora_caso.get(caso.id) or (None if caso.id in caso_com_regra_propria else hora_contrato.get(caso.contrato_id))
+            if regra and regra.faixas:
+                com_faixas[caso.id] = regra
         for ts in db.scalars(select(Timesheet).where(
                 Timesheet.tenant_id == tenant_id, Timesheet.caso_id.in_(list(casos) or [0]), Timesheet.faturavel,
                 Timesheet.fatura_item_id.is_(None), Timesheet.data >= de, Timesheet.data <= ate).order_by(Timesheet.data)):
             caso = casos[ts.caso_id]
             regra = hora_caso.get(caso.id) or (None if caso.id in caso_com_regra_propria else hora_contrato.get(caso.contrato_id))
-            if not regra:
-                continue  # caso sem cobrança por hora: as horas ficam só como controle
+            if not regra or caso.id in com_faixas:
+                continue  # caso sem cobrança por hora: as horas ficam só como controle (com faixas: logo abaixo)
             horas = (Decimal(ts.minutos) / 60).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             tabela_id = tabela_da_regra(regra, caso, por_id[caso.contrato_id])
             vh, nome = _valor_hora(db, tabela_id, ts.profissional_id, cache)
@@ -230,6 +240,11 @@ def pendencias(db: Session, tenant_id: int, *, aba: str, de: date, ate: date, cl
                 valor=(horas * vh).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if vh is not None else Decimal(0),
                 aviso=None if vh is not None else _aviso_hora(nome, tabela_id),
                 origem_id=ts.id, profissional_id=ts.profissional_id))
+        if com_faixas:
+            from app.modules.faturamento import faixas
+
+            for p in faixas.pendentes(db, tenant_id, com_faixas, casos, por_id, de, ate, cobradas, cache):
+                add(por_id[p.contrato_id], p)
     return _ordenar(por_cliente)
 
 
@@ -260,7 +275,9 @@ def _grupos(contrato: Contrato, sel: list[Pendente]) -> list[list[Pendente]]:
         return [sel]
     grupos: dict[tuple, list[Pendente]] = {}
     for p in sel:
-        if modo == "caso":
+        if p.faixa is not None and (modo == "cobranca" or p.faixa.get("caso") is None):
+            k = ("faixas", p.regra_id)  # tabela por faixas: as horas e o valor fixo da regra são uma cobrança só
+        elif modo == "caso":
             k = ("caso", p.caso_id)
         elif p.tipo in ("hora", "despesa"):
             k = (p.tipo, p.regra_id, p.caso_id)
@@ -277,13 +294,19 @@ def criar_faturas(db: Session, tenant_id: int, contrato: Contrato, sel: list[Pen
     sem_valor = [p for p in sel if p.aviso]
     if sem_valor:
         raise RegraFaturamento(f"Há itens sem valor definido: {sem_valor[0].aviso}. Ajuste a tabela de preço.")
+    from app.modules.faturamento import faixas
+
     criadas: list[Fatura] = []
+    absorvidas = 0
     for grupo in _grupos(contrato, sel):
         if sum((p.valor for p in grupo), Decimal(0)) <= 0:
-            continue  # grupo zerado (ex.: só itens sem valor) não vira fatura
+            # grupo zerado (ex.: só itens sem valor) não vira fatura; horas cobertas por um valor fixo de faixa
+            # já faturado ficam ligadas a ele (saem de Itens a faturar sem fatura nova)
+            absorvidas += faixas.absorver(db, grupo)
+            continue
         criadas += _criar_faturas_grupo(db, tenant_id, contrato, grupo, tipo, dias_vencimento=dias_vencimento,
                                         vencimento_na_emissao=vencimento_na_emissao, observacao=observacao)
-    if not criadas:
+    if not criadas and not absorvidas:
         raise RegraFaturamento("A fatura ficaria com valor zero.")
     return criadas
 
@@ -338,12 +361,13 @@ def _criar_faturas_grupo(db: Session, tenant_id: int, contrato: Contrato, sel: l
         for p, v in zip(sel, valores, strict=True):
             item = FaturaItem(
                 fatura_id=fat.id, tipo=p.tipo, regra_id=p.regra_id, caso_id=p.caso_id, competencia=p.competencia,
-                chave_cobranca=p.chave if principal and p.tipo in ("fixo", "recorrente") else None, data=p.data,
-                descricao=p.descricao + cota, profissional=p.profissional, quantidade=p.quantidade,
-                valor_unitario=p.valor_unitario, valor=v)
+                chave_cobranca=p.chave if principal and (p.tipo in ("fixo", "recorrente") or p.chave.startswith("faixa:")) else None,
+                data=p.data, descricao=p.descricao + cota, profissional=p.profissional, quantidade=p.quantidade,
+                valor_unitario=p.valor_unitario, valor=v, faixa=p.faixa)
             db.add(item)
             db.flush()
-            modelo = Timesheet if p.tipo == "hora" else Despesa if p.tipo == "despesa" else None
+            # o valor fixo de faixa é do tipo "hora" mas não tem lançamento de origem (a chave única protege)
+            modelo = Timesheet if p.tipo == "hora" and p.origem_id else Despesa if p.tipo == "despesa" else None
             if modelo and principal:
                 origem = db.get(modelo, p.origem_id)
                 if not origem or origem.fatura_item_id:
@@ -408,7 +432,7 @@ def _item_de(p: Pendente, manual: bool = False) -> RevisaoItem:
                        parcela=p.parcela, data=p.data, descricao=p.descricao, profissional=p.profissional,
                        profissional_id=p.profissional_id,
                        quantidade=p.quantidade, valor_unitario=p.valor_unitario, valor=p.valor, valor_original=p.valor,
-                       origem_id=p.origem_id, manual=manual)
+                       origem_id=p.origem_id, manual=manual, faixa=p.faixa)
 
 
 def disponiveis_para_revisao(db: Session, rev: Revisao) -> list[Pendente]:
@@ -434,15 +458,40 @@ def incluir_na_revisao(db: Session, rev: Revisao, chaves: list[str]) -> int:
     return n
 
 
-def valor_hora_do_caso(db: Session, caso: Caso, profissional_id: int) -> Decimal | None:
+def regra_hora_do_caso(db: Session, caso: Caso) -> RegraCobranca | None:
+    """A regra por hora que vale para o caso (a do caso vence a do contrato)."""
     regras = list(db.scalars(select(RegraCobranca).where(RegraCobranca.contrato_id == caso.contrato_id, RegraCobranca.ativo)))
     proprias = [r for r in regras if r.caso_id == caso.id]
     regra = next((r for r in proprias if r.tipo == TipoRegra.hora), None)
     if not regra and not proprias:
         regra = next((r for r in regras if r.tipo == TipoRegra.hora and r.caso_id is None), None)
+    return regra
+
+
+def valor_hora_do_caso(db: Session, caso: Caso, profissional_id: int) -> Decimal | None:
+    """Valor/hora da tabela padrão (regra → caso → contrato). Com tabela por faixas, o valor de verdade depende do
+    total de horas do mês: veja `estimativa_por_faixas`."""
+    regra = regra_hora_do_caso(db, caso)
     if not regra:
         return None
     return _valor_hora(db, tabela_da_regra(regra, caso, caso.contrato), profissional_id, {})[0]
+
+
+def estimativa_por_faixas(db: Session, tenant_id: int, registros: list[Timesheet]) -> dict[int, tuple[Decimal | None, Decimal]]:
+    """{lançamento: (valor/hora, valor)} das horas ainda não faturadas de casos com tabela por faixas: o mesmo
+    cálculo de Itens a faturar (o Timesheet mostra o que vai sair na fatura)."""
+    from app.modules.faturamento import faixas
+
+    abertos = [t for t in registros if t.faturavel and not t.fatura_item_id]
+    casos = {t.caso_id: t.caso for t in abertos}
+    regra_do_caso = {c.id: r for c in casos.values() if (r := regra_hora_do_caso(db, c)) and r.faixas}
+    if not regra_do_caso:
+        return {}
+    casos = {cid: c for cid, c in casos.items() if cid in regra_do_caso}
+    contratos = {c.contrato_id: c.contrato for c in casos.values()}
+    datas = [t.data for t in abertos if t.caso_id in regra_do_caso]
+    itens = faixas.pendentes(db, tenant_id, regra_do_caso, casos, contratos, min(datas), max(datas), set(), {})
+    return {p.origem_id: (p.valor_unitario, p.valor) for p in itens if p.origem_id and not p.aviso}
 
 
 def adicionar_horas(db: Session, rev: Revisao, *, caso_id: int, profissional_id: int, data: date, minutos: int, descricao: str,
@@ -451,6 +500,19 @@ def adicionar_horas(db: Session, rev: Revisao, *, caso_id: int, profissional_id:
     caso = db.get(Caso, caso_id)
     if not caso or caso.contrato_id != rev.contrato_id:
         raise RegraFaturamento("O caso precisa ser deste contrato.")
+    regra = regra_hora_do_caso(db, caso)
+    if valor_hora is None and regra and regra.faixas:  # tabela por faixas: o valor sai do mesmo cálculo de Itens a faturar
+        ts = Timesheet(tenant_id=rev.tenant_id, caso_id=caso.id, profissional_id=profissional_id, data=data, minutos=minutos,
+                       descricao=descricao, faturavel=True)
+        db.add(ts)
+        db.flush()
+        p = next((p for p in disponiveis_para_revisao(db, rev) if p.chave == f"ts:{ts.id}"), None)
+        if not p or p.aviso:
+            raise RegraFaturamento(f"{p.aviso if p else 'Não achei o valor/hora'}. Informe o valor/hora.")
+        item = _item_de(p, manual=True)
+        rev.itens.append(item)
+        db.flush()
+        return item
     vh = valor_hora if valor_hora is not None else valor_hora_do_caso(db, caso, profissional_id)
     if vh is None:
         raise RegraFaturamento("Não achei o valor/hora (regra por hora, tabela de preço ou categoria do profissional). "
@@ -542,10 +604,16 @@ def aprovar(db: Session, rev: Revisao, usuario: Usuario, *, dias_vencimento: int
     sel = [Pendente(chave=i.chave, tipo=i.tipo, contrato_id=rev.contrato_id, caso_id=i.caso_id, data=i.data,
                     descricao=i.descricao, valor=i.valor, regra_id=i.regra_id, competencia=i.competencia,
                     parcela=i.parcela, quantidade=i.quantidade, valor_unitario=i.valor_unitario,
-                    profissional=i.profissional, origem_id=i.origem_id) for i in ativos]
+                    profissional=i.profissional, origem_id=i.origem_id, faixa=i.faixa) for i in ativos]
     tipo = TipoFatura.despesas if rev.aba == "despesas" else TipoFatura.honorarios
     fats = criar_faturas(db, rev.tenant_id, rev.contrato, sel, tipo, dias_vencimento=dias_vencimento,
                          vencimento_na_emissao=vencimento_na_emissao, observacao=rev.observacao)
+    if not fats:  # só horas cobertas por um valor fixo de faixa já faturado: ficam ligadas àquela fatura
+        ts = next(t for i in ativos if i.origem_id and (t := db.get(Timesheet, i.origem_id)) and t.fatura_item_id)
+        item = db.get(FaturaItem, ts.fatura_item_id)
+        rev.status, rev.fatura_id, rev.concluida_em = StatusRevisao.faturada, item.fatura_id, date.today()
+        rev.evento(f"Aprovada sem fatura nova: as horas já estavam cobertas pelo valor fixo da {item.fatura.codigo}.", usuario.nome)
+        return fats
     rev.status, rev.fatura_id, rev.concluida_em = StatusRevisao.faturada, fats[0].id, date.today()
     if len(fats) == 1:
         rev.evento(f"Aprovada: gerada a fatura {fats[0].codigo}.", usuario.nome)

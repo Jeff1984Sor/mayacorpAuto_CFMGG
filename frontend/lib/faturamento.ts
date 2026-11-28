@@ -162,6 +162,19 @@ export interface CasoOut extends CasoIn {
   despesas_pendentes: Decimal;
 }
 
+export type FormaFaixa = "fixo" | "hora" | "tabela" | "percentual";
+export type ModoFaixas = "escalonada" | "atingida";
+
+/** Faixa de horas do mês na regra por hora (tabela progressiva / regressiva). `ate` vazio = em diante. */
+export interface FaixaRegra {
+  de: string;
+  ate: string | null;
+  forma: FormaFaixa;
+  valor: string | null;
+  tabela_preco_id: number | null;
+  percentual: string | null;
+}
+
 export interface RegraIn {
   tipo: TipoRegra;
   descricao: string;
@@ -174,6 +187,8 @@ export interface RegraIn {
   ocorrencias: number | null;
   data_fim: string | null;
   tabela_preco_id: number | null;
+  faixas_modo: ModoFaixas;
+  faixas: FaixaRegra[];
   ativo: boolean;
   observacao: string | null;
 }
@@ -291,6 +306,8 @@ export interface ItemPendente {
   valor_unitario: Decimal | null;
   profissional: string | null;
   aviso: string | null;
+  /** Regra por faixas: de onde veio o valor. */
+  detalhe?: string | null;
 }
 
 export interface ContratoPendente {
@@ -352,6 +369,8 @@ export interface RevisaoItem {
   valor_original: Decimal;
   excluido: boolean;
   manual: boolean;
+  /** Regra por faixas: de onde veio o valor. */
+  detalhe?: string | null;
 }
 
 export interface RevisaoResumo {

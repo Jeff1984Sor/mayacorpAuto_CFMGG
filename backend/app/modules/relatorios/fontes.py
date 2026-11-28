@@ -450,6 +450,7 @@ def _col_regras(ctx) -> list[Coluna]:
         Coluna("inicio", "Começa em", "data"),
         Coluna("termino", "Término", "texto"),
         Coluna("tabela", "Tabela de preço", "lista"),
+        Coluna("faixas", "Tabela por faixas de horas", "bool"),
         Coluna("ativo", "Ativa", "bool", True),
         Coluna("observacao", "Observação", "longo"),
         Coluna("contrato_ativo", "Contrato ativo", "bool"),
@@ -480,7 +481,7 @@ def _carregar_regras(ctx, de, ate) -> list[dict]:
             "tipo": TIPO_REGRA.get(_v(g.tipo)), "descricao": g.descricao, "valor": _num(g.valor), "frequencia": freq,
             "data_pagamento": g.data_pagamento, "inicio": g.data_inicio,
             "termino": term if _v(g.tipo) == "recorrente" else None, "tabela": m["tabela"], "ativo": bool(g.ativo),
-            "observacao": g.observacao, "contrato_ativo": bool(m["contrato_ativo"]),
+            "faixas": bool(g.faixas), "observacao": g.observacao, "contrato_ativo": bool(m["contrato_ativo"]),
             "caso_status": STATUS_CASO.get(_v(m["caso_status"])), "cadastro": _dia(g.criado_em),
         })
     return out

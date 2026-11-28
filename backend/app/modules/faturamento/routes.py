@@ -29,6 +29,7 @@ from app.modules.faturamento.models import (
     FaturaItem,
     Frequencia,
     RegraCobranca,
+    RegraFaixa,
     StatusCaso,
     StatusTarefa,
     TabelaPreco,
@@ -110,7 +111,7 @@ def profissionais(ctx: Ctx, todos: bool = False):
 def excluir_tabela(tid: int, ctx: Admin):
     t = _get(ctx, TabelaPreco, tid, "Tabela")
     em_uso = sum(ctx.db.scalar(select(func.count()).select_from(m).where(m.tabela_preco_id == tid)) or 0
-                 for m in (Contrato, Caso, RegraCobranca))
+                 for m in (Contrato, Caso, RegraCobranca, RegraFaixa))
     if em_uso:
         t.ativo = False
         ctx.db.commit()
@@ -964,6 +965,10 @@ def _resumo_regra(r: RegraCobranca) -> str:
     if r.tipo == TipoRegra.fixo:
         return f"{brl(r.valor)} em {r.data_pagamento:%d/%m/%Y}" if r.data_pagamento else brl(r.valor)
     if r.tipo == TipoRegra.hora:
+        if r.faixas:
+            from app.modules.faturamento import faixas
+
+            return faixas.resumo(r)
         return f"Por hora · {r.tabela_preco.nome}" if r.tabela_preco else "Por hora · tabela do caso/contrato"
     nome, um, varios = _FREQ.get(r.frequencia, ("", "", ""))
     txt = f"{brl(r.valor)} · {nome.lower() if r.intervalo == 1 else f'a cada {r.intervalo} {varios}'}"
@@ -1005,8 +1010,13 @@ def regras(ctx: Ctx, contrato_id: int | None = None, caso_id: int | None = None)
 def _aplicar_regra(ctx, r: RegraCobranca, dados: RegraIn):
     if dados.tabela_preco_id:
         _get(ctx, TabelaPreco, dados.tabela_preco_id, "Tabela de preço")
-    for k, v in dados.model_dump().items():
+    for f in dados.faixas:
+        if f.tabela_preco_id:
+            _get(ctx, TabelaPreco, f.tabela_preco_id, "Tabela de preço da faixa")
+    for k, v in dados.model_dump(exclude={"faixas"}).items():
         setattr(r, k, v)
+    # tabela progressiva / regressiva (só na regra por hora; o schema já validou e limpou as dos outros tipos)
+    r.faixas = [RegraFaixa(ordem=n, **f.model_dump()) for n, f in enumerate(dados.faixas)]
     if r.tipo != TipoRegra.recorrente:
         r.frequencia, r.data_inicio, r.termino, r.ocorrencias, r.data_fim = None, None, Termino.sem, None, None
     if r.tipo != TipoRegra.fixo:
@@ -1069,7 +1079,8 @@ def excluir_regra(rid: int, ctx: Operador):
 @router.post("/regras/simular")
 def simular_regra(dados: RegraIn, ctx: Ctx, ate: date | None = None):
     """Prévia das parcelas (para a tela mostrar "1ª 05/01 · 2ª 05/02 · ...")."""
-    r = RegraCobranca(**dados.model_dump())
+    r = RegraCobranca(**dados.model_dump(exclude={"faixas"}))
+    r.faixas = [RegraFaixa(ordem=n, **f.model_dump()) for n, f in enumerate(dados.faixas)]
     limite = ate or date(date.today().year + 5, 12, 31)
     datas = service.ocorrencias(r, limite)[:60] if r.tipo == TipoRegra.recorrente else (
         [(1, r.data_pagamento)] if r.data_pagamento else [])
@@ -1261,7 +1272,7 @@ def itens_a_faturar(ctx: Ctx, de: date, ate: date, aba: str = Query("honorarios"
                                        caso_titulo=caso(p.caso_id).titulo if caso(p.caso_id) else None,
                                        data=p.data, descricao=p.descricao, valor=p.valor, parcela=p.parcela,
                                        quantidade=p.quantidade, valor_unitario=p.valor_unitario,
-                                       profissional=p.profissional, aviso=p.aviso) for p in itens]))
+                                       profissional=p.profissional, aviso=p.aviso, detalhe=p.detalhe) for p in itens]))
         contratos_out.sort(key=lambda x: x.contrato_numero)
         clientes.append(ClientePendenteOut(
             tomador_id=cp.tomador.id, tomador_nome=cp.tomador.nome, tomador_doc=cp.tomador.cpf_cnpj, total=cp.total,

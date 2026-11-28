@@ -453,6 +453,7 @@ function IncluirPendentesDialog({ open, onOpenChange, rev, onFeito }: { open: bo
                         {i.quantidade != null && <span className="ml-1 font-mono text-xs text-muted-foreground">· {horasDecimal(i.quantidade)} h</span>}
                       </span>
                     </div>
+                    {i.detalhe && <p className="mt-1 text-xs text-muted-foreground">{i.detalhe}</p>}
                     {i.aviso && (
                       <p className="mt-1 flex items-center gap-1 text-xs text-warning-ink">
                         <AlertTriangle className="size-3" /> {i.aviso}
@@ -1022,6 +1023,7 @@ export default function RevisaoPage() {
                               onSalvar={(v) => patchItem(i.id, { descricao: v })}
                               exibir={<span className="leading-relaxed whitespace-pre-line">{i.descricao}</span>}
                             />
+                            {i.detalhe && <p className="mt-1 text-xs text-muted-foreground">{i.detalhe}</p>}
                           </td>
                           <td className="px-2 py-3 text-right whitespace-nowrap">
                             {ehHora && i.quantidade != null ? (

@@ -32,6 +32,9 @@ Portas já ocupadas por outros sistemas: 3000, 3001, 3007, 3010, 3020, 3030, 800
     - A NFS-e da NH sai depois (`emitir_nfse` monta um lote com `dados_json.fatura_id`).
     - Nada é cobrado duas vezes: `FaturaItem.chave_cobranca` é UNIQUE e horas/despesas guardam `fatura_item_id`.
     - O valor/hora vem da tabela de preço (regra → caso → contrato) × o **cargo** do funcionário.
+    - Tabela progressiva / regressiva (`faixas.py`, `RegraFaixa`): a regra por hora pode ter faixas de horas do **mês do lançamento** (zera todo dia 1º), cada uma cobrada por valor fixo, valor/hora, tabela × cargo ou % da tabela padrão. Modo `escalonada` (cada faixa vale para as horas dentro dela; lançamento na fronteira é dividido) ou `atingida` (o total do mês escolhe uma faixa só). Sem faixas, nada muda.
+    - As horas com faixas são calculadas no mesmo ponto das outras (`service.pendencias`), então Itens a faturar, Revisão e fatura mostram o mesmo valor e o `detalhe` de onde ele veio. Cada hora faturada ou em revisão guarda o trecho do mês que ocupou (`FaturaItem.faixa`): as novas entram no primeiro espaço livre, sem repetir nem pular faixa.
+    - O valor fixo de uma faixa é um item próprio (tipo `hora`, chave `faixa:<regra>:<aaaa-mm>:<nº>`, UNIQUE); as horas dentro dela saem com valor zero.
   - Usuário = funcionário (`core.models.Usuario`, com cargo, OAB, endereço). `acesso_sistema=False` = só lança horas, sem login.
   - `app/modules/financas/` (Financeiro): contas bancárias e extrato, transferências, contas a pagar (rateio, recorrência, baixa),
     fluxo de caixa, DRE gerencial (pela `grupo_dre` da categoria), projeção de despesas, previsão de caixa e projeção de impostos (Simples ou Presumido).

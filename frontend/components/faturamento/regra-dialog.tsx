@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, CalendarDays, Clock4, Infinity as InfinityIcon, Loader2, Repeat, Save, Timer } from "lucide-react";
+import { CalendarClock, CalendarDays, Clock4, Infinity as InfinityIcon, Loader2, Plus, Repeat, Save, Timer, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -17,7 +17,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api, ApiError } from "@/lib/api";
 import {
+  type FaixaRegra,
+  type FormaFaixa,
   type Frequencia,
+  type ModoFaixas,
   ROTULO_FREQUENCIA,
   type RegraIn,
   type RegraOut,
@@ -37,6 +40,25 @@ const TIPOS: { v: TipoRegra; l: string; d: string; i: React.ComponentType<{ clas
   { v: "hora", l: "Por hora", d: "Horas × valor/hora", i: Timer },
 ];
 
+const FORMAS: { v: FormaFaixa; l: string }[] = [
+  { v: "fixo", l: "Valor fixo pela faixa" },
+  { v: "hora", l: "Valor por hora" },
+  { v: "tabela", l: "Tabela de preço × cargo" },
+  { v: "percentual", l: "% da tabela padrão" },
+];
+
+const MODOS: { v: ModoFaixas; l: string; d: string }[] = [
+  { v: "escalonada", l: "Escalonada", d: "Cada faixa vale só para as horas dentro dela. Ex.: 14 h no mês = 10 h pela 1ª faixa + 4 h pela 2ª." },
+  { v: "atingida", l: "Faixa atingida", d: "O total do mês escolhe uma faixa só, que vale para todas as horas. Ex.: 14 h no mês = as 14 h pela 2ª faixa." },
+];
+
+const faixaNova = (de: string): FaixaRegra => ({ de, ate: null, forma: "hora", valor: null, tabela_preco_id: null, percentual: null });
+/** "10,5" ou "1.500,00" → 10.5 / 1500 (vazio = null) */
+const paraNumero = (v: string | null) => (v && v.trim() ? toNum(v.replace(/\./g, "").replace(",", ".")) : null);
+const horasTxt = (v: string | number | null) => (v == null || v === "" ? "" : String(toNum(v)).replace(".", ","));
+/** Início de cada faixa = fim da anterior (a primeira começa em 0). */
+const inicioDa = (faixas: FaixaRegra[], n: number) => (n === 0 ? "0" : (faixas[n - 1].ate ?? ""));
+
 const vazio = (): RegraIn => ({
   tipo: "recorrente",
   descricao: "",
@@ -49,6 +71,8 @@ const vazio = (): RegraIn => ({
   ocorrencias: 12,
   data_fim: null,
   tabela_preco_id: null,
+  faixas_modo: "escalonada",
+  faixas: [],
   ativo: true,
   observacao: null,
 });
@@ -66,6 +90,14 @@ function deRegra(r: RegraOut): RegraIn {
     ocorrencias: r.ocorrencias ?? 12,
     data_fim: r.data_fim,
     tabela_preco_id: r.tabela_preco_id,
+    faixas_modo: r.faixas_modo ?? "escalonada",
+    faixas: (r.faixas ?? []).map((x) => ({
+      ...x,
+      de: horasTxt(x.de),
+      ate: x.ate != null ? horasTxt(x.ate) : null,
+      valor: x.valor != null ? toNum(x.valor).toFixed(2).replace(".", ",") : null,
+      percentual: x.percentual != null ? horasTxt(x.percentual) : null,
+    })),
     ativo: r.ativo,
     observacao: r.observacao,
   };
@@ -74,7 +106,18 @@ function deRegra(r: RegraOut): RegraIn {
 /** Corpo enviado ao backend: só os campos que o tipo usa, valor com ponto. */
 function corpo(f: RegraIn): RegraIn {
   const valor = f.valor ? String(toNum(f.valor.replace(/\./g, "").replace(",", "."))) : null;
-  const base = { ...f, descricao: f.descricao.trim(), observacao: f.observacao?.trim() || null };
+  const semFaixas = { faixas: [] as FaixaRegra[], faixas_modo: "escalonada" as ModoFaixas };
+  const base = { ...f, ...semFaixas, descricao: f.descricao.trim(), observacao: f.observacao?.trim() || null };
+  // faixas: números com ponto; o início de cada uma é o fim da anterior e a última vai "em diante"
+  const num = (v: string | null) => (paraNumero(v) == null ? null : String(paraNumero(v)));
+  const faixas = f.faixas.map((x, n) => ({
+    de: num(inicioDa(f.faixas, n)) ?? "0",
+    ate: n === f.faixas.length - 1 ? null : num(x.ate),
+    forma: x.forma,
+    valor: x.forma === "fixo" || x.forma === "hora" ? num(x.valor) : null,
+    tabela_preco_id: x.forma === "tabela" ? x.tabela_preco_id : null,
+    percentual: x.forma === "percentual" ? num(x.percentual) : null,
+  }));
   if (f.tipo === "fixo") return { ...base, valor, frequencia: null, data_inicio: null, termino: "sem", ocorrencias: null, data_fim: null, tabela_preco_id: null };
   if (f.tipo === "recorrente")
     return {
@@ -85,7 +128,7 @@ function corpo(f: RegraIn): RegraIn {
       ocorrencias: f.termino === "ocorrencias" ? f.ocorrencias : null,
       data_fim: f.termino === "data" ? f.data_fim : null,
     };
-  return { ...base, valor: null, data_pagamento: null, frequencia: null, data_inicio: null, termino: "sem", ocorrencias: null, data_fim: null };
+  return { ...base, faixas, faixas_modo: f.faixas_modo, valor: null, data_pagamento: null, frequencia: null, data_inicio: null, termino: "sem", ocorrencias: null, data_fim: null };
 }
 
 function mensagem(e: unknown) {
@@ -106,6 +149,33 @@ function Previa({ form }: { form: RegraIn }) {
     placeholderData: (p) => p,
   });
 
+  if (form.tipo === "hora" && form.faixas.length > 0)
+    return (
+      <div className="space-y-3 rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">
+        <Clock4 className="size-6 text-info-ink" />
+        <p>
+          As horas de cada mês são somadas e cobradas por faixa. <strong className="text-foreground">A contagem zera todo dia 1º.</strong>
+        </p>
+        <ol className="space-y-1">
+          {form.faixas.map((x, n) => {
+            const de = inicioDa(form.faixas, n) || "?";
+            const ultima = n === form.faixas.length - 1;
+            return (
+              <li key={n} className="rounded-lg border bg-card px-2.5 py-1.5 text-xs">
+                <span className="font-semibold text-foreground">{ultima ? `Acima de ${de} h` : `De ${de} a ${x.ate || "?"} h`}</span>
+                {": "}
+                {x.forma === "fixo" && `${moeda(paraNumero(x.valor))} fechado, com qualquer quantidade de horas`}
+                {x.forma === "hora" && `${moeda(paraNumero(x.valor))} por hora`}
+                {x.forma === "tabela" && "valor/hora da tabela escolhida, pelo cargo de quem lançou"}
+                {x.forma === "percentual" && `${x.percentual || "?"}% do valor/hora da tabela padrão`}
+              </li>
+            );
+          })}
+        </ol>
+        <p className="text-xs">{MODOS.find((m) => m.v === form.faixas_modo)?.d}</p>
+        <p className="text-xs">Em Itens a faturar e na Revisão, cada hora mostra de qual faixa veio o valor. O valor fixo de uma faixa aparece como um item próprio.</p>
+      </div>
+    );
   if (form.tipo === "hora")
     return (
       <div className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">
@@ -190,6 +260,8 @@ export function RegraDialog({
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const set = <K extends keyof RegraIn>(k: K, v: RegraIn[K]) => setF((o) => ({ ...o, [k]: v }));
+  const setFaixa = (n: number, p: Partial<FaixaRegra>) => setF((o) => ({ ...o, faixas: o.faixas.map((x, i) => (i === n ? { ...x, ...p } : x)) }));
+  const tabelasAtivas = (id: number | null) => tabelas.data?.filter((t) => t.ativo || t.id === id) ?? [];
   const freq = (f.frequencia ?? "mensal") as Frequencia;
   const un = ROTULO_FREQUENCIA[freq].unidade;
 
@@ -355,7 +427,7 @@ export function RegraDialog({
               )}
 
               {f.tipo === "hora" && (
-                <motion.div key="hora" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                <motion.div key="hora" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
                   <Field
                     label="Tabela de preço"
                     htmlFor="regra-tabela"
@@ -377,6 +449,134 @@ export function RegraDialog({
                       ))}
                     </NativeSelect>
                   </Field>
+
+                  <fieldset className="rounded-2xl border p-4">
+                    <legend className="px-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">Tabela progressiva / regressiva</legend>
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <Switch
+                        checked={f.faixas.length > 0}
+                        onCheckedChange={(v) => set("faixas", v ? [{ ...faixaNova("0"), ate: "10" }, faixaNova("10")] : [])}
+                        aria-label="Cobrar por faixas de horas"
+                      />
+                      Cobrar por faixas de horas do mês
+                    </label>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Cada faixa de horas tem o seu jeito de cobrar. Os preços podem subir (progressiva) ou cair (regressiva) conforme o volume. A contagem zera a cada
+                      mês.
+                    </p>
+
+                    {f.faixas.length > 0 && (
+                      <div className="mt-4 space-y-4">
+                        <div role="radiogroup" aria-label="Como aplicar as faixas" className="space-y-1">
+                          {MODOS.map((m) => (
+                            <label key={m.v} className={cn("flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm", f.faixas_modo === m.v && "bg-brand/10")}>
+                              <input type="radio" name="faixas-modo" checked={f.faixas_modo === m.v} onChange={() => set("faixas_modo", m.v)} className="mt-1 accent-[var(--brand)]" />
+                              <span>
+                                <span className={cn(f.faixas_modo === m.v && "font-medium")}>{m.l}</span>
+                                <span className="block text-xs text-muted-foreground">{m.d}</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+
+                        <ol className="space-y-2">
+                          {f.faixas.map((x, n) => {
+                            const ultima = n === f.faixas.length - 1;
+                            return (
+                              <li key={n} className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2 text-sm">
+                                <span className="whitespace-nowrap text-muted-foreground">
+                                  {ultima ? "Acima de" : "De"} <strong className="font-mono text-foreground">{inicioDa(f.faixas, n) || "?"}</strong> h
+                                </span>
+                                {!ultima && (
+                                  <>
+                                    <span className="text-muted-foreground">até</span>
+                                    <Input
+                                      aria-label={`Fim da faixa ${n + 1}, em horas`}
+                                      inputMode="decimal"
+                                      value={x.ate ?? ""}
+                                      onChange={(e) => setFaixa(n, { ate: e.target.value })}
+                                      className="h-8 w-16 text-center font-mono"
+                                    />
+                                    <span className="text-muted-foreground">h</span>
+                                  </>
+                                )}
+                                <NativeSelect
+                                  aria-label={`Como cobrar a faixa ${n + 1}`}
+                                  value={x.forma}
+                                  onChange={(e) => setFaixa(n, { forma: e.target.value as FormaFaixa })}
+                                  className="h-8 min-w-44"
+                                >
+                                  {FORMAS.map((o) => (
+                                    <option key={o.v} value={o.v}>
+                                      {o.l}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                                {(x.forma === "fixo" || x.forma === "hora") && (
+                                  <Input
+                                    aria-label={x.forma === "fixo" ? `Valor fixo da faixa ${n + 1}` : `Valor por hora da faixa ${n + 1}`}
+                                    inputMode="decimal"
+                                    value={x.valor ?? ""}
+                                    onChange={(e) => setFaixa(n, { valor: e.target.value })}
+                                    placeholder={x.forma === "fixo" ? "R$ 0,00" : "R$/h"}
+                                    className="h-8 w-28 font-mono"
+                                  />
+                                )}
+                                {x.forma === "tabela" && (
+                                  <NativeSelect
+                                    aria-label={`Tabela de preço da faixa ${n + 1}`}
+                                    value={x.tabela_preco_id ?? ""}
+                                    onChange={(e) => setFaixa(n, { tabela_preco_id: e.target.value ? Number(e.target.value) : null })}
+                                    className="h-8 min-w-40"
+                                  >
+                                    <option value="">Escolha a tabela</option>
+                                    {tabelasAtivas(x.tabela_preco_id).map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.nome}
+                                      </option>
+                                    ))}
+                                  </NativeSelect>
+                                )}
+                                {x.forma === "percentual" && (
+                                  <>
+                                    <Input
+                                      aria-label={`Percentual da faixa ${n + 1}`}
+                                      inputMode="decimal"
+                                      value={x.percentual ?? ""}
+                                      onChange={(e) => setFaixa(n, { percentual: e.target.value })}
+                                      placeholder="90"
+                                      className="h-8 w-16 text-center font-mono"
+                                    />
+                                    <span className="text-xs text-muted-foreground">% (90 = 10% de desconto)</span>
+                                  </>
+                                )}
+                                {f.faixas.length > 1 && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="ml-auto"
+                                    onClick={() => set("faixas", f.faixas.filter((_, i) => i !== n))}
+                                    aria-label={`Remover a faixa ${n + 1}`}
+                                    title="Remover a faixa"
+                                  >
+                                    <Trash2 />
+                                  </Button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                        <Button type="button" variant="outline" size="sm" onClick={() => set("faixas", [...f.faixas, faixaNova("")])}>
+                          <Plus /> Adicionar faixa
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Cada faixa começa onde a anterior termina e a última vale dali em diante. &quot;% da tabela padrão&quot; usa a tabela de preço acima (ou a do
+                          caso/contrato).
+                        </p>
+                      </div>
+                    )}
+                  </fieldset>
                 </motion.div>
               )}
             </AnimatePresence>

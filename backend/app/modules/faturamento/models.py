@@ -46,6 +46,15 @@ class Termino(enum.StrEnum):
     data = "data"  # termina em uma data
 
 
+class FormaFaixa(enum.StrEnum):
+    """Como uma faixa de horas é cobrada (tabela progressiva / regressiva da regra por hora)."""
+
+    fixo = "fixo"  # um valor fechado pela faixa, não importa quantas horas caíram nela
+    hora = "hora"  # um valor/hora igual para todos
+    tabela = "tabela"  # uma tabela de preço × cargo de quem lançou
+    percentual = "percentual"  # % do valor/hora da tabela padrão da regra (90 = 10% de desconto)
+
+
 class TabelaPreco(Base, Timestamped):
     __tablename__ = "fat_tabela"
 
@@ -346,11 +355,37 @@ class RegraCobranca(Base, Timestamped):
     ocorrencias: Mapped[int | None] = mapped_column(Integer)  # termina após N parcelas
     data_fim: Mapped[date | None] = mapped_column(Date)  # termina em
     tabela_preco_id: Mapped[int | None] = mapped_column(ForeignKey("fat_tabela.id"))  # hora: vazio = do caso/contrato
+    # hora com tabela por faixas: escalonada (cada faixa vale para as horas dentro dela) | atingida (o total do mês
+    # escolhe uma faixa só, que vale para todas as horas). Sem faixas, a regra cobra como sempre (tabela × cargo).
+    faixas_modo: Mapped[str] = mapped_column(String(15), default="escalonada", server_default="escalonada")
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     observacao: Mapped[str | None] = mapped_column(Text)
 
     contrato: Mapped[Contrato] = relationship(foreign_keys=[contrato_id])
     caso: Mapped["Caso | None"] = relationship(back_populates="regras")
+    tabela_preco: Mapped["TabelaPreco | None"] = relationship()
+    faixas: Mapped[list["RegraFaixa"]] = relationship(back_populates="regra", cascade="all, delete-orphan",
+                                                     order_by="RegraFaixa.ordem")
+
+
+class RegraFaixa(Base):
+    """Faixa de horas do mês de uma regra por hora (tabela progressiva / regressiva): de 0 a 10 h cobra de um jeito,
+    de 10 a 20 h de outro... As faixas são contíguas, começam em 0 e a última não tem limite (`ate` vazio).
+    O cálculo está em `faixas.py`."""
+
+    __tablename__ = "fat_regra_faixa"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    regra_id: Mapped[int] = mapped_column(ForeignKey("fat_regra.id", ondelete="CASCADE"), index=True)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    de: Mapped[Decimal] = mapped_column(Numeric(8, 2))  # horas
+    ate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # vazio = em diante
+    forma: Mapped[FormaFaixa] = mapped_column(_enum(FormaFaixa))
+    valor: Mapped[Decimal | None] = mapped_column(Dinheiro)  # fixo: valor da faixa · hora: valor/hora
+    tabela_preco_id: Mapped[int | None] = mapped_column(ForeignKey("fat_tabela.id"))  # forma = tabela
+    percentual: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))  # forma = percentual
+
+    regra: Mapped[RegraCobranca] = relationship(back_populates="faixas")
     tabela_preco: Mapped["TabelaPreco | None"] = relationship()
 
 
@@ -417,6 +452,8 @@ class FaturaItem(Base):
     quantidade: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # horas
     valor_unitario: Mapped[Decimal | None] = mapped_column(Dinheiro)
     valor: Mapped[Decimal] = mapped_column(Dinheiro)
+    # regra por faixas: {"trechos": [[de, até]] (posição das horas no mês), "texto": de onde veio o valor, "fixo": chave}
+    faixa: Mapped[dict | None] = mapped_column(JSON)
 
     fatura = relationship("Fatura", backref=backref("itens", order_by="FaturaItem.id", cascade="all, delete-orphan"))
     caso: Mapped["Caso | None"] = relationship()
@@ -489,6 +526,12 @@ class RevisaoItem(Base):
     origem_id: Mapped[int | None] = mapped_column(Integer)  # timesheet ou despesa
     excluido: Mapped[bool] = mapped_column(Boolean, default=False)
     manual: Mapped[bool] = mapped_column(Boolean, default=False)  # incluído durante a revisão
+    faixa: Mapped[dict | None] = mapped_column(JSON)  # regra por faixas (igual a FaturaItem.faixa)
 
     revisao: Mapped[Revisao] = relationship(back_populates="itens")
     caso: Mapped["Caso | None"] = relationship()
+
+    @property
+    def detalhe(self) -> str | None:
+        """De onde veio o valor (regra por faixas)."""
+        return (self.faixa or {}).get("texto")
